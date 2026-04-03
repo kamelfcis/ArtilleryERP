@@ -1,0 +1,490 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    direction: rtl;
+  }
+}
+
+/* Mobile Responsive Improvements */
+@layer utilities {
+  @media (max-width: 768px) {
+    .mobile-hidden {
+      display: none;
+    }
+    
+    .mobile-full {
+      width: 100%;
+    }
+    
+    .mobile-stack {
+      flex-direction: column;
+    }
+    
+    .mobile-text-sm {
+      font-size: 0.875rem;
+    }
+  }
+  
+  /* Touch-friendly sizes for nav links only */
+  @media (max-width: 768px) {
+    nav a {
+      min-height: 44px;
+    }
+  }
+  
+  /* Better scrolling on mobile */
+  @media (max-width: 768px) {
+    .overflow-y-auto {
+      -webkit-overflow-scrolling: touch;
+    }
+  }
+}
+
+/* FullCalendar Custom Styles - Amazing Modern Theme */
+@layer components {
+  .fc {
+    font-family: inherit;
+  }
+  
+  .fc-header-toolbar {
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 1rem;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  }
+  
+  .fc-toolbar-title {
+    @apply text-white font-bold text-2xl;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+  
+  .fc-button {
+    @apply bg-white/90 hover:bg-white dark:bg-slate-800/90 dark:hover:bg-slate-800 border-0 text-slate-700 dark:text-slate-200 font-semibold rounded-lg px-4 py-2 transition-all shadow-md hover:shadow-lg;
+    backdrop-filter: blur(10px);
+  }
+  
+  .fc-button:hover {
+    transform: translateY(-2px);
+  }
+  
+  .fc-button-active {
+    @apply bg-white text-purple-600 dark:bg-slate-700 dark:text-purple-400;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  }
+  
+  .fc-button-group {
+    @apply gap-2;
+  }
+  
+  .fc-event {
+    @apply rounded-xl border-2 shadow-lg cursor-pointer transition-all duration-300;
+    padding: 6px 8px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    backdrop-filter: blur(10px);
+  }
+  
+  .fc-event:hover {
+    @apply shadow-xl scale-105;
+    transform: translateY(-2px);
+    z-index: 10;
+  }
+  
+  .fc-event-title {
+    @apply font-semibold;
+  }
+  
+  .fc-daygrid-day {
+    @apply border-slate-200 dark:border-slate-700 transition-colors;
+  }
+  
+  .fc-daygrid-day:hover {
+    @apply bg-slate-50 dark:bg-slate-800/50;
+  }
+  
+  .fc-day-today {
+    @apply bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30;
+    border: 2px solid #667eea !important;
+  }
+  
+  .fc-day-today .fc-daygrid-day-number {
+    @apply font-bold text-purple-600 dark:text-purple-400;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  .fc-col-header-cell {
+    @apply bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 border-slate-200 dark:border-slate-700 font-bold text-slate-700 dark:text-slate-200;
+    padding: 1rem;
+  }
+  
+  .fc-timegrid-slot {
+    @apply border-slate-100 dark:border-slate-800;
+  }
+  
+  .fc-timegrid-slot-minor {
+    @apply border-slate-50 dark:border-slate-900;
+  }
+  
+  .fc-resource-cell {
+    @apply bg-gradient-to-r from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 border-slate-200 dark:border-slate-700 font-semibold text-slate-700 dark:text-slate-200;
+    padding: 1rem;
+    transition: all 0.2s;
+  }
+  
+  .fc-resource-cell:hover {
+    @apply bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/30 dark:to-blue-900/30;
+  }
+  
+  /* Resource Area Header - Center aligned */
+  .fc-datagrid-header .fc-datagrid-cell-frame {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  
+  /* Resource column width - fit content */
+  .fc-datagrid-cell-cushion {
+    white-space: nowrap;
+    padding: 0.5rem 1rem;
+  }
+  
+  .fc-datagrid-cell {
+    min-width: fit-content;
+  }
+  
+  .fc-timegrid-col {
+    @apply border-slate-200 dark:border-slate-700;
+  }
+  
+  .fc-scrollgrid {
+    @apply border-slate-200 dark:border-slate-700;
+  }
+  
+  .fc-scrollgrid-section-header {
+    @apply bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900;
+  }
+  
+  /* Sticky header - Keep days visible when scrolling */
+  .fc-scrollgrid-section-header,
+  .fc-scrollgrid-section-header > td {
+    position: sticky !important;
+    top: 0;
+    z-index: 100;
+    background: inherit;
+  }
+  
+  .fc-scrollgrid-section-header .fc-scroller {
+    overflow: visible !important;
+  }
+  
+  /* Fix sticky header background */
+  .fc-col-header {
+    @apply bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900;
+  }
+  
+  .fc-col-header-cell {
+    @apply bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900;
+  }
+  
+  /* Resource timeline sticky header */
+  .fc-timeline .fc-scrollgrid-section-header {
+    position: sticky !important;
+    top: 0;
+    z-index: 100;
+  }
+  
+  .fc-timeline-header-row {
+    @apply bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900;
+  }
+  
+  /* Make the entire calendar scrollable with sticky header */
+  .fc-scroller-harness {
+    overflow: auto !important;
+  }
+  
+  .fc-scroller-liquid-absolute {
+    position: relative !important;
+  }
+  
+  /* Ensure sticky works in resource timeline */
+  .fc-datagrid-header {
+    position: sticky !important;
+    top: 0;
+    z-index: 101;
+    @apply bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900;
+  }
+  
+  /* Timeline slots header sticky */
+  .fc-timeline-header {
+    position: sticky !important;
+    top: 0;
+    z-index: 100;
+  }
+  
+  .fc-timeline-slot-frame {
+    @apply bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900;
+  }
+  
+  /* Resource row height - fit ~20 units in view */
+  .fc-datagrid-body .fc-datagrid-row,
+  .fc-timeline-lane-frame {
+    height: 45px !important;
+    min-height: 45px !important;
+  }
+  
+  .fc-datagrid-cell-frame {
+    height: 45px !important;
+    display: flex;
+    align-items: center;
+  }
+  
+  .fc-timeline-lane {
+    height: 45px !important;
+  }
+  
+  /* Calendar container with fixed height and scroll */
+  .fc {
+    max-height: calc(100vh - 200px) !important;
+    overflow: hidden !important;
+  }
+  
+  .fc-view-harness {
+    max-height: calc(100vh - 250px) !important;
+    overflow: hidden !important;
+  }
+  
+  /* Scrollable body - show ~20 units */
+  .fc-scroller-liquid {
+    overflow-y: auto !important;
+    max-height: 900px !important;
+  }
+  
+  .fc-scrollgrid-section-body .fc-scroller {
+    overflow-y: auto !important;
+    max-height: 900px !important;
+  }
+  
+  .fc-scrollgrid-section-body {
+    max-height: 900px !important;
+    overflow: hidden !important;
+  }
+  
+  /* FullCalendar scrollbar styling */
+  .fc-scroller::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  
+  .fc-scroller::-webkit-scrollbar-track {
+    @apply bg-slate-100 dark:bg-slate-800 rounded-lg;
+  }
+  
+  .fc-scroller::-webkit-scrollbar-thumb {
+    @apply bg-slate-400 dark:bg-slate-600 rounded-lg hover:bg-slate-500 dark:hover:bg-slate-500;
+  }
+  
+  /* Timeline header styling */
+  .fc-timeline-slot-frame {
+    @apply bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900;
+  }
+  
+  .fc-datagrid-header {
+    @apply bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900;
+  }
+  
+  /* Enable vertical scrolling in resource timeline */
+  .fc-scroller-liquid-absolute {
+    overflow-y: auto !important;
+  }
+  
+  .fc-view-harness {
+    overflow: visible !important;
+  }
+  
+  /* Ensure the scroller allows scrolling */
+  .fc-scrollgrid-section-body .fc-scroller {
+    overflow-y: auto !important;
+  }
+  
+  .fc-timeline-body {
+    overflow-y: auto !important;
+  }
+  
+  /* Resource area scrolling */
+  .fc-datagrid-body {
+    overflow-y: auto !important;
+  }
+  
+  /* Force horizontal scrollbar visible in header */
+  .fc-scrollgrid-section-header th .fc-scroller-harness .fc-scroller {
+    overflow-x: scroll !important;
+    overflow-y: hidden !important;
+    margin-bottom: 0 !important;
+  }
+  
+  /* Hide bottom scrollbar */
+  .fc-scrollgrid-section-body .fc-scroller-harness .fc-scroller {
+    overflow-x: hidden !important;
+  }
+  
+  /* Style the top scrollbar */
+  .fc-scrollgrid-section-header .fc-scroller::-webkit-scrollbar {
+    height: 14px !important;
+    display: block !important;
+  }
+  
+  .fc-scrollgrid-section-header .fc-scroller::-webkit-scrollbar-track {
+    background: linear-gradient(to right, #e2e8f0, #f1f5f9);
+    border-radius: 8px;
+  }
+  
+  .dark .fc-scrollgrid-section-header .fc-scroller::-webkit-scrollbar-track {
+    background: linear-gradient(to right, #1e293b, #334155);
+  }
+  
+  .fc-scrollgrid-section-header .fc-scroller::-webkit-scrollbar-thumb {
+    background: linear-gradient(to right, #3b82f6, #6366f1, #8b5cf6);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  
+  .fc-scrollgrid-section-header .fc-scroller::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(to right, #2563eb, #4f46e5, #7c3aed);
+  }
+  
+  /* Custom top scrollbar styling */
+  .scroll-inner {
+    min-width: 100%;
+  }
+  
+  [ref="topScrollRef"]::-webkit-scrollbar,
+  .overflow-x-auto::-webkit-scrollbar {
+    height: 14px;
+  }
+  
+  .overflow-x-auto::-webkit-scrollbar-track {
+    background: linear-gradient(to right, #e2e8f0, #f1f5f9);
+    border-radius: 8px;
+  }
+  
+  .dark .overflow-x-auto::-webkit-scrollbar-track {
+    background: linear-gradient(to right, #1e293b, #334155);
+  }
+  
+  .overflow-x-auto::-webkit-scrollbar-thumb {
+    background: linear-gradient(to right, #3b82f6, #6366f1, #8b5cf6);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  
+  .overflow-x-auto::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(to right, #2563eb, #4f46e5, #7c3aed);
+  }
+  
+  .fc-daygrid-event {
+    @apply rounded-xl;
+  }
+  
+  .fc-more-link {
+    @apply text-purple-600 dark:text-purple-400 font-semibold hover:text-purple-700 dark:hover:text-purple-300;
+  }
+  
+  .fc-popover {
+    @apply rounded-xl shadow-2xl border-2 border-slate-200 dark:border-slate-700;
+    backdrop-filter: blur(20px);
+  }
+  
+  .fc-popover-header {
+    @apply bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-t-xl;
+    padding: 1rem;
+  }
+  
+  /* Glass morphism effects */
+  .glass {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  
+  .glass-light {
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  
+  .dark .glass {
+    background: rgba(0, 0, 0, 0.2);
+  }
+  
+  .dark .glass-light {
+    background: rgba(15, 23, 42, 0.9);
+  }
+  
+  .gradient-text {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}

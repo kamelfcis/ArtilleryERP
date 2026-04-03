@@ -1,0 +1,733 @@
+/* Premium Calendar Styles - Clean Design with Sticky Header */
+.fc {
+  font-family: inherit;
+}
+
+.fc-header-toolbar {
+  padding: 1rem 1.5rem;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(99, 102, 241, 0.08) 50%, rgba(147, 51, 234, 0.05) 100%);
+  border-radius: 0.75rem !important;
+  margin-bottom: 0.5rem !important;
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  backdrop-filter: blur(10px);
+}
+
+/* Navigation button group spacing */
+.fc-button-group {
+  gap: 0.5rem !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+}
+
+.fc-button-group .fc-button {
+  margin: 0 !important;
+  border-radius: 0.5rem !important;
+}
+
+.fc-prev-button,
+.fc-next-button,
+.fc-today-button {
+  border-radius: 0.5rem !important;
+}
+
+/* Ensure toolbar section stays in one row */
+.fc-toolbar-chunk {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+}
+
+.fc-toolbar-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #2563eb 0%, #6366f1 50%, #9333ea 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.fc-button {
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%) !important;
+  border: none !important;
+  color: white !important;
+  padding: 0.5rem 1rem !important;
+  border-radius: 0.5rem !important;
+  font-weight: 700 !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3) !important;
+}
+
+.fc-button:hover {
+  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%) !important;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4) !important;
+  transform: translateY(-1px);
+}
+
+.fc-button-active {
+  background: linear-gradient(135deg, #1d4ed8 0%, #4338ca 100%) !important;
+}
+
+.fc-button-primary:not(:disabled):active,
+.fc-button-primary:not(:disabled).fc-button-active {
+  background: linear-gradient(135deg, #1d4ed8 0%, #4338ca 100%) !important;
+}
+
+/* Main Calendar Container */
+.fc-scrollgrid {
+  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  border-radius: 1rem !important;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+}
+
+.fc-scrollgrid td,
+.fc-scrollgrid th {
+  border-color: #cbd5e1 !important;
+}
+
+.fc-scrollgrid-sync-table {
+  border-collapse: collapse !important;
+}
+
+/* ========== STICKY HEADER - PREMIUM DESIGN ========== */
+.fc-scrollgrid-section-header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 100 !important;
+}
+
+.fc-scrollgrid-section-header > td,
+.fc-scrollgrid-section-header > th {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 100 !important;
+  background: white !important;
+}
+
+/* Premium Header Row Container */
+.fc-timeline-header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 100 !important;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Timeline Header Row - Days */
+.fc-timeline-header-row {
+  height: auto !important;
+  position: relative;
+}
+
+.fc-timeline-header-row th {
+  height: 76px !important;
+  vertical-align: middle !important;
+  position: relative;
+}
+
+/* Premium Day Slots in Header */
+.fc-timeline-header-row .fc-timeline-slot {
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%) !important;
+  border: 1px solid rgba(203, 213, 225, 0.6) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Add subtle shine effect to header slots */
+.fc-timeline-header-row .fc-timeline-slot::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.3), transparent);
+}
+
+.fc-timeline-slot {
+  border: 1px solid #cbd5e1 !important;
+  min-width: 100px !important;
+}
+
+.fc-timeline-slot-cushion {
+  padding: 0.25rem 0.25rem !important;
+  font-weight: 800 !important;
+  font-size: 0.95rem !important;
+  color: #1e293b !important;
+  text-align: center !important;
+  line-height: 1.2 !important;
+  letter-spacing: 0.01em;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 100% !important;
+}
+
+/* ========== TODAY HIGHLIGHT - PREMIUM GOLDEN GLOW ========== */
+.fc-timeline-header-row .fc-timeline-slot.fc-day-today,
+.fc-timeline-header-row .fc-day-today.fc-timeline-slot {
+  background: linear-gradient(180deg, #fef3c7 0%, #fde68a 50%, #fcd34d 100%) !important;
+  border: 2px solid #f59e0b !important;
+  position: relative;
+  z-index: 5;
+  box-shadow: 
+    0 0 20px rgba(251, 191, 36, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+}
+
+.fc-timeline-header-row .fc-timeline-slot.fc-day-today::before {
+  background: linear-gradient(90deg, transparent, rgba(251, 191, 36, 0.6), transparent) !important;
+  height: 3px;
+}
+
+.fc-timeline-header-row .fc-timeline-slot.fc-day-today::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #f59e0b, #d97706, #f59e0b);
+}
+
+.fc-day-today .fc-timeline-slot-cushion {
+  color: #78350f !important;
+  font-weight: 900 !important;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.5);
+}
+
+/* ========== RESOURCE AREA (UNIT NAMES) - PREMIUM ========== */
+.fc-datagrid-header {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%) !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 101 !important;
+}
+
+.fc-datagrid-header .fc-datagrid-cell-frame {
+  background: transparent !important;
+  height: 76px !important;
+}
+
+.fc-datagrid-header .fc-datagrid-cell-cushion {
+  color: white !important;
+  font-weight: 800 !important;
+  font-size: 1.1rem !important;
+  padding: 1rem !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  letter-spacing: 0.02em;
+}
+
+.fc-resource-area {
+  border-right: 2px solid rgba(59, 130, 246, 0.3) !important;
+  background: linear-gradient(180deg, #fafbfc 0%, #f8fafc 100%) !important;
+}
+
+/* Resource Cells (Unit rows) - Premium Glass Effect */
+.fc-datagrid-body .fc-datagrid-cell {
+  border-bottom: 1px solid #cbd5e1 !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(5px);
+}
+
+.fc-datagrid-body .fc-datagrid-cell:hover {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.05) 0%, rgba(255, 255, 255, 0.95) 100%) !important;
+}
+
+.fc-datagrid-body .fc-datagrid-cell-frame {
+  padding: 0 !important;
+  height: 80px !important;
+  display: flex !important;
+  align-items: center !important;
+  overflow: visible !important;
+}
+
+.fc-datagrid-body .fc-datagrid-cell-cushion {
+  padding: 0.5rem 0.5rem !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+  font-weight: 700 !important;
+  font-size: 0.95rem !important;
+  color: #1e293b !important;
+  overflow: visible !important;
+  width: 100% !important;
+  width: 100% !important;
+}
+
+/* Hide the expander placeholder */
+.fc-datagrid-expander-placeholder {
+  display: none !important;
+}
+
+/* ========== TIMELINE LANES (EVENT ROWS) ========== */
+.fc-timeline-lane {
+  border-bottom: 1px solid #cbd5e1 !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+  height: 80px !important;
+}
+
+.fc-timeline-lane:nth-child(even) {
+  background: rgba(248, 250, 252, 0.95) !important;
+}
+
+.fc-timeline-lane:hover {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.03) 0%, rgba(59, 130, 246, 0.08) 50%, rgba(59, 130, 246, 0.03) 100%) !important;
+}
+
+.fc-timeline-lane-frame {
+  height: 80px !important;
+}
+
+/* Today column highlight in lanes */
+.fc-timeline-lane .fc-day-today {
+  background: rgba(251, 191, 36, 0.1) !important;
+  position: relative;
+}
+
+.fc-timeline-lane .fc-day-today::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: linear-gradient(180deg, #f59e0b, #d97706);
+}
+
+/* ========== DRAG SELECTION HIGHLIGHT - GREEN ========== */
+.fc-highlight {
+  background: rgba(34, 197, 94, 0.35) !important;
+  border: 2px solid rgba(22, 163, 74, 0.6) !important;
+  border-radius: 0.375rem;
+}
+
+.dark .fc-highlight {
+  background: rgba(34, 197, 94, 0.3) !important;
+  border: 2px solid rgba(74, 222, 128, 0.5) !important;
+}
+
+/* ========== EVENTS - PREMIUM GLASS MORPHISM ========== */
+.fc-event {
+  border-radius: 0.5rem !important;
+  padding: 4px 8px !important;
+  margin: 2px !important;
+  border-left-width: 4px !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12) !important;
+  font-size: 0.85rem !important;
+  transition: none !important;
+  backdrop-filter: blur(5px);
+  text-align: center !important;
+  overflow: hidden !important;
+}
+
+.fc-event:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
+  z-index: 10 !important;
+  transform: scale(1.01);
+}
+
+/* Disable all FullCalendar animations */
+.fc-event,
+.fc-event-dragging,
+.fc-event-resizing,
+.fc-timeline-event,
+.fc-daygrid-event {
+  transition: none !important;
+  animation: none !important;
+}
+
+.fc-event-mirror {
+  opacity: 0.85 !important;
+  transition: none !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25) !important;
+}
+
+.fc-event-title {
+  font-weight: 700;
+  font-size: 0.8rem !important;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  text-align: center !important;
+  width: 100% !important;
+  white-space: normal !important;
+  word-wrap: break-word !important;
+  overflow: hidden !important;
+}
+
+.fc-event-main {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  width: 100% !important;
+  overflow: hidden !important;
+}
+
+.fc-event-main-frame {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  width: 100% !important;
+  overflow: hidden !important;
+}
+
+.fc-timeline-event .fc-event-main {
+  text-align: center !important;
+}
+
+.fc-h-event .fc-event-title-container {
+  display: block !important;
+  text-align: center !important;
+  overflow: hidden !important;
+}
+
+.fc-timeline-event {
+  border-radius: 0.5rem !important;
+  min-height: 70px !important;
+}
+
+/* ========== CUSTOM MULTI-LINE EVENT CONTENT ========== */
+.cal-event-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1px;
+  line-height: 1.3;
+  overflow: hidden;
+  width: 100%;
+  padding: 1px 0;
+}
+
+.cal-event-name {
+  font-weight: 800;
+  font-size: 0.85rem;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cal-event-phone {
+  font-weight: 600;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ========== SINGLE-DAY EVENT - COMPACT TEXT ========== */
+.single-day-event .cal-event-name {
+  font-size: 0.7rem;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.2;
+  text-overflow: clip;
+}
+
+.single-day-event .cal-event-phone {
+  font-size: 0.62rem;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.2;
+  text-overflow: clip;
+}
+
+.cal-event-date {
+  font-weight: 600;
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fc-timeline-event-harness {
+  margin: 4px 0 !important;
+}
+
+/* ========== DAY GRID STYLES ========== */
+.fc-daygrid-day {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(226, 232, 240, 0.8) !important;
+  border-radius: 0 !important;
+}
+
+.fc-daygrid-day:hover {
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.fc-daygrid-day-number {
+  font-weight: 800 !important;
+  font-size: 1.15rem !important;
+  color: #1e293b !important;
+  padding: 8px !important;
+}
+
+.fc-daygrid-day.fc-day-today {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%) !important;
+  border: 2px solid #f59e0b !important;
+  box-shadow: inset 0 0 20px rgba(251, 191, 36, 0.2);
+}
+
+.fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+  color: #78350f !important;
+  font-weight: 900 !important;
+}
+
+/* Column Headers for day/week/month views */
+.fc-col-header-cell {
+  padding: 0.75rem !important;
+  font-weight: 800 !important;
+  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  border-radius: 0 !important;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+}
+
+.fc-col-header-cell-cushion {
+  color: white !important;
+  font-weight: 800 !important;
+  font-size: 1rem !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* Time Grid */
+.fc-timegrid-slot {
+  border: 1px solid rgba(226, 232, 240, 0.6) !important;
+  height: 2.5rem !important;
+}
+
+.fc-timegrid-slot-label-cushion {
+  font-weight: 700 !important;
+  color: #1e293b !important;
+  font-size: 0.95rem !important;
+}
+
+.fc-timegrid-col.fc-day-today {
+  background: rgba(251, 191, 36, 0.08) !important;
+}
+
+/* More Link */
+.fc-more-link {
+  font-weight: 700;
+  color: #2563eb !important;
+  border-radius: 0.25rem !important;
+}
+
+/* ========== PREMIUM SCROLLBARS ========== */
+.fc-scroller::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.fc-scroller::-webkit-scrollbar-track {
+  background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
+  border-radius: 5px;
+}
+
+.fc-scroller::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #94a3b8 0%, #64748b 100%);
+  border-radius: 5px;
+  border: 2px solid #f1f5f9;
+}
+
+.fc-scroller::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #64748b 0%, #475569 100%);
+}
+
+/* ========== DARK MODE ========== */
+.dark .fc-scrollgrid {
+  border-color: rgba(59, 130, 246, 0.3) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.dark .fc-scrollgrid td,
+.dark .fc-scrollgrid th {
+  border-color: #475569 !important;
+}
+
+.dark .fc-scrollgrid-section-header > td,
+.dark .fc-scrollgrid-section-header > th,
+.dark .fc-timeline-header {
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%) !important;
+}
+
+.dark .fc-timeline-header-row .fc-timeline-slot {
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%) !important;
+  border-color: #475569 !important;
+}
+
+.dark .fc-datagrid-body .fc-datagrid-cell,
+.dark .fc-timeline-lane,
+.dark .fc-daygrid-day {
+  background: rgba(15, 23, 42, 0.95) !important;
+}
+
+.dark .fc-timeline-lane:nth-child(even) {
+  background: rgba(30, 41, 59, 0.5) !important;
+}
+
+.dark .fc-timeline-slot-cushion,
+.dark .fc-daygrid-day-number {
+  color: #e2e8f0 !important;
+}
+
+.dark .fc-datagrid-body .fc-datagrid-cell-cushion {
+  color: #e2e8f0 !important;
+}
+
+.dark .fc-timeline-header-row .fc-timeline-slot.fc-day-today,
+.dark .fc-daygrid-day.fc-day-today {
+  background: linear-gradient(180deg, #78350f 0%, #92400e 50%, #a16207 100%) !important;
+  border-color: #fbbf24 !important;
+  box-shadow: 0 0 20px rgba(251, 191, 36, 0.3) !important;
+}
+
+.dark .fc-day-today .fc-timeline-slot-cushion,
+.dark .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+  color: #fef3c7 !important;
+}
+
+.dark .fc-resource-area {
+  background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%) !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+.dark .fc-timeline-lane:hover,
+.dark .fc-daygrid-day:hover {
+  background: rgba(59, 130, 246, 0.1) !important;
+}
+
+.dark .fc-header-toolbar {
+  border-color: rgba(51, 65, 85, 0.5) !important;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(99, 102, 241, 0.1) 50%, rgba(147, 51, 234, 0.08) 100%) !important;
+}
+
+.dark .fc-scroller::-webkit-scrollbar-track {
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+}
+
+.dark .fc-scroller::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #475569 0%, #334155 100%);
+  border-color: #1e293b;
+}
+
+.dark .fc-scroller::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #64748b 0%, #475569 100%);
+}
+
+/* ========== RIGHT-CLICK DRAG SCROLL ========== */
+.fc-timeline-body,
+.fc-scroller-liquid-absolute,
+.fc-scroller {
+  scroll-behavior: auto !important; /* Disable smooth scroll for drag responsiveness */
+}
+
+/* Cursor hint for right-click drag */
+.fc-view-harness {
+  cursor: default;
+}
+
+.fc-timeline-body:active,
+.fc-scroller-liquid-absolute:active {
+  cursor: grabbing !important;
+}
+
+/* ========== TIMELINE SCROLL ALIGNMENT ========== */
+/* Ensure timeline starts from the first day */
+.fc-resource-timeline .fc-scroller {
+  scroll-padding-left: 0 !important;
+  scroll-snap-type: none !important;
+}
+
+.fc-timeline-slots {
+  padding-left: 0 !important;
+  margin-left: 0 !important;
+}
+
+.fc-timeline-slot:first-child {
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+}
+
+/* Remove any left padding/margin from timeline body */
+.fc-timeline-body {
+  padding-left: 0 !important;
+}
+
+.fc-timeline-lanes {
+  padding-left: 0 !important;
+}
+
+/* ========== MONTH BOUNDARY SEPARATORS ========== */
+/* Bold left border on the 1st of each month in the header */
+.fc-month-start {
+  border-left: 3px solid #3b82f6 !important;
+  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%) !important;
+}
+
+.fc-month-start .fc-timeline-slot-cushion {
+  color: #1d4ed8 !important;
+  font-weight: 900 !important;
+  font-size: 1rem !important;
+}
+
+/* Bold left border on the 1st of each month in lane cells */
+.fc-month-start-lane {
+  border-left: 3px solid rgba(59, 130, 246, 0.4) !important;
+}
+
+/* Dark mode month boundary separators */
+.dark .fc-month-start {
+  border-left: 3px solid #60a5fa !important;
+  background: linear-gradient(180deg, #1e3a5f 0%, #172554 100%) !important;
+}
+
+.dark .fc-month-start .fc-timeline-slot-cushion {
+  color: #93c5fd !important;
+}
+
+.dark .fc-month-start-lane {
+  border-left: 3px solid rgba(96, 165, 250, 0.4) !important;
+}
+
+/* ── Maintenance block events ── */
+.maintenance-block {
+  background: repeating-linear-gradient(
+    -45deg,
+    #f59e0b,
+    #f59e0b 8px,
+    #fbbf24 8px,
+    #fbbf24 16px
+  ) !important;
+  border: 2px solid #d97706 !important;
+  border-radius: 6px !important;
+  opacity: 0.85 !important;
+  cursor: not-allowed !important;
+  pointer-events: auto !important;
+}
+
+.maintenance-block .fc-event-main {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.maintenance-block .fc-event-title,
+.maintenance-block .cal-event-name {
+  font-weight: 900 !important;
+  font-size: 0.9rem !important;
+  color: #78350f !important;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.4) !important;
+  letter-spacing: 0.5px;
+}
+
