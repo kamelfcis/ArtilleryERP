@@ -1,0 +1,10 @@
+*.rar
+*.ldf
+*.docx
+*.sql
+!supabase/**/*.sql
+node_modules
+.next
+Images/
+supabase/.temp/
+scripts/

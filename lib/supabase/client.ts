@@ -2,9 +2,9 @@
 
 import { createClient } from '@supabase/supabase-js'
 
-// Get environment variables
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+// Get environment variables (trim to handle any whitespace from env injection)
+const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim()
+const supabaseAnonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim()
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Missing Supabase environment variables:', {
@@ -14,13 +14,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables. Please check your .env.local file.')
 }
 
-console.log('Supabase client initialized:', {
-  url: supabaseUrl.substring(0, 30) + '...',
-  hasKey: !!supabaseAnonKey,
-  keyLength: supabaseAnonKey.length,
-})
-
-// Client-side Supabase client with better error handling
+// Client-side Supabase client
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
@@ -38,8 +32,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 // For server-side usage
 export function createServerClient() {
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim(),
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim()
   )
 }
 
