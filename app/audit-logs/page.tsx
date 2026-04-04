@@ -23,6 +23,18 @@ import {
 
 const PAGE_SIZE = 20
 
+/** Prefer audit_logs.user_id; fallback to created_by in row JSON when user_id was null (legacy triggers). */
+function actorUserIdFromLog(log: AuditLog): string | undefined {
+  if (log.user_id) return log.user_id
+  const pick = (row: unknown): string | undefined => {
+    if (!row || typeof row !== 'object') return undefined
+    const o = row as Record<string, unknown>
+    const v = o.created_by
+    return typeof v === 'string' ? v : undefined
+  }
+  return pick(log.new_values) || pick(log.old_values)
+}
+
 export default function AuditLogsPage() {
   const { hasRole, elevatedOps } = useAuth()
   const isSuperAdmin = hasRole('SuperAdmin')
@@ -52,15 +64,29 @@ export default function AuditLogsPage() {
 
   const { data: staffList } = useStaffList()
 
-  const { data: authUsers } = useQuery({
+  const { data: authUsers, error: authUsersError } = useQuery({
     queryKey: ['auth-users-for-audit'],
     queryFn: async () => {
-      const res = await fetch('/api/admin/users')
-      if (!res.ok) return []
+      const res = await fetch('/api/admin/users', { credentials: 'same-origin' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error((body as { error?: string }).error || `HTTP ${res.status}`)
+      }
       const { users } = await res.json()
       return users as Array<{ id: string; email?: string }>
     },
+    retry: 1,
   })
+
+  useEffect(() => {
+    if (authUsersError) {
+      toast({
+        title: 'تعذر تحميل أسماء المستخدمين',
+        description: authUsersError instanceof Error ? authUsersError.message : 'تحقق من الجلسة أو إعدادات الخادم',
+        variant: 'destructive',
+      })
+    }
+  }, [authUsersError])
 
   const userInfoById = useMemo(() => {
     const map = new Map<string, { name: string; email: string }>()
@@ -113,10 +139,44 @@ export default function AuditLogsPage() {
     if (!logs) return []
     const ids = new Set<string>()
     for (const log of logs) {
-      if (log.user_id) ids.add(log.user_id)
+      const aid = actorUserIdFromLog(log)
+      if (aid) ids.add(aid)
     }
     return Array.from(ids)
   }, [logs])
+
+  /** User filter: all auth users + staff + any IDs seen in logs (so dropdown is never empty when users exist). */
+  const userFilterOptions = useMemo(() => {
+    const labelForId = (id: string) => {
+      const info = userInfoById.get(id)
+      if (info?.email && info?.name && info.name !== info.email) return `${info.name} (${info.email})`
+      if (info?.email) return info.email
+      if (info?.name) return info.name
+      return `${id.slice(0, 8)}…`
+    }
+    const m = new Map<string, string>()
+    if (authUsers) {
+      for (const u of authUsers) {
+        m.set(u.id, labelForId(u.id))
+      }
+    }
+    if (staffList) {
+      for (const s of staffList) {
+        if (!s.user_id) continue
+        const name = `${s.first_name_ar || s.first_name} ${s.last_name_ar || s.last_name}`.trim()
+        const email = s.email || userInfoById.get(s.user_id)?.email || ''
+        const fallback = labelForId(s.user_id)
+        const label = name ? (email ? `${name} (${email})` : name) : fallback
+        m.set(s.user_id, label)
+      }
+    }
+    for (const uid of uniqueUserIds) {
+      if (!m.has(uid)) m.set(uid, labelForId(uid))
+    }
+    return Array.from(m.entries())
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'ar'))
+  }, [authUsers, staffList, uniqueUserIds, userInfoById])
 
   const totalPages = logs ? Math.ceil(logs.length / PAGE_SIZE) : 0
   const paginatedLogs = useMemo(() => {
@@ -273,7 +333,7 @@ export default function AuditLogsPage() {
   }
 
   function getActionDescription(log: AuditLog): string {
-    const userName = getUserName(log.user_id)
+    const userName = getUserName(actorUserIdFromLog(log))
     const identity = getRecordIdentity(log)
     if (log.action === 'INSERT') return `قام ${userName} بإنشاء ${identity.title}`
     if (log.action === 'UPDATE') return `قام ${userName} بتحديث ${identity.title}`
@@ -359,15 +419,11 @@ export default function AuditLogsPage() {
                   <SelectTrigger className="h-9"><SelectValue placeholder="الكل" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">جميع المستخدمين</SelectItem>
-                    {uniqueUserIds.map(uid => {
-                      const email = getUserEmail(uid)
-                      const name = getUserName(uid)
-                      return (
-                        <SelectItem key={uid} value={uid}>
-                          {name}{email && email !== name ? ` (${email})` : ''}
-                        </SelectItem>
-                      )
-                    })}
+                    {userFilterOptions.map(({ id, label }) => (
+                      <SelectItem key={id} value={id}>
+                        {label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -424,6 +480,7 @@ export default function AuditLogsPage() {
                   {paginatedLogs.map((log) => {
                     const ActionIcon = actionIcons[log.action] || FileText
                     const displayValues = log.action === 'DELETE' ? log.old_values : log.new_values
+                    const actorId = actorUserIdFromLog(log)
 
                     return (
                       <div
@@ -453,12 +510,12 @@ export default function AuditLogsPage() {
                             <div className="flex items-center flex-wrap gap-4 text-xs text-muted-foreground mt-1">
                               <span className="flex items-center gap-1 font-medium text-foreground/80">
                                 <User className="h-3 w-3" />
-                                {getUserName(log.user_id)}
+                                {getUserName(actorId)}
                               </span>
-                              {getUserEmail(log.user_id) && (
+                              {getUserEmail(actorId) && (
                                 <span className="flex items-center gap-1">
                                   <Mail className="h-3 w-3" />
-                                  {getUserEmail(log.user_id)}
+                                  {getUserEmail(actorId)}
                                 </span>
                               )}
                               <span className="flex items-center gap-1">
@@ -607,13 +664,13 @@ export default function AuditLogsPage() {
                     <div className="flex items-center gap-2 text-sm">
                       <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                       <span className="text-muted-foreground">المستخدم:</span>
-                      <span className="font-semibold">{getUserName(detailLog.user_id)}</span>
+                      <span className="font-semibold">{getUserName(actorUserIdFromLog(detailLog))}</span>
                     </div>
-                    {getUserEmail(detailLog.user_id) && (
+                    {getUserEmail(actorUserIdFromLog(detailLog)) && (
                       <div className="flex items-center gap-2 text-sm">
                         <Mail className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                         <span className="text-muted-foreground">البريد:</span>
-                        <span className="font-medium">{getUserEmail(detailLog.user_id)}</span>
+                        <span className="font-medium">{getUserEmail(actorUserIdFromLog(detailLog))}</span>
                       </div>
                     )}
                     <div className="flex items-center gap-2 text-sm">

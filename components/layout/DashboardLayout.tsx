@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { Sidebar } from './Sidebar'
 import { MobileMenu } from './MobileMenu'
 import { QuickActions } from '@/components/quick-actions/QuickActions'
+import { ChangePasswordDialog } from '@/components/auth/ChangePasswordDialog'
 import { NotificationCenter } from '@/components/notifications/NotificationCenter'
 import { InAppNotificationBanner } from '@/components/notifications/InAppNotificationBanner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -144,6 +145,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 </Button>
               </>
             )}
+            <ChangePasswordDialog />
             <NotificationCenter />
             <div className="mobile-hidden">
               <QuickActions />

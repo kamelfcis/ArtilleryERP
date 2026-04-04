@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 
 // This is a server-side API route for admin operations
 // Make sure to set SUPABASE_SERVICE_ROLE_KEY in your environment variables
@@ -76,6 +78,15 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const cookieStore = cookies()
+    const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore })
+    const {
+      data: { session },
+    } = await supabaseAuth.auth.getSession()
+    if (!session?.user) {
+      return NextResponse.json({ error: 'غير مصرح' }, { status: 401 })
+    }
+
     const supabaseAdmin = getAdminClient()
 
     const allUsers: any[] = []
