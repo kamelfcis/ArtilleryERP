@@ -73,8 +73,9 @@ interface PendingReservation {
 
 export default function PendingReservationsPage() {
   const queryClient = useQueryClient()
-  const { user, hasRole } = useAuth()
-  const isBranchManager = hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any)
+  const { user, hasRole, elevatedOps } = useAuth()
+  const restrictedBranchManager =
+    hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
   const updateReservation = useUpdateReservation()
   const markRead = useMarkNotificationRead()
   const markAllRead = useMarkAllNotificationsRead()
@@ -84,7 +85,7 @@ export default function PendingReservationsPage() {
   const [detailOpen, setDetailOpen] = useState(false)
 
   const { data: pendingReservations, isLoading } = useQuery({
-    queryKey: ['pending-reservations', isBranchManager ? user?.id : 'all'],
+    queryKey: ['pending-reservations', restrictedBranchManager ? user?.id : 'all'],
     queryFn: async () => {
       let query = supabase
         .from('reservations')
@@ -94,7 +95,7 @@ export default function PendingReservationsPage() {
           unit:units(id, unit_number, name, location:locations(name, name_ar))
         `)
 
-      if (isBranchManager) {
+      if (restrictedBranchManager) {
         query = query.eq('created_by', user?.id ?? '')
       } else {
         query = query.eq('status', 'pending')
@@ -192,7 +193,7 @@ export default function PendingReservationsPage() {
               طلبات الحجز
             </h1>
             <p className="text-muted-foreground mt-1">
-              {isBranchManager ? 'متابعة حالة طلبات الحجز الخاصة بك' : 'حجوزات بانتظار الموافقة من مدراء الفروع'}
+              {restrictedBranchManager ? 'متابعة حالة طلبات الحجز الخاصة بك' : 'حجوزات بانتظار الموافقة من مدراء الفروع'}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -235,8 +236,8 @@ export default function PendingReservationsPage() {
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-16">
               <CheckCircle className="h-16 w-16 text-green-500 mb-4" />
-              <h3 className="text-xl font-semibold mb-2">{isBranchManager ? 'لا توجد طلبات حجز' : 'لا توجد حجوزات معلقة'}</h3>
-              <p className="text-muted-foreground">{isBranchManager ? 'لم تقم بإرسال أي طلبات حجز بعد' : 'تم مراجعة جميع الحجوزات'}</p>
+              <h3 className="text-xl font-semibold mb-2">{restrictedBranchManager ? 'لا توجد طلبات حجز' : 'لا توجد حجوزات معلقة'}</h3>
+              <p className="text-muted-foreground">{restrictedBranchManager ? 'لم تقم بإرسال أي طلبات حجز بعد' : 'تم مراجعة جميع الحجوزات'}</p>
             </CardContent>
           </Card>
         )}
@@ -318,7 +319,7 @@ export default function PendingReservationsPage() {
                           <Eye className="h-4 w-4 ml-1" />
                           التفاصيل
                         </Button>
-                        {!isBranchManager && res.status === 'pending' && (
+                        {!restrictedBranchManager && res.status === 'pending' && (
                         <>
                         <Button
                           size="sm"

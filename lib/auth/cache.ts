@@ -8,12 +8,14 @@ import { UserRole } from '@/lib/types/database'
 
 const SESSION_CACHE_KEY = 'auth_session_cache'
 const ROLES_CACHE_KEY = 'auth_roles_cache'
+const ELEVATED_OPS_CACHE_KEY = 'auth_elevated_ops_cache'
 const CACHE_EXPIRY = 24 * 60 * 60 * 1000 // 24 hours
 
 interface CachedSession {
   session: Session | null
   user: User | null
   roles: UserRole[]
+  elevatedOps: boolean
   timestamp: number
 }
 
@@ -23,7 +25,7 @@ let memoryCache: CachedSession | null = null
 export function getCachedSession(): CachedSession | null {
   // Check memory first
   if (memoryCache && isCacheValid(memoryCache.timestamp)) {
-    return memoryCache
+    return { ...memoryCache, elevatedOps: memoryCache.elevatedOps ?? false }
   }
 
   // Fallback to localStorage
@@ -37,9 +39,17 @@ export function getCachedSession(): CachedSession | null {
       const parsed = JSON.parse(cached)
       if (isCacheValid(parsed.timestamp)) {
         const roles = rolesCached ? JSON.parse(rolesCached) : []
-        const result = {
+        let elevatedOps = false
+        try {
+          const eo = localStorage.getItem(ELEVATED_OPS_CACHE_KEY)
+          if (eo) elevatedOps = JSON.parse(eo) === true
+        } catch {
+          elevatedOps = false
+        }
+        const result: CachedSession = {
           ...parsed,
           roles,
+          elevatedOps,
         }
         // Restore to memory
         memoryCache = result
@@ -56,12 +66,14 @@ export function getCachedSession(): CachedSession | null {
 export function setCachedSession(
   session: Session | null,
   user: User | null,
-  roles: UserRole[] = []
+  roles: UserRole[] = [],
+  elevatedOps: boolean = false
 ): void {
   const cached: CachedSession = {
     session,
     user,
     roles,
+    elevatedOps,
     timestamp: Date.now(),
   }
 
@@ -77,6 +89,7 @@ export function setCachedSession(
         timestamp: cached.timestamp,
       }))
       localStorage.setItem(ROLES_CACHE_KEY, JSON.stringify(roles))
+      localStorage.setItem(ELEVATED_OPS_CACHE_KEY, JSON.stringify(elevatedOps))
     } catch (error) {
       console.error('Error writing cache:', error)
     }
@@ -90,6 +103,7 @@ export function clearCachedSession(): void {
     try {
       localStorage.removeItem(SESSION_CACHE_KEY)
       localStorage.removeItem(ROLES_CACHE_KEY)
+      localStorage.removeItem(ELEVATED_OPS_CACHE_KEY)
     } catch (error) {
       console.error('Error clearing cache:', error)
     }

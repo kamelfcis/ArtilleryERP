@@ -27,8 +27,9 @@ import { useCreateBookingNotification } from '@/lib/hooks/use-booking-notificati
 
 export default function NewReservationPage() {
   const router = useRouter()
-  const { user, hasRole } = useAuth()
-  const isBranchManager = hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any)
+  const { user, hasRole, elevatedOps } = useAuth()
+  const restrictedBranchManager =
+    hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
   const createReservation = useCreateReservation()
   const createNotification = useCreateBookingNotification()
   const { data: locations } = useLocations()
@@ -71,7 +72,7 @@ export default function NewReservationPage() {
   async function onSubmit(data: ReservationFormData) {
     try {
       const result = await createReservation.mutateAsync({ ...data, created_by: user?.id })
-      if (isBranchManager && user?.id && result?.id) {
+      if (restrictedBranchManager && user?.id && result?.id) {
         const guest = guests?.find(g => g.id === data.guest_id)
         const unit = units?.find(u => u.id === data.unit_id)
         const loc = locations?.find(l => l.id === unit?.location_id)
@@ -269,14 +270,14 @@ export default function NewReservationPage() {
                 <Select
                   defaultValue="pending"
                   onValueChange={(value) => setValue('status', value as any)}
-                  disabled={isBranchManager}
+                  disabled={restrictedBranchManager}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="pending">قيد الانتظار</SelectItem>
-                    {!isBranchManager && (
+                    {!restrictedBranchManager && (
                       <>
                         <SelectItem value="confirmed">مؤكد</SelectItem>
                         <SelectItem value="checked_in">تم تسجيل الدخول</SelectItem>

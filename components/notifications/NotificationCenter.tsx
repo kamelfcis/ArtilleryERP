@@ -45,8 +45,9 @@ interface LegacyNotification {
 export function NotificationCenter() {
   const [open, setOpen] = useState(false)
   const router = useRouter()
-  const { hasRole } = useAuth()
-  const isBranchManager = hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any)
+  const { hasRole, elevatedOps } = useAuth()
+  const restrictedBranchManager =
+    hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
 
   const { data: bookingNotifications } = useBookingNotifications()
   const { data: unreadBookingCount } = useUnreadNotificationCount()
@@ -180,7 +181,7 @@ export function NotificationCenter() {
             <div className="p-3">
               <div className="text-xs font-bold text-orange-600 dark:text-orange-400 px-2 py-1.5 flex items-center gap-1.5 uppercase tracking-wider">
                 <Clock className="h-3.5 w-3.5" />
-                {isBranchManager ? 'تحديثات حجوزاتك' : 'حجوزات بانتظار الموافقة'}
+                {restrictedBranchManager ? 'تحديثات حجوزاتك' : 'حجوزات بانتظار الموافقة'}
               </div>
               <div className="space-y-2 mt-1">
                 {bookingNotifications.slice(0, 6).map((notif, index) => {
@@ -251,7 +252,7 @@ export function NotificationCenter() {
                   className="w-full text-xs h-9 mt-2 text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-950/30 rounded-xl font-semibold"
                   onClick={() => { router.push('/pending-reservations'); setOpen(false) }}
                 >
-                  {isBranchManager ? 'عرض جميع طلبات الحجز' : 'عرض جميع الحجوزات المعلقة'} ({bookingNotifications.length})
+                  {restrictedBranchManager ? 'عرض جميع طلبات الحجز' : 'عرض جميع الحجوزات المعلقة'} ({bookingNotifications.length})
                 </Button>
               )}
             </div>

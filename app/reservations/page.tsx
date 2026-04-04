@@ -56,10 +56,11 @@ export default function ReservationsPage() {
   const [itemsPerPage, setItemsPerPage] = useState(10)
   
   // Check if user is Staff-only (not admin/manager)
-  const { hasRole } = useAuth()
+  const { hasRole, elevatedOps } = useAuth()
   const { data: currentStaff } = useCurrentStaff()
   const isStaffOnly = hasRole('Staff') && !hasRole('SuperAdmin') && !hasRole('BranchManager')
-  const isBranchManager = hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any)
+  const restrictedBranchManager =
+    hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
   
   // For Staff users, force their location; for admins, use selected location
   const effectiveLocationId = isStaffOnly && currentStaff?.location_id 
@@ -566,7 +567,7 @@ export default function ReservationsPage() {
                               <Eye className="h-4 w-4" />
                             </Button>
                           </Link>
-                          {!isBranchManager && (
+                          {!restrictedBranchManager && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -677,7 +678,7 @@ export default function ReservationsPage() {
                               عرض التفاصيل
                             </Button>
                           </Link>
-                          {!isBranchManager && (
+                          {!restrictedBranchManager && (
                             <Button
                               variant="outline"
                               size="icon"

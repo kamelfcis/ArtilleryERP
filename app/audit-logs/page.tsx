@@ -24,8 +24,9 @@ import {
 const PAGE_SIZE = 20
 
 export default function AuditLogsPage() {
-  const { hasRole } = useAuth()
+  const { hasRole, elevatedOps } = useAuth()
   const isSuperAdmin = hasRole('SuperAdmin')
+  const canDeleteAuditLogs = isSuperAdmin || elevatedOps
   const [resourceType, setResourceType] = useState<string>('all')
   const [action, setAction] = useState<string>('all')
   const [selectedUserId, setSelectedUserId] = useState<string>('all')
@@ -479,7 +480,7 @@ export default function AuditLogsPage() {
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
-                            {isSuperAdmin && (
+                            {canDeleteAuditLogs && (
                             <Button
                               variant="ghost"
                               size="icon"

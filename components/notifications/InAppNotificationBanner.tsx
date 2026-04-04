@@ -65,8 +65,9 @@ const AUTO_DISMISS_MS = 20000
 export function InAppNotificationBanner() {
   const router = useRouter()
   const queryClient = useQueryClient()
-  const { user, hasRole } = useAuth()
-  const isBranchManager = hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any)
+  const { user, hasRole, elevatedOps } = useAuth()
+  const restrictedBranchManager =
+    hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
   const updateReservation = useUpdateReservation()
   const markRead = useMarkNotificationRead()
   const createNotification = useCreateBookingNotification()
@@ -174,10 +175,10 @@ export function InAppNotificationBanner() {
   const handleNewNotification = useCallback(async (notif: NotificationPayload) => {
     if (processedIdsRef.current.has(notif.id)) return
 
-    // BranchManagers only see notifications targeted at them
-    if (isBranchManager && notif.notify_user_id !== user?.id) return
-    // Non-BranchManagers skip notifications targeted at specific users (those are for BranchManagers)
-    if (!isBranchManager && notif.notify_user_id) return
+    // Restricted BranchManagers only see notifications targeted at them
+    if (restrictedBranchManager && notif.notify_user_id !== user?.id) return
+    // Staff/admins skip BM-only reverse notifications
+    if (!restrictedBranchManager && notif.notify_user_id) return
 
     processedIdsRef.current.add(notif.id)
 
@@ -225,13 +226,13 @@ export function InAppNotificationBanner() {
     setBanners(prev => [banner, ...prev])
     queryClient.invalidateQueries({ queryKey: ['booking-notifications'] })
     queryClient.invalidateQueries({ queryKey: ['booking-notifications-count'] })
-    // Auto-refresh calendar/reservations for BranchManager on status change
-    if (isBranchManager) {
+    // Auto-refresh calendar when a restricted BranchManager gets a status update
+    if (restrictedBranchManager) {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
     }
 
     setTimeout(() => dismiss(notif.id), AUTO_DISMISS_MS)
-  }, [playSound, showBrowserNotification, queryClient, dismiss, isBranchManager, user?.id])
+  }, [playSound, showBrowserNotification, queryClient, dismiss, restrictedBranchManager, user?.id])
 
   // Realtime subscription for instant notifications
   useEffect(() => {
@@ -263,7 +264,7 @@ export function InAppNotificationBanner() {
       try {
         const { data } = await supabase
           .from('booking_notifications')
-          .select('id, reservation_id, created_by, message, created_at')
+          .select('id, reservation_id, created_by, message, created_at, notify_user_id')
           .eq('is_read', false)
           .gt('created_at', lastCheckedRef.current)
           .order('created_at', { ascending: true })

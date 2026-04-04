@@ -22,11 +22,12 @@ interface BulkActionsProps {
 }
 
 export function BulkActions({ selectedIds, onClearSelection }: BulkActionsProps) {
-  const { hasRole } = useAuth()
-  const isBranchManager = hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any)
+  const { hasRole, elevatedOps } = useAuth()
+  const restrictedBranchManager =
+    hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [newStatus, setNewStatus] = useState<ReservationStatus>(isBranchManager ? 'pending' : 'confirmed')
+  const [newStatus, setNewStatus] = useState<ReservationStatus>(restrictedBranchManager ? 'pending' : 'confirmed')
   const updateReservation = useUpdateReservation()
   const deleteReservation = useDeleteReservation()
 
@@ -107,9 +108,9 @@ export function BulkActions({ selectedIds, onClearSelection }: BulkActionsProps)
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pending">قيد الانتظار</SelectItem>
-                  {!isBranchManager && <SelectItem value="confirmed">مؤكد</SelectItem>}
-                  {!isBranchManager && <SelectItem value="checked_in">تم تسجيل الدخول</SelectItem>}
-                  {!isBranchManager && <SelectItem value="checked_out">تم تسجيل الخروج</SelectItem>}
+                  {!restrictedBranchManager && <SelectItem value="confirmed">مؤكد</SelectItem>}
+                  {!restrictedBranchManager && <SelectItem value="checked_in">تم تسجيل الدخول</SelectItem>}
+                  {!restrictedBranchManager && <SelectItem value="checked_out">تم تسجيل الخروج</SelectItem>}
                   <SelectItem value="cancelled">ملغي</SelectItem>
                 </SelectContent>
               </Select>
@@ -125,7 +126,7 @@ export function BulkActions({ selectedIds, onClearSelection }: BulkActionsProps)
           </DialogContent>
         </Dialog>
 
-        {!isBranchManager && <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        {!restrictedBranchManager && <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
           <DialogTrigger asChild>
             <Button variant="outline" size="sm">
               <Trash2 className="mr-2 h-4 w-4" />

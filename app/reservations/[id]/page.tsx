@@ -60,8 +60,9 @@ export default function ReservationDetailPage() {
   const params = useParams()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const { hasRole } = useAuth()
-  const isBranchManager = hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any)
+  const { hasRole, elevatedOps } = useAuth()
+  const restrictedBranchManager =
+    hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
   const id = params.id as string
   const { data: reservation, isLoading } = useReservation(id)
   const updateReservation = useUpdateReservation()
@@ -453,14 +454,14 @@ export default function ReservationDetailPage() {
                 <Select
                   value={reservation.status}
                   onValueChange={handleStatusChange}
-                  disabled={isBranchManager}
+                  disabled={restrictedBranchManager}
                 >
                   <SelectTrigger className="w-[180px] bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-2 hover:border-primary/50 transition-all">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {Object.entries(RESERVATION_STATUSES)
-                      .filter(([value]) => !isBranchManager || value === 'pending' || value === 'cancelled')
+                      .filter(([value]) => !restrictedBranchManager || value === 'pending' || value === 'cancelled')
                       .map(([value, label]) => (
                       <SelectItem key={value} value={value}>
                         {label}

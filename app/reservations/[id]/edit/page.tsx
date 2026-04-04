@@ -33,8 +33,9 @@ import { useAuth } from '@/contexts/AuthContext'
 export default function EditReservationPage() {
   const params = useParams()
   const router = useRouter()
-  const { hasRole } = useAuth()
-  const isBranchManager = hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any)
+  const { hasRole, elevatedOps } = useAuth()
+  const restrictedBranchManager =
+    hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
   const id = params.id as string
   const { data: reservation, isLoading } = useReservation(id)
   const updateReservation = useUpdateReservation()
@@ -444,14 +445,14 @@ export default function EditReservationPage() {
                     <Select
                       value={watch('status')}
                       onValueChange={(value) => setValue('status', value as any)}
-                      disabled={isBranchManager}
+                      disabled={restrictedBranchManager}
                     >
                       <SelectTrigger className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-2 hover:border-blue-400 transition-all">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         {Object.entries(RESERVATION_STATUSES)
-                          .filter(([value]) => !isBranchManager || value === 'pending' || value === 'cancelled')
+                          .filter(([value]) => !restrictedBranchManager || value === 'pending' || value === 'cancelled')
                           .map(([value, label]) => (
                           <SelectItem key={value} value={value}>
                             {label}

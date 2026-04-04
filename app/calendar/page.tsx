@@ -163,7 +163,7 @@ export default function CalendarPage() {
   }
 
   // Check if user is Staff-only (not admin/manager)
-  const { hasRole, user } = useAuth()
+  const { hasRole, user, elevatedOps } = useAuth()
   const { data: currentStaff } = useCurrentStaff()
   const { data: allStaff } = useStaffList()
   const isStaffOnly = hasRole('Staff') && !hasRole('SuperAdmin') && !hasRole('BranchManager')
@@ -876,8 +876,9 @@ export default function CalendarPage() {
           created_by: user?.id,
         } as Partial<Reservation>)
 
-        const isBM = hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any)
-        if (isBM && user?.id && result?.id) {
+        const isRestrictedBM =
+          hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
+        if (isRestrictedBM && user?.id && result?.id) {
           const gName = `${selectedGuest.first_name_ar || selectedGuest.first_name} ${selectedGuest.last_name_ar || selectedGuest.last_name}`
           const loc = locations?.find(l => l.id === unit.location_id)
           const lName = loc ? (loc.name_ar || loc.name) : ''
@@ -1754,12 +1755,13 @@ export default function CalendarPage() {
                   return
                 }
 
-                // Add delete button to event (hidden for BranchManager)
-                const isBranchMgr = hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any)
+                // Add delete button to event (hidden for restricted BranchManagers only)
+                const isRestrictedBM =
+                  hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
                 arg.el.classList.add('group', 'relative')
                 arg.el.style.position = 'relative'
                 
-                if (!isBranchMgr && !arg.el.querySelector('.fc-event-delete-btn')) {
+                if (!isRestrictedBM && !arg.el.querySelector('.fc-event-delete-btn')) {
                   const deleteBtn = document.createElement('button')
                   deleteBtn.innerHTML = '🗑️'
                   deleteBtn.className = 'fc-event-delete-btn'
