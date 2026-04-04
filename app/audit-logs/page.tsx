@@ -37,9 +37,9 @@ function actorUserIdFromLog(log: AuditLog): string | undefined {
 }
 
 export default function AuditLogsPage() {
-  const { hasRole, elevatedOps } = useAuth()
+  const { hasRole } = useAuth()
   const isSuperAdmin = hasRole('SuperAdmin')
-  const canDeleteAuditLogs = isSuperAdmin || elevatedOps
+  const canDeleteAuditLogs = isSuperAdmin
   const [resourceType, setResourceType] = useState<string>('all')
   const [action, setAction] = useState<string>('all')
   const [selectedUserId, setSelectedUserId] = useState<string>('all')
@@ -273,7 +273,12 @@ export default function AuditLogsPage() {
   }
 
   function handleDelete() {
-    if (!deleteLog) return
+    if (!deleteLog || !isSuperAdmin) {
+      if (!isSuperAdmin) {
+        toast({ title: 'غير مسموح', description: 'حذف سجلات التدقيق متاح للمسؤول فقط', variant: 'destructive' })
+      }
+      return
+    }
     deleteAuditLog.mutate(deleteLog.id, {
       onSuccess: () => {
         toast({ title: 'تم الحذف', description: 'تم حذف السجل بنجاح' })

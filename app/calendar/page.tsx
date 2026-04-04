@@ -165,7 +165,7 @@ export default function CalendarPage() {
 
   // Check if user is Staff-only (not admin/manager)
   const { hasRole, user, elevatedOps } = useAuth()
-  const { data: currentStaff } = useCurrentStaff()
+  const { data: currentStaff, isLoading: currentStaffLoading } = useCurrentStaff()
   const { data: allStaff } = useStaffList()
   const isStaffOnly = hasRole('Staff') && !hasRole('SuperAdmin') && !hasRole('BranchManager')
   
@@ -225,7 +225,7 @@ export default function CalendarPage() {
     ? currentStaff.location_id 
     : (selectedLocation !== 'all' ? selectedLocation : undefined)
 
-  const { data: locations } = useLocations()
+  const { data: locations, isLoading: locationsLoading } = useLocations()
   // Fetch all units for the location (no type filter) to derive available unit types for the dropdown
   const { data: allLocationUnits, isLoading: unitsLoading } = useUnits({
     locationId: effectiveLocationId,
@@ -243,11 +243,11 @@ export default function CalendarPage() {
     if (!allLocationUnits) return []
     return [...new Set(allLocationUnits.map(u => u.type))]
   }, [allLocationUnits])
-  const { data: reservations } = useReservations({
+  const { data: reservations, isLoading: reservationsLoading } = useReservations({
     locationId: effectiveLocationId,
     status: selectedStatus !== 'all' ? selectedStatus as any : undefined,
   })
-  const { data: guests } = useGuests()
+  const { data: guests, isLoading: guestsLoading } = useGuests()
   const createReservation = useCreateReservation()
   const createBookingNotif = useCreateBookingNotification()
   const createGuest = useCreateGuest()
@@ -282,7 +282,7 @@ export default function CalendarPage() {
   })
 
   // Fetch room blocks
-  const { data: roomBlocks } = useQuery({
+  const { data: roomBlocks, isLoading: roomBlocksLoading } = useQuery({
     queryKey: ['room-blocks'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -1197,10 +1197,74 @@ export default function CalendarPage() {
     }
   }
 
-  if (unitsLoading) {
+  const staffProfileLoading =
+    isStaffOnly && Boolean(user?.id) && currentStaffLoading
+
+  const calendarDataLoading =
+    unitsLoading ||
+    reservationsLoading ||
+    locationsLoading ||
+    guestsLoading ||
+    roomBlocksLoading ||
+    staffProfileLoading
+
+  if (calendarDataLoading) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <Skeleton className="h-full w-full" />
+      <div className="h-full flex flex-col bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30 dark:from-slate-950 dark:via-blue-950/20 dark:to-purple-950/20 min-h-0">
+        <div className="flex-1 overflow-auto px-2 pb-2 pt-2 min-h-0">
+          <div
+            className="h-full min-h-[600px] rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-gradient-to-br from-white via-blue-50/30 to-purple-50/30 dark:from-slate-900 dark:via-blue-950/20 dark:to-purple-950/20 shadow-xl backdrop-blur-xl flex flex-col overflow-hidden"
+            aria-busy
+            aria-label="جاري تحميل التقويم"
+          >
+            <div className="flex-shrink-0 flex items-center justify-between gap-3 px-3 py-2.5 border-b border-slate-200/60 dark:border-slate-700/60 bg-white/40 dark:bg-slate-900/40">
+              <div className="flex items-center gap-2 min-w-0">
+                <Skeleton className="h-9 w-9 rounded-xl flex-shrink-0" />
+                <div className="space-y-1.5 min-w-0">
+                  <Skeleton className="h-5 w-36 max-w-full" />
+                  <Skeleton className="h-3 w-52 max-w-full hidden sm:block" />
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Skeleton className="h-9 w-20 rounded-lg hidden sm:block" />
+                <Skeleton className="h-9 w-24 rounded-lg" />
+                <Skeleton className="h-9 w-9 rounded-lg" />
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0 flex">
+              <div className="w-[200px] sm:w-[260px] md:w-[280px] flex-shrink-0 border-e border-slate-200/60 dark:border-slate-700/60 bg-slate-50/50 dark:bg-slate-900/50 p-2 sm:p-3 space-y-2 overflow-hidden">
+                <Skeleton className="h-5 w-16 mx-auto rounded-md" />
+                {Array.from({ length: 12 }).map((_, i) => (
+                  <Skeleton key={i} className="h-11 w-full rounded-lg" />
+                ))}
+              </div>
+
+              <div className="flex-1 min-w-0 flex flex-col p-2 sm:p-3 gap-2 overflow-hidden">
+                <div className="flex gap-1 sm:gap-1.5 overflow-hidden pb-1">
+                  {Array.from({ length: 16 }).map((_, i) => (
+                    <Skeleton
+                      key={i}
+                      className="h-12 sm:h-14 flex-1 min-w-[56px] sm:min-w-[72px] rounded-md"
+                    />
+                  ))}
+                </div>
+                <div className="flex-1 flex flex-col gap-1.5 min-h-0 overflow-hidden">
+                  {Array.from({ length: 8 }).map((_, row) => (
+                    <div key={row} className="flex gap-1 sm:gap-1.5 flex-1 min-h-[44px]">
+                      {Array.from({ length: 16 }).map((_, col) => (
+                        <Skeleton
+                          key={col}
+                          className="flex-1 min-w-[56px] sm:min-w-[72px] rounded-sm opacity-50"
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
