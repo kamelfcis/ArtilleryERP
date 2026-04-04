@@ -175,12 +175,12 @@ export function NotificationCenter() {
         </div>
 
         <div className="max-h-[32rem] overflow-y-auto bg-white dark:bg-slate-900">
-          {/* Booking approval notifications */}
-          {!isBranchManager && bookingNotifications && bookingNotifications.length > 0 && (
+          {/* Booking notifications */}
+          {bookingNotifications && bookingNotifications.length > 0 && (
             <div className="p-3">
               <div className="text-xs font-bold text-orange-600 dark:text-orange-400 px-2 py-1.5 flex items-center gap-1.5 uppercase tracking-wider">
                 <Clock className="h-3.5 w-3.5" />
-                حجوزات بانتظار الموافقة
+                {isBranchManager ? 'تحديثات حجوزاتك' : 'حجوزات بانتظار الموافقة'}
               </div>
               <div className="space-y-2 mt-1">
                 {bookingNotifications.slice(0, 6).map((notif, index) => {
@@ -251,7 +251,7 @@ export function NotificationCenter() {
                   className="w-full text-xs h-9 mt-2 text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-950/30 rounded-xl font-semibold"
                   onClick={() => { router.push('/pending-reservations'); setOpen(false) }}
                 >
-                  عرض جميع الحجوزات المعلقة ({bookingNotifications.length})
+                  {isBranchManager ? 'عرض جميع طلبات الحجز' : 'عرض جميع الحجوزات المعلقة'} ({bookingNotifications.length})
                 </Button>
               )}
             </div>
@@ -260,7 +260,7 @@ export function NotificationCenter() {
           {/* Legacy notifications */}
           {legacyNotifications && legacyNotifications.length > 0 && (
             <div className="p-3">
-              {!isBranchManager && bookingNotifications && bookingNotifications.length > 0 && (
+              {bookingNotifications && bookingNotifications.length > 0 && (
                 <div className="border-t mb-3" />
               )}
               <div className="text-xs font-bold text-muted-foreground px-2 py-1.5 uppercase tracking-wider">تنبيهات النظام</div>

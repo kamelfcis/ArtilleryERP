@@ -8,7 +8,9 @@ import {
   useBookingNotifications,
   useMarkNotificationRead,
   useMarkAllNotificationsRead,
+  useCreateBookingNotification,
 } from '@/lib/hooks/use-booking-notifications'
+import { useAuth } from '@/contexts/AuthContext'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -71,26 +73,34 @@ interface PendingReservation {
 
 export default function PendingReservationsPage() {
   const queryClient = useQueryClient()
+  const { user, hasRole } = useAuth()
+  const isBranchManager = hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any)
   const updateReservation = useUpdateReservation()
   const markRead = useMarkNotificationRead()
   const markAllRead = useMarkAllNotificationsRead()
+  const createNotification = useCreateBookingNotification()
   const { data: bookingNotifs } = useBookingNotifications()
   const [selectedReservation, setSelectedReservation] = useState<PendingReservation | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
 
   const { data: pendingReservations, isLoading } = useQuery({
-    queryKey: ['pending-reservations'],
+    queryKey: ['pending-reservations', isBranchManager ? user?.id : 'all'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('reservations')
         .select(`
           *,
           guest:guests(id, first_name, last_name, first_name_ar, last_name_ar, phone, email),
           unit:units(id, unit_number, name, location:locations(name, name_ar))
         `)
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false })
 
+      if (isBranchManager) {
+        query = query.eq('created_by', user?.id ?? '')
+      } else {
+        query = query.eq('status', 'pending')
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false })
       if (error) throw error
       return data as PendingReservation[]
     },
@@ -111,11 +121,27 @@ export default function PendingReservationsPage() {
   const userEmailById = new Map<string, string>()
   authUsers?.forEach(u => userEmailById.set(u.id, u.email))
 
+  function sendReverseNotification(res: PendingReservation, newStatus: 'confirmed' | 'cancelled') {
+    if (!user?.id || !res.created_by) return
+    const gName = guestName(res.guest)
+    const unitInfo = `${res.unit?.unit_number} — ${res.unit?.location?.name_ar || res.unit?.location?.name}`
+    const statusLabel = newStatus === 'confirmed' ? 'تم تأكيد' : 'تم رفض'
+    const statusIcon = newStatus === 'confirmed' ? '✅' : '❌'
+    createNotification.mutate({
+      reservation_id: res.id,
+      created_by: user.id,
+      notify_user_id: res.created_by,
+      message: `${statusIcon} ${statusLabel} حجزك | الضيف: ${gName} | الوحدة: ${unitInfo} | ${res.check_in_date} إلى ${res.check_out_date} | المبلغ: ${res.total_amount} ج.م`,
+    })
+  }
+
   async function handleConfirm(id: string) {
     try {
       await updateReservation.mutateAsync({ id, status: 'confirmed' as any })
       const notif = bookingNotifs?.find(n => n.reservation_id === id && !n.is_read)
       if (notif) markRead.mutate(notif.id)
+      const res = pendingReservations?.find(r => r.id === id)
+      if (res) sendReverseNotification(res, 'confirmed')
       queryClient.invalidateQueries({ queryKey: ['pending-reservations'] })
       toast({ title: 'تم تأكيد الحجز بنجاح' })
     } catch (e: any) {
@@ -128,6 +154,8 @@ export default function PendingReservationsPage() {
       await updateReservation.mutateAsync({ id, status: 'cancelled' as any })
       const notif = bookingNotifs?.find(n => n.reservation_id === id && !n.is_read)
       if (notif) markRead.mutate(notif.id)
+      const res = pendingReservations?.find(r => r.id === id)
+      if (res) sendReverseNotification(res, 'cancelled')
       queryClient.invalidateQueries({ queryKey: ['pending-reservations'] })
       toast({ title: 'تم رفض الحجز' })
     } catch (e: any) {
@@ -151,7 +179,7 @@ export default function PendingReservationsPage() {
   }
 
   return (
-    <RoleGuard allowedRoles={['SuperAdmin', 'Receptionist', 'Staff'] as any}>
+    <RoleGuard allowedRoles={['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff'] as any}>
       <div className="space-y-6 max-w-7xl mx-auto">
         {/* Header */}
         <motion.div
@@ -164,7 +192,7 @@ export default function PendingReservationsPage() {
               طلبات الحجز
             </h1>
             <p className="text-muted-foreground mt-1">
-              حجوزات بانتظار الموافقة من مدراء الفروع
+              {isBranchManager ? 'متابعة حالة طلبات الحجز الخاصة بك' : 'حجوزات بانتظار الموافقة من مدراء الفروع'}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -207,8 +235,8 @@ export default function PendingReservationsPage() {
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-16">
               <CheckCircle className="h-16 w-16 text-green-500 mb-4" />
-              <h3 className="text-xl font-semibold mb-2">لا توجد حجوزات معلقة</h3>
-              <p className="text-muted-foreground">تم مراجعة جميع الحجوزات</p>
+              <h3 className="text-xl font-semibold mb-2">{isBranchManager ? 'لا توجد طلبات حجز' : 'لا توجد حجوزات معلقة'}</h3>
+              <p className="text-muted-foreground">{isBranchManager ? 'لم تقم بإرسال أي طلبات حجز بعد' : 'تم مراجعة جميع الحجوزات'}</p>
             </CardContent>
           </Card>
         )}
@@ -232,9 +260,16 @@ export default function PendingReservationsPage() {
                       {/* Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-3 mb-2">
-                          <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">
-                            <Clock className="h-3 w-3 ml-1" />
-                            قيد الانتظار
+                          <Badge className={
+                            res.status === 'confirmed' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' :
+                            res.status === 'cancelled' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' :
+                            res.status === 'checked_in' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' :
+                            'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
+                          }>
+                            {res.status === 'confirmed' ? <CheckCircle className="h-3 w-3 ml-1" /> :
+                             res.status === 'cancelled' ? <XCircle className="h-3 w-3 ml-1" /> :
+                             <Clock className="h-3 w-3 ml-1" />}
+                            {RESERVATION_STATUSES[res.status as keyof typeof RESERVATION_STATUSES] || res.status}
                           </Badge>
                           <span className="font-mono text-sm font-semibold text-muted-foreground">{res.reservation_number}</span>
                           {isUnread && (
@@ -283,6 +318,8 @@ export default function PendingReservationsPage() {
                           <Eye className="h-4 w-4 ml-1" />
                           التفاصيل
                         </Button>
+                        {!isBranchManager && res.status === 'pending' && (
+                        <>
                         <Button
                           size="sm"
                           className="bg-green-600 hover:bg-green-700 text-white"
@@ -301,6 +338,8 @@ export default function PendingReservationsPage() {
                           <XCircle className="h-4 w-4 ml-1" />
                           رفض
                         </Button>
+                        </>
+                        )}
                       </div>
                     </div>
                   </CardContent>

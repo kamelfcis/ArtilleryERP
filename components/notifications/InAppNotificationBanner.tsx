@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { useUpdateReservation } from '@/lib/hooks/use-reservations'
-import { useMarkNotificationRead } from '@/lib/hooks/use-booking-notifications'
+import { useMarkNotificationRead, useCreateBookingNotification } from '@/lib/hooks/use-booking-notifications'
 import { formatDateShort, formatCurrency } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/use-toast'
@@ -31,6 +31,7 @@ interface NotificationPayload {
   id: string
   reservation_id: string
   created_by: string
+  notify_user_id?: string | null
   message: string
   created_at: string
 }
@@ -52,6 +53,7 @@ interface BannerNotification {
   notifId: string
   reservationId: string
   createdBy: string
+  notifyUserId?: string | null
   message: string
   createdAt: string
   reservation?: ReservationDetail
@@ -63,10 +65,11 @@ const AUTO_DISMISS_MS = 20000
 export function InAppNotificationBanner() {
   const router = useRouter()
   const queryClient = useQueryClient()
-  const { hasRole } = useAuth()
+  const { user, hasRole } = useAuth()
   const isBranchManager = hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any)
   const updateReservation = useUpdateReservation()
   const markRead = useMarkNotificationRead()
+  const createNotification = useCreateBookingNotification()
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [banners, setBanners] = useState<BannerNotification[]>([])
   const processedIdsRef = useRef<Set<string>>(new Set())
@@ -115,10 +118,28 @@ export function InAppNotificationBanner() {
     setBanners(prev => prev.filter(b => b.notifId !== notifId))
   }, [])
 
+  const sendReverseNotif = useCallback((banner: BannerNotification, newStatus: 'confirmed' | 'cancelled') => {
+    if (!user?.id || !banner.createdBy) return
+    const res = banner.reservation
+    const gName = res?.guest
+      ? `${res.guest.first_name_ar || res.guest.first_name} ${res.guest.last_name_ar || res.guest.last_name}`
+      : ''
+    const unitInfo = res?.unit ? `${res.unit.unit_number} — ${res.unit.name}` : ''
+    const statusLabel = newStatus === 'confirmed' ? 'تم تأكيد' : 'تم رفض'
+    const statusIcon = newStatus === 'confirmed' ? '✅' : '❌'
+    createNotification.mutate({
+      reservation_id: banner.reservationId,
+      created_by: user.id,
+      notify_user_id: banner.createdBy,
+      message: `${statusIcon} ${statusLabel} حجزك | الضيف: ${gName} | الوحدة: ${unitInfo} | المبلغ: ${res?.total_amount ?? 0} ج.م`,
+    })
+  }, [user, createNotification])
+
   const handleConfirm = useCallback(async (banner: BannerNotification) => {
     try {
       await updateReservation.mutateAsync({ id: banner.reservationId, status: 'confirmed' as any })
       markRead.mutate(banner.notifId)
+      sendReverseNotif(banner, 'confirmed')
       queryClient.invalidateQueries({ queryKey: ['pending-reservations'] })
       queryClient.invalidateQueries({ queryKey: ['booking-notifications'] })
       queryClient.invalidateQueries({ queryKey: ['booking-notifications-count'] })
@@ -127,12 +148,13 @@ export function InAppNotificationBanner() {
     } catch {
       toast({ title: 'فشل في تأكيد الحجز', variant: 'destructive' })
     }
-  }, [updateReservation, markRead, queryClient, dismiss])
+  }, [updateReservation, markRead, queryClient, dismiss, sendReverseNotif])
 
   const handleReject = useCallback(async (banner: BannerNotification) => {
     try {
       await updateReservation.mutateAsync({ id: banner.reservationId, status: 'cancelled' as any })
       markRead.mutate(banner.notifId)
+      sendReverseNotif(banner, 'cancelled')
       queryClient.invalidateQueries({ queryKey: ['pending-reservations'] })
       queryClient.invalidateQueries({ queryKey: ['booking-notifications'] })
       queryClient.invalidateQueries({ queryKey: ['booking-notifications-count'] })
@@ -141,17 +163,22 @@ export function InAppNotificationBanner() {
     } catch {
       toast({ title: 'فشل في رفض الحجز', variant: 'destructive' })
     }
-  }, [updateReservation, markRead, queryClient, dismiss])
+  }, [updateReservation, markRead, queryClient, dismiss, sendReverseNotif])
 
   useEffect(() => {
-    if (isBranchManager) return
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission()
     }
-  }, [isBranchManager])
+  }, [])
 
   const handleNewNotification = useCallback(async (notif: NotificationPayload) => {
     if (processedIdsRef.current.has(notif.id)) return
+
+    // BranchManagers only see notifications targeted at them
+    if (isBranchManager && notif.notify_user_id !== user?.id) return
+    // Non-BranchManagers skip notifications targeted at specific users (those are for BranchManagers)
+    if (!isBranchManager && notif.notify_user_id) return
+
     processedIdsRef.current.add(notif.id)
 
     playSound()
@@ -187,6 +214,7 @@ export function InAppNotificationBanner() {
       notifId: notif.id,
       reservationId: notif.reservation_id,
       createdBy: notif.created_by,
+      notifyUserId: notif.notify_user_id,
       message: notif.message,
       createdAt: notif.created_at,
       reservation,
@@ -197,14 +225,16 @@ export function InAppNotificationBanner() {
     setBanners(prev => [banner, ...prev])
     queryClient.invalidateQueries({ queryKey: ['booking-notifications'] })
     queryClient.invalidateQueries({ queryKey: ['booking-notifications-count'] })
+    // Auto-refresh calendar/reservations for BranchManager on status change
+    if (isBranchManager) {
+      queryClient.invalidateQueries({ queryKey: ['reservations'] })
+    }
 
     setTimeout(() => dismiss(notif.id), AUTO_DISMISS_MS)
-  }, [playSound, showBrowserNotification, queryClient, dismiss])
+  }, [playSound, showBrowserNotification, queryClient, dismiss, isBranchManager, user?.id])
 
   // Realtime subscription for instant notifications
   useEffect(() => {
-    if (isBranchManager) return
-
     const channel = supabase
       .channel('premium-booking-banner')
       .on(
@@ -223,12 +253,10 @@ export function InAppNotificationBanner() {
       })
 
     return () => { supabase.removeChannel(channel as RealtimeChannel) }
-  }, [isBranchManager, handleNewNotification])
+  }, [handleNewNotification])
 
   // Polling fallback: check for new unread notifications every 15 seconds
   useEffect(() => {
-    if (isBranchManager) return
-
     const lastCheckedRef = { current: new Date().toISOString() }
 
     const poll = async () => {
@@ -252,9 +280,7 @@ export function InAppNotificationBanner() {
 
     const interval = setInterval(poll, 15000)
     return () => clearInterval(interval)
-  }, [isBranchManager, handleNewNotification])
-
-  if (isBranchManager) return null
+  }, [handleNewNotification])
 
   return (
     <div className="fixed top-4 left-4 z-[9999] flex flex-col gap-3 max-w-md w-full pointer-events-none" dir="rtl">
@@ -271,6 +297,11 @@ export function InAppNotificationBanner() {
           const nights = res
             ? Math.ceil((new Date(res.check_out_date).getTime() - new Date(res.check_in_date).getTime()) / 86400000)
             : 0
+          const isStatusUpdate = !!banner.notifyUserId
+          const isConfirmed = banner.message.includes('تم تأكيد')
+          const accentColor = isStatusUpdate
+            ? (isConfirmed ? 'emerald' : 'red')
+            : 'orange'
 
           return (
             <motion.div
@@ -282,14 +313,29 @@ export function InAppNotificationBanner() {
               transition={{ type: 'spring', damping: 22, stiffness: 260 }}
               className="pointer-events-auto"
             >
-              <div className="relative overflow-hidden rounded-2xl border border-orange-200/60 dark:border-orange-700/40 shadow-2xl shadow-orange-500/20 dark:shadow-orange-500/10">
-                {/* Gradient background */}
-                <div className="absolute inset-0 bg-gradient-to-br from-white via-orange-50/80 to-amber-50/60 dark:from-slate-900 dark:via-orange-950/40 dark:to-amber-950/30 backdrop-blur-xl" />
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-orange-400/10 via-transparent to-transparent" />
+              <div className={`relative overflow-hidden rounded-2xl border shadow-2xl ${
+                isStatusUpdate
+                  ? isConfirmed
+                    ? 'border-emerald-200/60 dark:border-emerald-700/40 shadow-emerald-500/20'
+                    : 'border-red-200/60 dark:border-red-700/40 shadow-red-500/20'
+                  : 'border-orange-200/60 dark:border-orange-700/40 shadow-orange-500/20 dark:shadow-orange-500/10'
+              }`}>
+                <div className={`absolute inset-0 backdrop-blur-xl ${
+                  isStatusUpdate
+                    ? isConfirmed
+                      ? 'bg-gradient-to-br from-white via-emerald-50/80 to-green-50/60 dark:from-slate-900 dark:via-emerald-950/40 dark:to-green-950/30'
+                      : 'bg-gradient-to-br from-white via-red-50/80 to-rose-50/60 dark:from-slate-900 dark:via-red-950/40 dark:to-rose-950/30'
+                    : 'bg-gradient-to-br from-white via-orange-50/80 to-amber-50/60 dark:from-slate-900 dark:via-orange-950/40 dark:to-amber-950/30'
+                }`} />
 
-                {/* Animated accent line */}
                 <motion.div
-                  className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-l from-orange-500 via-amber-400 to-yellow-400"
+                  className={`absolute top-0 right-0 left-0 h-1 ${
+                    isStatusUpdate
+                      ? isConfirmed
+                        ? 'bg-gradient-to-l from-emerald-500 via-green-400 to-teal-400'
+                        : 'bg-gradient-to-l from-red-500 via-rose-400 to-pink-400'
+                      : 'bg-gradient-to-l from-orange-500 via-amber-400 to-yellow-400'
+                  }`}
                   initial={{ scaleX: 1 }}
                   animate={{ scaleX: 0 }}
                   transition={{ duration: AUTO_DISMISS_MS / 1000, ease: 'linear' }}
@@ -297,31 +343,46 @@ export function InAppNotificationBanner() {
                 />
 
                 <div className="relative p-5">
-                  {/* Header */}
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <motion.div
                         animate={{ rotate: [0, -15, 15, -10, 10, 0] }}
                         transition={{ duration: 0.8, delay: 0.3 }}
-                        className="flex items-center justify-center w-11 h-11 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 shadow-lg shadow-orange-500/30"
+                        className={`flex items-center justify-center w-11 h-11 rounded-xl shadow-lg ${
+                          isStatusUpdate
+                            ? isConfirmed
+                              ? 'bg-gradient-to-br from-emerald-500 to-green-600 shadow-emerald-500/30'
+                              : 'bg-gradient-to-br from-red-500 to-rose-600 shadow-red-500/30'
+                            : 'bg-gradient-to-br from-orange-500 to-amber-500 shadow-orange-500/30'
+                        }`}
                       >
-                        <Bell className="h-5 w-5 text-white" />
+                        {isStatusUpdate
+                          ? isConfirmed ? <CheckCircle className="h-5 w-5 text-white" /> : <XCircle className="h-5 w-5 text-white" />
+                          : <Bell className="h-5 w-5 text-white" />
+                        }
                       </motion.div>
                       <div>
                         <div className="flex items-center gap-2">
                           <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">
-                            حجز جديد بانتظار الموافقة
+                            {isStatusUpdate
+                              ? isConfirmed ? 'تم تأكيد حجزك' : 'تم رفض حجزك'
+                              : 'حجز جديد بانتظار الموافقة'
+                            }
                           </h3>
                           <motion.div
                             animate={{ scale: [1, 1.2, 1] }}
                             transition={{ repeat: Infinity, duration: 2 }}
                           >
-                            <Sparkles className="h-4 w-4 text-amber-500" />
+                            <Sparkles className={`h-4 w-4 ${isStatusUpdate ? isConfirmed ? 'text-emerald-500' : 'text-red-500' : 'text-amber-500'}`} />
                           </motion.div>
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5">
                           {res?.reservation_number && (
-                            <span className="font-mono font-semibold text-orange-600 dark:text-orange-400 ml-2">{res.reservation_number}</span>
+                            <span className={`font-mono font-semibold ml-2 ${
+                              isStatusUpdate
+                                ? isConfirmed ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
+                                : 'text-orange-600 dark:text-orange-400'
+                            }`}>{res.reservation_number}</span>
                           )}
                           {banner.creatorEmail && `بواسطة ${banner.creatorEmail}`}
                         </p>
@@ -330,22 +391,17 @@ export function InAppNotificationBanner() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 rounded-full hover:bg-orange-100 dark:hover:bg-orange-900/30"
+                      className="h-7 w-7 rounded-full"
                       onClick={() => dismiss(banner.notifId)}
                     >
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
 
-                  {/* Details grid */}
                   {res && (
                     <div className="grid grid-cols-2 gap-2.5 mb-4">
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.15 }}
-                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/70 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/40"
-                      >
+                      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
+                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/70 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/40">
                         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/40">
                           <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                         </div>
@@ -355,12 +411,8 @@ export function InAppNotificationBanner() {
                         </div>
                       </motion.div>
 
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.2 }}
-                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/70 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/40"
-                      >
+                      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/70 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/40">
                         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/40">
                           <Home className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                         </div>
@@ -370,12 +422,8 @@ export function InAppNotificationBanner() {
                         </div>
                       </motion.div>
 
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.25 }}
-                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/70 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/40"
-                      >
+                      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
+                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/70 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/40">
                         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/40">
                           <MapPin className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                         </div>
@@ -385,12 +433,8 @@ export function InAppNotificationBanner() {
                         </div>
                       </motion.div>
 
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.3 }}
-                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/70 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/40"
-                      >
+                      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
+                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/70 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/40">
                         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40">
                           <DollarSign className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                         </div>
@@ -400,12 +444,8 @@ export function InAppNotificationBanner() {
                         </div>
                       </motion.div>
 
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.35 }}
-                        className="col-span-2 flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/70 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/40"
-                      >
+                      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}
+                        className="col-span-2 flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/70 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/40">
                         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-orange-100 dark:bg-orange-900/40">
                           <Calendar className="h-4 w-4 text-orange-600 dark:text-orange-400" />
                         </div>
@@ -424,42 +464,42 @@ export function InAppNotificationBanner() {
                     </div>
                   )}
 
-                  {/* Action buttons */}
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.4 }}
-                    className="flex items-center gap-2"
-                  >
-                    <Button
-                      size="sm"
-                      className="flex-1 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-lg shadow-emerald-500/25 border-0 h-9 rounded-xl font-semibold"
-                      onClick={() => handleConfirm(banner)}
-                      disabled={updateReservation.isPending}
-                    >
-                      <CheckCircle className="h-4 w-4 ml-1.5" />
-                      تأكيد الحجز
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      className="flex-1 shadow-lg shadow-red-500/20 h-9 rounded-xl font-semibold"
-                      onClick={() => handleReject(banner)}
-                      disabled={updateReservation.isPending}
-                    >
-                      <XCircle className="h-4 w-4 ml-1.5" />
-                      رفض
-                    </Button>
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="flex items-center gap-2">
+                    {!isStatusUpdate && (
+                      <>
+                        <Button
+                          size="sm"
+                          className="flex-1 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-lg shadow-emerald-500/25 border-0 h-9 rounded-xl font-semibold"
+                          onClick={() => handleConfirm(banner)}
+                          disabled={updateReservation.isPending}
+                        >
+                          <CheckCircle className="h-4 w-4 ml-1.5" />
+                          تأكيد الحجز
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="flex-1 shadow-lg shadow-red-500/20 h-9 rounded-xl font-semibold"
+                          onClick={() => handleReject(banner)}
+                          disabled={updateReservation.isPending}
+                        >
+                          <XCircle className="h-4 w-4 ml-1.5" />
+                          رفض
+                        </Button>
+                      </>
+                    )}
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-9 w-9 rounded-xl border-2 p-0"
+                      className={`h-9 rounded-xl border-2 ${isStatusUpdate ? 'flex-1 font-semibold' : 'w-9 p-0'}`}
                       onClick={() => {
+                        markRead.mutate(banner.notifId)
                         router.push(`/reservations/${banner.reservationId}`)
                         dismiss(banner.notifId)
                       }}
                     >
                       <ExternalLink className="h-4 w-4" />
+                      {isStatusUpdate && <span className="mr-1.5">عرض التفاصيل</span>}
                     </Button>
                   </motion.div>
                 </div>

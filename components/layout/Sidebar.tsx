@@ -53,7 +53,7 @@ const basicDataItems = [
     title: 'الوحدات',
     href: '/units',
     icon: Home,
-    roles: ['SuperAdmin', 'Receptionist'],
+    roles: ['SuperAdmin', 'Receptionist', 'Staff'],
   },
   {
     title: 'الضيوف',
@@ -151,7 +151,7 @@ const settingsItems = [
     title: 'سجل التدقيق',
     href: '/audit-logs',
     icon: Shield,
-    roles: ['SuperAdmin'],
+    roles: ['SuperAdmin', 'Receptionist', 'Staff'],
   },
   {
     title: 'سجل الأنشطة',
@@ -190,7 +190,7 @@ const menuItems = [
     title: 'طلبات الحجز',
     href: '/pending-reservations',
     icon: ClipboardCheck,
-    roles: ['SuperAdmin', 'Receptionist', 'Staff'],
+    roles: ['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff'],
   },
   {
     title: 'حجوزات متكررة',

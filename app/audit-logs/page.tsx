@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { RoleGuard } from '@/components/auth/RoleGuard'
+import { useAuth } from '@/contexts/AuthContext'
 import { toast } from '@/components/ui/use-toast'
 import {
   Shield, User, Clock, FileText, Plus, Pencil, Trash2, Filter, Mail,
@@ -23,6 +24,8 @@ import {
 const PAGE_SIZE = 20
 
 export default function AuditLogsPage() {
+  const { hasRole } = useAuth()
+  const isSuperAdmin = hasRole('SuperAdmin')
   const [resourceType, setResourceType] = useState<string>('all')
   const [action, setAction] = useState<string>('all')
   const [selectedUserId, setSelectedUserId] = useState<string>('all')
@@ -294,7 +297,7 @@ export default function AuditLogsPage() {
   }
 
   return (
-    <RoleGuard allowedRoles={['SuperAdmin']}>
+    <RoleGuard allowedRoles={['SuperAdmin', 'Receptionist', 'Staff'] as any}>
       <div className="p-6 space-y-6" dir="rtl">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -476,6 +479,7 @@ export default function AuditLogsPage() {
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
+                            {isSuperAdmin && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -485,6 +489,7 @@ export default function AuditLogsPage() {
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
+                            )}
                           </div>
                         </div>
                       </div>

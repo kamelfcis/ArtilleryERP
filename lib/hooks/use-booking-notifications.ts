@@ -5,6 +5,7 @@ export interface BookingNotification {
   id: string
   reservation_id: string
   created_by: string
+  notify_user_id?: string | null
   message: string
   is_read: boolean
   created_at: string
@@ -98,7 +99,7 @@ export function useMarkAllNotificationsRead() {
 export function useCreateBookingNotification() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (data: { reservation_id: string; created_by: string; message: string }) => {
+    mutationFn: async (data: { reservation_id: string; created_by: string; message: string; notify_user_id?: string }) => {
       const { error } = await supabase
         .from('booking_notifications')
         .insert(data)
