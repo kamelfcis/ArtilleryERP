@@ -150,6 +150,58 @@ export function InAppNotificationBanner() {
     }
   }, [isBranchManager])
 
+  const handleNewNotification = useCallback(async (notif: NotificationPayload) => {
+    if (processedIdsRef.current.has(notif.id)) return
+    processedIdsRef.current.add(notif.id)
+
+    playSound()
+
+    let reservation: ReservationDetail | undefined
+    try {
+      const { data } = await supabase
+        .from('reservations')
+        .select(`
+          id, reservation_number, check_in_date, check_out_date, total_amount, adults, children, source,
+          guest:guests(first_name, last_name, first_name_ar, last_name_ar, phone),
+          unit:units(unit_number, name, location:locations(name, name_ar))
+        `)
+        .eq('id', notif.reservation_id)
+        .single()
+      const raw = data as any
+      reservation = raw ? {
+        ...raw,
+        guest: Array.isArray(raw.guest) ? raw.guest[0] : raw.guest,
+        unit: Array.isArray(raw.unit) ? raw.unit[0] : raw.unit,
+      } : undefined
+    } catch {}
+
+    let creatorEmail: string | undefined
+    try {
+      const res = await fetch('/api/admin/users')
+      const json = await res.json()
+      const foundUser = json.users?.find((u: any) => u.id === notif.created_by)
+      creatorEmail = foundUser?.email
+    } catch {}
+
+    const banner: BannerNotification = {
+      notifId: notif.id,
+      reservationId: notif.reservation_id,
+      createdBy: notif.created_by,
+      message: notif.message,
+      createdAt: notif.created_at,
+      reservation,
+      creatorEmail,
+    }
+
+    showBrowserNotification(banner)
+    setBanners(prev => [banner, ...prev])
+    queryClient.invalidateQueries({ queryKey: ['booking-notifications'] })
+    queryClient.invalidateQueries({ queryKey: ['booking-notifications-count'] })
+
+    setTimeout(() => dismiss(notif.id), AUTO_DISMISS_MS)
+  }, [playSound, showBrowserNotification, queryClient, dismiss])
+
+  // Realtime subscription for instant notifications
   useEffect(() => {
     if (isBranchManager) return
 
@@ -158,62 +210,49 @@ export function InAppNotificationBanner() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'booking_notifications' },
-        async (payload) => {
-          const notif = payload.new as NotificationPayload
-          if (processedIdsRef.current.has(notif.id)) return
-          processedIdsRef.current.add(notif.id)
-
-          playSound()
-
-          let reservation: ReservationDetail | undefined
-          try {
-            const { data } = await supabase
-              .from('reservations')
-              .select(`
-                id, reservation_number, check_in_date, check_out_date, total_amount, adults, children, source,
-                guest:guests(first_name, last_name, first_name_ar, last_name_ar, phone),
-                unit:units(unit_number, name, location:locations(name, name_ar))
-              `)
-              .eq('id', notif.reservation_id)
-              .single()
-            const raw = data as any
-            reservation = raw ? {
-              ...raw,
-              guest: Array.isArray(raw.guest) ? raw.guest[0] : raw.guest,
-              unit: Array.isArray(raw.unit) ? raw.unit[0] : raw.unit,
-            } : undefined
-          } catch {}
-
-          let creatorEmail: string | undefined
-          try {
-            const res = await fetch('/api/admin/users')
-            const json = await res.json()
-            const user = json.users?.find((u: any) => u.id === notif.created_by)
-            creatorEmail = user?.email
-          } catch {}
-
-          const banner: BannerNotification = {
-            notifId: notif.id,
-            reservationId: notif.reservation_id,
-            createdBy: notif.created_by,
-            message: notif.message,
-            createdAt: notif.created_at,
-            reservation,
-            creatorEmail,
-          }
-
-          showBrowserNotification(banner)
-          setBanners(prev => [banner, ...prev])
-          queryClient.invalidateQueries({ queryKey: ['booking-notifications'] })
-          queryClient.invalidateQueries({ queryKey: ['booking-notifications-count'] })
-
-          setTimeout(() => dismiss(notif.id), AUTO_DISMISS_MS)
-        }
+        (payload) => { handleNewNotification(payload.new as NotificationPayload) }
       )
-      .subscribe()
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[Notifications] Realtime connected')
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('[Notifications] Realtime channel error — falling back to polling')
+        } else if (status === 'TIMED_OUT') {
+          console.error('[Notifications] Realtime timed out — falling back to polling')
+        }
+      })
 
     return () => { supabase.removeChannel(channel as RealtimeChannel) }
-  }, [isBranchManager, playSound, showBrowserNotification, queryClient, dismiss])
+  }, [isBranchManager, handleNewNotification])
+
+  // Polling fallback: check for new unread notifications every 15 seconds
+  useEffect(() => {
+    if (isBranchManager) return
+
+    const lastCheckedRef = { current: new Date().toISOString() }
+
+    const poll = async () => {
+      try {
+        const { data } = await supabase
+          .from('booking_notifications')
+          .select('id, reservation_id, created_by, message, created_at')
+          .eq('is_read', false)
+          .gt('created_at', lastCheckedRef.current)
+          .order('created_at', { ascending: true })
+          .limit(5)
+
+        if (data && data.length > 0) {
+          lastCheckedRef.current = data[data.length - 1].created_at
+          for (const notif of data) {
+            handleNewNotification(notif as NotificationPayload)
+          }
+        }
+      } catch {}
+    }
+
+    const interval = setInterval(poll, 15000)
+    return () => clearInterval(interval)
+  }, [isBranchManager, handleNewNotification])
 
   if (isBranchManager) return null
 
