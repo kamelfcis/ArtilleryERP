@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { toast } from '@/components/ui/use-toast'
+import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
 import { formatDateShort, formatCurrency } from '@/lib/utils'
 import { RESERVATION_STATUSES, RESERVATION_STATUS_COLORS } from '@/lib/constants'
 import {
@@ -113,7 +114,8 @@ export default function PendingReservationsPage() {
   const { data: authUsers } = useQuery({
     queryKey: ['admin-users-for-pending'],
     queryFn: async () => {
-      const res = await fetch('/api/admin/users')
+      const res = await fetchWithSupabaseAuth('/api/admin/users')
+      if (!res.ok) return []
       const json = await res.json()
       return json.users as { id: string; email: string }[]
     },

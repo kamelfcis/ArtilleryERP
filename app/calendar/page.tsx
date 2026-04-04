@@ -33,6 +33,7 @@ import { RefreshCw, RotateCcw, Search, UserPlus, Users, Home, Phone, Mail, User,
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet'
 import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query'
+import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
 import { supabase } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
 import { useSidebar } from '@/contexts/SidebarContext'
@@ -171,7 +172,7 @@ export default function CalendarPage() {
   const { data: authUsersForCreator } = useQuery({
     queryKey: ['auth-users-for-calendar'],
     queryFn: async () => {
-      const res = await fetch('/api/admin/users')
+      const res = await fetchWithSupabaseAuth('/api/admin/users')
       if (!res.ok) return []
       const { users } = await res.json()
       return users as Array<{ id: string; email?: string }>

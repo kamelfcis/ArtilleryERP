@@ -6,6 +6,31 @@ import { cookies } from 'next/headers'
 // This is a server-side API route for admin operations
 // Make sure to set SUPABASE_SERVICE_ROLE_KEY in your environment variables
 
+/** Resolve logged-in user from Bearer JWT (browser) or Supabase auth cookies (SSR). */
+async function getVerifiedAuthUser(request: NextRequest): Promise<{ id: string } | null> {
+  const bearer = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')?.trim()
+  const admin = getAdminClient()
+  if (bearer) {
+    const {
+      data: { user },
+      error,
+    } = await admin.auth.getUser(bearer)
+    if (error || !user) return null
+    return { id: user.id }
+  }
+  try {
+    const cookieStore = cookies()
+    const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore })
+    const {
+      data: { session },
+    } = await supabaseAuth.auth.getSession()
+    if (!session?.user) return null
+    return { id: session.user.id }
+  } catch {
+    return null
+  }
+}
+
 function getAdminClient() {
   return createClient(
     (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim(),
@@ -78,12 +103,8 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore })
-    const {
-      data: { session },
-    } = await supabaseAuth.auth.getSession()
-    if (!session?.user) {
+    const authed = await getVerifiedAuthUser(request)
+    if (!authed) {
       return NextResponse.json({ error: 'غير مصرح' }, { status: 401 })
     }
 

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
 import { useAuth } from '@/contexts/AuthContext'
 import { useUpdateReservation } from '@/lib/hooks/use-reservations'
 import { useMarkNotificationRead, useCreateBookingNotification } from '@/lib/hooks/use-booking-notifications'
@@ -205,10 +206,12 @@ export function InAppNotificationBanner() {
 
     let creatorEmail: string | undefined
     try {
-      const res = await fetch('/api/admin/users')
-      const json = await res.json()
-      const foundUser = json.users?.find((u: any) => u.id === notif.created_by)
-      creatorEmail = foundUser?.email
+      const res = await fetchWithSupabaseAuth('/api/admin/users')
+      if (res.ok) {
+        const json = await res.json()
+        const foundUser = json.users?.find((u: any) => u.id === notif.created_by)
+        creatorEmail = foundUser?.email
+      }
     } catch {}
 
     const banner: BannerNotification = {

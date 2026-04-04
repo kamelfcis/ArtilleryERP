@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from '@/components/ui/use-toast'
+import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
 import {
   Shield, User, Clock, FileText, Plus, Pencil, Trash2, Filter, Mail,
   Eye, ChevronLeft, ChevronRight, AlertTriangle, X, Loader2,
@@ -67,7 +68,7 @@ export default function AuditLogsPage() {
   const { data: authUsers, error: authUsersError } = useQuery({
     queryKey: ['auth-users-for-audit'],
     queryFn: async () => {
-      const res = await fetch('/api/admin/users', { credentials: 'same-origin' })
+      const res = await fetchWithSupabaseAuth('/api/admin/users')
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         throw new Error((body as { error?: string }).error || `HTTP ${res.status}`)

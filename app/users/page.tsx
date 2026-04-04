@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -80,7 +81,7 @@ export default function UsersPage() {
   const { data: users, isLoading } = useQuery({
     queryKey: ['users'],
     queryFn: async () => {
-      const response = await fetch('/api/admin/users')
+      const response = await fetchWithSupabaseAuth('/api/admin/users')
       if (!response.ok) {
         throw new Error('فشل في جلب المستخدمين')
       }
