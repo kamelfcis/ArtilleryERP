@@ -39,6 +39,61 @@ import { formatCurrency } from '@/lib/utils'
 import { useSidebar } from '@/contexts/SidebarContext'
 import '@/app/calendar/calendar-styles.css'
 
+const SHAKKA_3_ROOM_GRADIENT =
+  'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'
+const SHAKKA_2_ROOM_GRADIENT =
+  'linear-gradient(135deg, #f472b6 0%, #db2777 100%)'
+
+/** Distinct calendar resource icon backgrounds for "شقة 3 غرف" vs "شقة 2 غرف" (and beds fallback). */
+function getShakkaRoomIconGradient(unit: {
+  type?: string
+  name?: string
+  name_ar?: string
+  beds?: number
+} | null | undefined): string | null {
+  if (!unit) return null
+  const text = `${unit.name_ar || ''} ${unit.name || ''}`
+  const isApartment =
+    unit.type === 'apartment' || /شقة/.test(text)
+  if (!isApartment) return null
+
+  const bundle = text.toLowerCase()
+  const has3 =
+    /(^|[^\d])3\s*غرف/.test(bundle) ||
+    /٣\s*غرف/.test(text) ||
+    /ثلاث\s*غرف/.test(bundle) ||
+    /3\s*bedroom/.test(bundle)
+  const has2 =
+    /(^|[^\d])2\s*غرف/.test(bundle) ||
+    /٢\s*غرف/.test(text) ||
+    /غرفتين/.test(bundle) ||
+    /2\s*bedroom/.test(bundle)
+
+  if (has3 && !has2) return SHAKKA_3_ROOM_GRADIENT
+  if (has2 && !has3) return SHAKKA_2_ROOM_GRADIENT
+  if (has3 && has2) {
+    const pos3Candidates = [
+      bundle.search(/3\s*غرف/),
+      bundle.search(/ثلاث\s*غرف/),
+      text.search(/٣\s*غرف/),
+    ].filter((i) => i >= 0)
+    const pos2Candidates = [
+      bundle.search(/2\s*غرف/),
+      bundle.search(/غرفتين/),
+      text.search(/٢\s*غرف/),
+    ].filter((i) => i >= 0)
+    const pos3 = pos3Candidates.length ? Math.min(...pos3Candidates) : -1
+    const pos2 = pos2Candidates.length ? Math.min(...pos2Candidates) : -1
+    if (pos3 >= 0 && (pos2 < 0 || pos3 < pos2)) return SHAKKA_3_ROOM_GRADIENT
+    if (pos2 >= 0) return SHAKKA_2_ROOM_GRADIENT
+  }
+
+  const beds = unit.beds
+  if (beds === 3) return SHAKKA_3_ROOM_GRADIENT
+  if (beds === 2) return SHAKKA_2_ROOM_GRADIENT
+  return null
+}
+
 export default function CalendarPage() {
   const calendarRef = useRef<FullCalendar>(null)
   const calendarContainerRef = useRef<HTMLDivElement>(null)
@@ -1745,6 +1800,10 @@ export default function CalendarPage() {
                 const unitObj = arg.resource.extendedProps?.unit
                 const isMaintenance = unitObj?.status === 'maintenance'
                 const iconData = getUnitTypeIconData(unitType)
+                const shakkaGradient = !isMaintenance
+                  ? getShakkaRoomIconGradient(unitObj)
+                  : null
+                const iconGradient = shakkaGradient ?? iconData.gradient
                 
                 const maintenanceBadge = isMaintenance
                   ? `<span style="
@@ -1773,7 +1832,7 @@ export default function CalendarPage() {
                         width: 38px;
                         height: 38px;
                         border-radius: 10px;
-                        background: ${isMaintenance ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : iconData.gradient};
+                        background: ${isMaintenance ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : iconGradient};
                         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
                       ">
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
