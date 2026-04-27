@@ -2,20 +2,59 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { Guest } from '@/lib/types/database'
 
+// Strip characters that would break a PostgREST `.or(...ilike.…)` filter
+// (commas/parens are reserved separators, % and _ are ilike wildcards) so we
+// can interpolate user input safely without false matches.
+function sanitizeIlike(q: string): string {
+  return q
+    .replace(/\\/g, '')
+    .replace(/%/g, '')
+    .replace(/_/g, '')
+    .replace(/[,()]/g, '')
+    .trim()
+}
+
+// Normalize Arabic-Indic and Persian digits to ASCII so a phone typed as
+// "٠٥٠٠..." matches a phone stored as "0500...".
+function normalizeDigits(q: string): string {
+  return q.replace(/[\u0660-\u0669\u06F0-\u06F9]/g, (d) => {
+    const code = d.charCodeAt(0)
+    if (code >= 0x0660 && code <= 0x0669) return String(code - 0x0660)
+    if (code >= 0x06F0 && code <= 0x06F9) return String(code - 0x06F0)
+    return d
+  })
+}
+
 export function useGuests(search?: string) {
+  const trimmed = search?.trim() || ''
+  const normalized = trimmed ? sanitizeIlike(normalizeDigits(trimmed)) : ''
+
   return useQuery({
-    queryKey: ['guests', search],
+    // Key on the normalized search so equivalent inputs share a cache slot.
+    queryKey: ['guests', normalized],
     queryFn: async () => {
       let query = supabase
         .from('guests')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(100)
 
-      if (search) {
-        query = query.or(
-          `first_name.ilike.%${search}%,last_name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`
-        )
+      if (normalized) {
+        const pat = `%${normalized}%`
+        query = query
+          .or(
+            [
+              `first_name.ilike.${pat}`,
+              `last_name.ilike.${pat}`,
+              `first_name_ar.ilike.${pat}`,
+              `last_name_ar.ilike.${pat}`,
+              `phone.ilike.${pat}`,
+              `email.ilike.${pat}`,
+              `national_id.ilike.${pat}`,
+            ].join(',')
+          )
+          .limit(200)
+      } else {
+        query = query.limit(100)
       }
 
       const { data, error } = await query

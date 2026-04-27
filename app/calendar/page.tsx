@@ -2762,6 +2762,7 @@ function PremiumGuestSelectionDialog({
   onGuestCreated: () => void
 }) {
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [unitSearch, setUnitSearch] = useState('')
   const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>(initialUnitId ? [initialUnitId] : [])
   const [showNewGuestForm, setShowNewGuestForm] = useState(false)
@@ -2774,14 +2775,22 @@ function PremiumGuestSelectionDialog({
     }
   }, [initialUnitId])
 
+  // Debounce the guest search so each keystroke doesn't fire a Supabase query.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => clearTimeout(t)
+  }, [search])
+
   const toggleUnit = (unitId: string) => {
     setSelectedUnitIds(prev =>
       prev.includes(unitId) ? prev.filter(id => id !== unitId) : [...prev, unitId]
     )
   }
-  
-  // Use useGuests hook to automatically refresh when guests are invalidated
-  const { data: guestsData } = useGuests()
+
+  // Server-side search across the full guests table (the prior call without
+  // a search arg only returned the latest 100 rows, so older guests were
+  // unreachable). Falls back to the latest 100 when no search is entered.
+  const { data: guestsData } = useGuests(debouncedSearch || undefined)
   // Use the fresh data from hook if available, otherwise fall back to prop
   const guests = guestsData || guestsProp
 
@@ -2794,13 +2803,26 @@ function PremiumGuestSelectionDialog({
       unit.type?.toLowerCase().includes(unitSearch.toLowerCase())
   )
 
-  const filteredGuests = guests.filter(
-    (g) =>
-      g.first_name?.toLowerCase().includes(search.toLowerCase()) ||
-      g.last_name?.toLowerCase().includes(search.toLowerCase()) ||
-      g.phone?.includes(search) ||
-      g.email?.toLowerCase().includes(search.toLowerCase())
+  // The hook already returns matches for `debouncedSearch`. While the user is
+  // still typing (before the debounce settles) we narrow the previously
+  // returned set client-side using the live `search` term so the UI feels
+  // instant. Mirrors the server-side fields (incl. Arabic names + national_id).
+  const searchLower = search.toLowerCase()
+  const searchDigits = search.replace(/[\u0660-\u0669]/g, (d) =>
+    String(d.charCodeAt(0) - 0x0660)
   )
+  const filteredGuests = !search
+    ? guests
+    : guests.filter(
+        (g) =>
+          g.first_name?.toLowerCase().includes(searchLower) ||
+          g.last_name?.toLowerCase().includes(searchLower) ||
+          g.first_name_ar?.includes(search) ||
+          g.last_name_ar?.includes(search) ||
+          g.phone?.includes(searchDigits) ||
+          g.email?.toLowerCase().includes(searchLower) ||
+          g.national_id?.includes(searchDigits)
+      )
 
   if (showNewGuestForm) {
     return (
