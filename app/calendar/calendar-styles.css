@@ -82,10 +82,10 @@
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
 }
 
-/* Bolder, darker grid lines across all cells (timeline + datagrid + month). */
+/* Bolder blue grid lines across all cells (timeline + datagrid + month). */
 .fc-scrollgrid td,
 .fc-scrollgrid th {
-  border-color: #94a3b8 !important;
+  border-color: #60a5fa !important;
   border-width: 2px !important;
   border-style: solid !important;
 }
@@ -133,7 +133,7 @@
 /* Premium Day Slots in Header */
 .fc-timeline-header-row .fc-timeline-slot {
   background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%) !important;
-  border: 2px solid #94a3b8 !important;
+  border: 2px solid #60a5fa !important;
   position: relative;
   overflow: hidden;
 }
@@ -150,7 +150,7 @@
 }
 
 .fc-timeline-slot {
-  border: 2px solid #94a3b8 !important;
+  border: 2px solid #60a5fa !important;
   min-width: 100px !important;
 }
 
@@ -230,7 +230,7 @@
 
 /* Resource Cells (Unit rows) - Premium Glass Effect */
 .fc-datagrid-body .fc-datagrid-cell {
-  border-bottom: 2px solid #94a3b8 !important;
+  border-bottom: 2px solid #60a5fa !important;
   background: rgba(255, 255, 255, 0.9) !important;
   backdrop-filter: blur(5px);
 }
@@ -267,7 +267,7 @@
 
 /* ========== TIMELINE LANES (EVENT ROWS) ========== */
 .fc-timeline-lane {
-  border-bottom: 2px solid #94a3b8 !important;
+  border-bottom: 2px solid #60a5fa !important;
   background: rgba(255, 255, 255, 0.95) !important;
   height: 80px !important;
 }
@@ -461,7 +461,7 @@
 /* ========== DAY GRID STYLES ========== */
 .fc-daygrid-day {
   background: rgba(255, 255, 255, 0.95);
-  border: 2px solid #94a3b8 !important;
+  border: 2px solid #60a5fa !important;
   border-radius: 0 !important;
 }
 
@@ -505,7 +505,7 @@
 
 /* Time Grid */
 .fc-timegrid-slot {
-  border: 2px solid #94a3b8 !important;
+  border: 2px solid #60a5fa !important;
   height: 2.5rem !important;
 }
 
@@ -555,7 +555,7 @@
 
 .dark .fc-scrollgrid td,
 .dark .fc-scrollgrid th {
-  border-color: #64748b !important;
+  border-color: #3b82f6 !important;
 }
 
 .dark .fc-scrollgrid-section-header > td,
@@ -566,7 +566,7 @@
 
 .dark .fc-timeline-header-row .fc-timeline-slot {
   background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%) !important;
-  border-color: #64748b !important;
+  border-color: #3b82f6 !important;
 }
 
 .dark .fc-datagrid-body .fc-datagrid-cell,
