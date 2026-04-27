@@ -40,7 +40,7 @@ export default function AuditLogsPage() {
   const { hasRole } = useAuth()
   const isSuperAdmin = hasRole('SuperAdmin')
   const canDeleteAuditLogs = isSuperAdmin
-  const [resourceType, setResourceType] = useState<string>('all')
+  const [resourceType, setResourceType] = useState<string>('reservations')
   const [action, setAction] = useState<string>('all')
   const [selectedUserId, setSelectedUserId] = useState<string>('all')
   const [dateFrom, setDateFrom] = useState('')
