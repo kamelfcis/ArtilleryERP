@@ -2,11 +2,30 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { Reservation, ReservationStatus } from '@/lib/types/database'
 
+// Defense-in-depth ceiling so the implicit PostgREST row cap (typically 1000)
+// can't silently truncate our calendar / dashboard queries. Callers that need
+// a window should still pass overlapStart/overlapEnd to keep the payload small.
+const RESERVATIONS_MAX_ROWS = 9999
+
 export function useReservations(filters?: {
   locationId?: string
   status?: ReservationStatus
+  /**
+   * Filter reservations whose check_in_date is >= this date. Combined with
+   * `dateTo`, this enforces a fully-contained range (used by the reservations
+   * page advanced filters).
+   */
   dateFrom?: string
+  /** Filter reservations whose check_out_date is <= this date. */
   dateTo?: string
+  /**
+   * Overlap-window start (YYYY-MM-DD). Use this for calendar / timeline views:
+   * any reservation whose [check_in_date, check_out_date] interval intersects
+   * [overlapStart, overlapEnd] is returned.
+   */
+  overlapStart?: string
+  /** Overlap-window end (YYYY-MM-DD). */
+  overlapEnd?: string
 }) {
   return useQuery({
     queryKey: ['reservations', filters],
@@ -40,6 +59,7 @@ export function useReservations(filters?: {
           guest:guests (*)
         `)
         .order('check_in_date', { ascending: true })
+        .range(0, RESERVATIONS_MAX_ROWS)
 
       // Filter by unit IDs if location filter is applied
       if (unitIds && unitIds.length > 0) {
@@ -54,6 +74,15 @@ export function useReservations(filters?: {
       }
       if (filters?.dateTo) {
         query = query.lte('check_out_date', filters.dateTo)
+      }
+      // Overlap semantics: keep any reservation whose stay intersects the window.
+      // [check_in, check_out] overlaps [overlapStart, overlapEnd] iff
+      //   check_in_date <= overlapEnd AND check_out_date >= overlapStart.
+      if (filters?.overlapEnd) {
+        query = query.lte('check_in_date', filters.overlapEnd)
+      }
+      if (filters?.overlapStart) {
+        query = query.gte('check_out_date', filters.overlapStart)
       }
 
       const { data, error } = await query

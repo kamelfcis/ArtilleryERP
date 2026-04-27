@@ -301,6 +301,11 @@ export default function CalendarPage() {
   const { data: reservations, isLoading: reservationsLoading } = useReservations({
     locationId: effectiveLocationId,
     status: selectedStatus !== 'all' ? selectedStatus as any : undefined,
+    // Only fetch reservations that overlap the visible calendar window. This
+    // both speeds up loads and avoids the implicit Supabase row cap silently
+    // dropping future reservations on production datasets.
+    overlapStart: rangeStart,
+    overlapEnd: rangeEnd,
   })
   const { data: guests, isLoading: guestsLoading } = useGuests()
   const createReservation = useCreateReservation()
