@@ -1738,7 +1738,7 @@ export default function CalendarPage() {
               selectable={true}
               selectMirror={true}
               dayMaxEvents={true}
-              resourceAreaWidth="280px"
+              resourceAreaWidth="180px"
               resourceAreaHeaderContent={
                 <div className="text-center w-full font-bold text-lg">الوحدة</div>
               }
