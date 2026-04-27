@@ -76,15 +76,18 @@
 
 /* Main Calendar Container */
 .fc-scrollgrid {
-  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  border: 2px solid rgba(59, 130, 246, 0.35) !important;
   border-radius: 1rem !important;
   overflow: hidden;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
 }
 
+/* Bolder, darker grid lines across all cells (timeline + datagrid + month). */
 .fc-scrollgrid td,
 .fc-scrollgrid th {
-  border-color: #cbd5e1 !important;
+  border-color: #94a3b8 !important;
+  border-width: 2px !important;
+  border-style: solid !important;
 }
 
 .fc-scrollgrid-sync-table {
@@ -130,7 +133,7 @@
 /* Premium Day Slots in Header */
 .fc-timeline-header-row .fc-timeline-slot {
   background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%) !important;
-  border: 1px solid rgba(203, 213, 225, 0.6) !important;
+  border: 2px solid #94a3b8 !important;
   position: relative;
   overflow: hidden;
 }
@@ -147,7 +150,7 @@
 }
 
 .fc-timeline-slot {
-  border: 1px solid #cbd5e1 !important;
+  border: 2px solid #94a3b8 !important;
   min-width: 100px !important;
 }
 
@@ -221,13 +224,13 @@
 }
 
 .fc-resource-area {
-  border-right: 2px solid rgba(59, 130, 246, 0.3) !important;
+  border-right: 3px solid rgba(59, 130, 246, 0.5) !important;
   background: linear-gradient(180deg, #fafbfc 0%, #f8fafc 100%) !important;
 }
 
 /* Resource Cells (Unit rows) - Premium Glass Effect */
 .fc-datagrid-body .fc-datagrid-cell {
-  border-bottom: 1px solid #cbd5e1 !important;
+  border-bottom: 2px solid #94a3b8 !important;
   background: rgba(255, 255, 255, 0.9) !important;
   backdrop-filter: blur(5px);
 }
@@ -264,7 +267,7 @@
 
 /* ========== TIMELINE LANES (EVENT ROWS) ========== */
 .fc-timeline-lane {
-  border-bottom: 1px solid #cbd5e1 !important;
+  border-bottom: 2px solid #94a3b8 !important;
   background: rgba(255, 255, 255, 0.95) !important;
   height: 80px !important;
 }
@@ -458,7 +461,7 @@
 /* ========== DAY GRID STYLES ========== */
 .fc-daygrid-day {
   background: rgba(255, 255, 255, 0.95);
-  border: 1px solid rgba(226, 232, 240, 0.8) !important;
+  border: 2px solid #94a3b8 !important;
   border-radius: 0 !important;
 }
 
@@ -488,7 +491,7 @@
 .fc-col-header-cell {
   padding: 0.75rem !important;
   font-weight: 800 !important;
-  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  border: 2px solid rgba(59, 130, 246, 0.45) !important;
   border-radius: 0 !important;
   background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
 }
@@ -502,7 +505,7 @@
 
 /* Time Grid */
 .fc-timegrid-slot {
-  border: 1px solid rgba(226, 232, 240, 0.6) !important;
+  border: 2px solid #94a3b8 !important;
   height: 2.5rem !important;
 }
 
@@ -546,13 +549,13 @@
 
 /* ========== DARK MODE ========== */
 .dark .fc-scrollgrid {
-  border-color: rgba(59, 130, 246, 0.3) !important;
+  border-color: rgba(96, 165, 250, 0.5) !important;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
 .dark .fc-scrollgrid td,
 .dark .fc-scrollgrid th {
-  border-color: #475569 !important;
+  border-color: #64748b !important;
 }
 
 .dark .fc-scrollgrid-section-header > td,
@@ -563,7 +566,7 @@
 
 .dark .fc-timeline-header-row .fc-timeline-slot {
   background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%) !important;
-  border-color: #475569 !important;
+  border-color: #64748b !important;
 }
 
 .dark .fc-datagrid-body .fc-datagrid-cell,
@@ -599,7 +602,7 @@
 
 .dark .fc-resource-area {
   background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%) !important;
-  border-color: rgba(59, 130, 246, 0.3) !important;
+  border-color: rgba(96, 165, 250, 0.55) !important;
 }
 
 .dark .fc-timeline-lane:hover,
