@@ -18,6 +18,7 @@ import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from '@/components/ui/use-toast'
 import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
+import { cn } from '@/lib/utils'
 import {
   Shield, User, Clock, FileText, Plus, Pencil, Trash2, Filter, Mail,
   Eye, ChevronLeft, ChevronRight, AlertTriangle, X, Loader2,
@@ -326,20 +327,45 @@ export default function AuditLogsPage() {
     })
   }
 
-  function renderDetailSection(title: string, values: any) {
+  function renderDetailSection(
+    title: string,
+    values: any,
+    options?: { tone?: 'red' | 'emerald' | 'neutral' }
+  ) {
     if (!values || typeof values !== 'object') return null
-    const entries = Object.entries(values)
+    const entries = Object.entries(values).filter(
+      ([, v]) => v !== null && v !== undefined && v !== ''
+    )
     if (entries.length === 0) return null
+    const tone = options?.tone || 'neutral'
+    const titleTone = {
+      red: 'text-red-700 dark:text-red-300',
+      emerald: 'text-emerald-700 dark:text-emerald-300',
+      neutral: 'text-foreground',
+    }[tone]
+    const badgeTone = {
+      red: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300 border-red-200 dark:border-red-900/50',
+      emerald: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/50',
+      neutral: 'bg-background/80 text-muted-foreground border-border',
+    }[tone]
     return (
-      <div className="space-y-1">
-        <h4 className="text-sm font-bold text-foreground/80 mb-2 border-b pb-1">{title}</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+      <div>
+        <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-border/60">
+          <h4 className={cn('text-sm font-bold', titleTone)}>{title}</h4>
+          <span className={cn('text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border', badgeTone)}>
+            {entries.length} حقل
+          </span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
           {entries.map(([key, val]) => (
-            <div key={key} className="flex items-baseline gap-2 py-1.5 border-b border-dashed border-border/50 last:border-0">
-              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap min-w-[100px]">
+            <div
+              key={key}
+              className="grid grid-cols-[minmax(110px,140px)_1fr] items-start gap-3 py-2 border-b border-dashed border-border/40 last:border-0"
+            >
+              <span className="text-[11px] font-bold text-muted-foreground/90 uppercase tracking-wide whitespace-nowrap pt-0.5">
                 {fieldLabels[key] || key}
               </span>
-              <span className="text-sm font-medium text-foreground break-all">
+              <span className="text-sm font-medium text-foreground break-all leading-relaxed">
                 {formatFieldValue(key, val)}
               </span>
             </div>
@@ -782,18 +808,92 @@ export default function AuditLogsPage() {
                           </div>
                         </div>
                       )}
-                      <details className="group">
-                        <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
-                          <ChevronLeft className="h-3 w-3 transition-transform group-open:-rotate-90" />
-                          عرض جميع البيانات
+                      <details className="group rounded-xl border bg-card overflow-hidden shadow-sm">
+                        <summary className="cursor-pointer flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/40 transition-colors list-none [&::-webkit-details-marker]:hidden">
+                          <div className="flex items-center gap-3">
+                            <div className="p-1.5 rounded-md bg-muted text-muted-foreground group-open:bg-blue-100 group-open:text-blue-600 dark:group-open:bg-blue-950/40 dark:group-open:text-blue-400 transition-colors">
+                              <FileText className="h-4 w-4" />
+                            </div>
+                            <div className="flex flex-col items-start">
+                              <span className="text-sm font-bold text-foreground">عرض جميع البيانات</span>
+                              <span className="text-[11px] text-muted-foreground">
+                                مقارنة كاملة بين القيم القديمة والجديدة
+                              </span>
+                            </div>
+                          </div>
+                          <ChevronLeft className="h-4 w-4 text-muted-foreground transition-transform group-open:-rotate-90" />
                         </summary>
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-3">
-                          <div className="p-3 rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50/50 dark:bg-red-950/20">
-                            {renderDetailSection('القيم القديمة', detailLog.old_values)}
+
+                        <div className="border-t bg-muted/10">
+                          <div className="grid grid-cols-[minmax(110px,160px)_1fr_1fr] gap-3 px-4 py-2 bg-muted/40 border-b text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                            <span>الحقل</span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="inline-block w-2 h-2 rounded-full bg-red-400" />
+                              القيمة القديمة
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" />
+                              القيمة الجديدة
+                            </span>
                           </div>
-                          <div className="p-3 rounded-lg border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/50 dark:bg-emerald-950/20">
-                            {renderDetailSection('القيم الجديدة', detailLog.new_values)}
-                          </div>
+
+                          {(() => {
+                            const oldVals = (detailLog.old_values || {}) as Record<string, unknown>
+                            const newVals = (detailLog.new_values || {}) as Record<string, unknown>
+                            const allKeys = Array.from(new Set([...Object.keys(oldVals), ...Object.keys(newVals)]))
+                              .filter((k) => k !== 'updated_at')
+                            const sorted = allKeys.sort((a, b) => {
+                              const aChanged = JSON.stringify(oldVals[a]) !== JSON.stringify(newVals[a])
+                              const bChanged = JSON.stringify(oldVals[b]) !== JSON.stringify(newVals[b])
+                              if (aChanged !== bChanged) return aChanged ? -1 : 1
+                              return a.localeCompare(b)
+                            })
+                            if (sorted.length === 0) {
+                              return (
+                                <div className="text-center text-xs text-muted-foreground py-6">
+                                  لا توجد بيانات
+                                </div>
+                              )
+                            }
+                            return sorted.map((key) => {
+                              const ov = oldVals[key]
+                              const nv = newVals[key]
+                              const changed = JSON.stringify(ov) !== JSON.stringify(nv)
+                              return (
+                                <div
+                                  key={key}
+                                  className={cn(
+                                    'grid grid-cols-[minmax(110px,160px)_1fr_1fr] items-start gap-3 px-4 py-2.5 text-xs border-b border-border/30 last:border-0',
+                                    changed && 'bg-amber-50/40 dark:bg-amber-950/10'
+                                  )}
+                                >
+                                  <span className="font-bold text-muted-foreground/90 uppercase tracking-wide whitespace-nowrap pt-1">
+                                    {fieldLabels[key] || key}
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      'rounded-md px-2 py-1 break-all leading-relaxed',
+                                      changed
+                                        ? 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 line-through'
+                                        : 'text-foreground/60'
+                                    )}
+                                  >
+                                    {formatFieldValue(key, ov) || '—'}
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      'rounded-md px-2 py-1 break-all leading-relaxed',
+                                      changed
+                                        ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-bold'
+                                        : 'text-foreground/60'
+                                    )}
+                                  >
+                                    {formatFieldValue(key, nv) || '—'}
+                                  </span>
+                                </div>
+                              )
+                            })
+                          })()}
                         </div>
                       </details>
                     </div>
@@ -803,8 +903,8 @@ export default function AuditLogsPage() {
                         <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
                         <span className="text-sm font-bold text-red-700 dark:text-red-300">تم حذف {identity.title}</span>
                       </div>
-                      <div className="p-3 rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50/50 dark:bg-red-950/20">
-                        {renderDetailSection('البيانات المحذوفة', detailLog.old_values)}
+                      <div className="p-4 rounded-xl border border-red-200 dark:border-red-900/40 bg-red-50/40 dark:bg-red-950/15">
+                        {renderDetailSection('البيانات المحذوفة', detailLog.old_values, { tone: 'red' })}
                       </div>
                     </div>
                   ) : (
@@ -813,8 +913,8 @@ export default function AuditLogsPage() {
                         <Plus className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                         <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">تم إنشاء {identity.title}</span>
                       </div>
-                      <div className="p-3 rounded-lg border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/50 dark:bg-emerald-950/20">
-                        {renderDetailSection('البيانات الجديدة', detailLog.new_values)}
+                      <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/40 dark:bg-emerald-950/15">
+                        {renderDetailSection('البيانات الجديدة', detailLog.new_values, { tone: 'emerald' })}
                       </div>
                     </div>
                   )}
