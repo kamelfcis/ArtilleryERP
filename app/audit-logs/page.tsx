@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useAuditLogs, useDeleteAuditLog, type AuditLog } from '@/lib/hooks/use-audit-logs'
 import { useStaffList } from '@/lib/hooks/use-staff'
 import { useUnits } from '@/lib/hooks/use-units'
+import { useLocations } from '@/lib/hooks/use-locations'
 import { useGuests } from '@/lib/hooks/use-guests'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -43,6 +44,8 @@ export default function AuditLogsPage() {
   const [resourceType, setResourceType] = useState<string>('reservations')
   const [action, setAction] = useState<string>('all')
   const [selectedUserId, setSelectedUserId] = useState<string>('all')
+  const [selectedLocationId, setSelectedLocationId] = useState<string>('all')
+  const [selectedUnitId, setSelectedUnitId] = useState<string>('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
@@ -50,7 +53,39 @@ export default function AuditLogsPage() {
   const [detailLog, setDetailLog] = useState<AuditLog | null>(null)
   const [deleteLog, setDeleteLog] = useState<AuditLog | null>(null)
 
-  useEffect(() => { setCurrentPage(1) }, [resourceType, action, selectedUserId, dateFrom, dateTo])
+  useEffect(() => { setCurrentPage(1) }, [resourceType, action, selectedUserId, selectedLocationId, selectedUnitId, dateFrom, dateTo])
+
+  const { data: locationsList } = useLocations()
+  const { data: unitsList } = useUnits()
+  const { data: guestsList } = useGuests()
+
+  // Reset unit when its location no longer matches the picked location.
+  useEffect(() => {
+    if (selectedLocationId === 'all' || selectedUnitId === 'all' || !unitsList) return
+    const unit = unitsList.find((u) => u.id === selectedUnitId)
+    if (unit && unit.location_id !== selectedLocationId) {
+      setSelectedUnitId('all')
+    }
+  }, [selectedLocationId, selectedUnitId, unitsList])
+
+  // Unit IDs that belong to the selected location — used to filter logs of
+  // resources that reference unit_id (reservations, pricing, ...) by location.
+  const unitIdsForLocation = useMemo(() => {
+    if (selectedLocationId === 'all' || !unitsList) return undefined
+    return unitsList.filter((u) => u.location_id === selectedLocationId).map((u) => u.id)
+  }, [unitsList, selectedLocationId])
+
+  // Unit dropdown options, optionally narrowed to the selected location.
+  const unitFilterOptions = useMemo(() => {
+    if (!unitsList) return []
+    const list = selectedLocationId === 'all'
+      ? unitsList
+      : unitsList.filter((u) => u.location_id === selectedLocationId)
+    return list.map((u) => ({
+      id: u.id,
+      label: [u.unit_number ? `وحدة ${u.unit_number}` : '', u.name_ar || u.name || ''].filter(Boolean).join(' - ') || u.id,
+    }))
+  }, [unitsList, selectedLocationId])
 
   const { data: logs, isLoading } = useAuditLogs({
     resourceType: resourceType !== 'all' ? resourceType : undefined,
@@ -58,6 +93,10 @@ export default function AuditLogsPage() {
     userId: selectedUserId !== 'all' ? selectedUserId : undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
+    // If a specific unit is picked, that filter alone is more precise than the location filter.
+    unitId: selectedUnitId !== 'all' ? selectedUnitId : undefined,
+    locationId: selectedUnitId === 'all' && selectedLocationId !== 'all' ? selectedLocationId : undefined,
+    unitIdsForLocation: selectedUnitId === 'all' && selectedLocationId !== 'all' ? unitIdsForLocation : undefined,
     limit: 500,
   })
 
@@ -109,9 +148,6 @@ export default function AuditLogsPage() {
     }
     return map
   }, [staffList, authUsers])
-
-  const { data: unitsList } = useUnits()
-  const { data: guestsList } = useGuests()
 
   const unitById = useMemo(() => {
     const map = new Map<string, string>()
@@ -393,7 +429,7 @@ export default function AuditLogsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
               <div className="space-y-1.5">
                 <Label className="text-xs">نوع المورد</Label>
                 <Select value={resourceType} onValueChange={setResourceType}>
@@ -426,6 +462,34 @@ export default function AuditLogsPage() {
                   <SelectContent>
                     <SelectItem value="all">جميع المستخدمين</SelectItem>
                     {userFilterOptions.map(({ id, label }) => (
+                      <SelectItem key={id} value={id}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">الموقع</Label>
+                <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
+                  <SelectTrigger className="h-9"><SelectValue placeholder="الكل" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">جميع المواقع</SelectItem>
+                    {(locationsList || []).map((loc) => (
+                      <SelectItem key={loc.id} value={loc.id}>
+                        {loc.name_ar || loc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">الوحدة</Label>
+                <Select value={selectedUnitId} onValueChange={setSelectedUnitId}>
+                  <SelectTrigger className="h-9"><SelectValue placeholder="الكل" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">جميع الوحدات</SelectItem>
+                    {unitFilterOptions.map(({ id, label }) => (
                       <SelectItem key={id} value={id}>
                         {label}
                       </SelectItem>

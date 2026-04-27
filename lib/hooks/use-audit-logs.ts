@@ -21,6 +21,16 @@ export function useAuditLogs(filters?: {
   action?: string
   dateFrom?: string
   dateTo?: string
+  /** Match logs whose new_values->>unit_id OR old_values->>unit_id equals this id. */
+  unitId?: string
+  /**
+   * Match logs whose new_values->>location_id OR old_values->>location_id equals this id
+   * (for `units` resource), OR whose unit_id is in the provided unitIdsForLocation list
+   * (for resources that reference units, e.g. reservations / pricing).
+   */
+  locationId?: string
+  /** Pre-resolved list of unit IDs that belong to `locationId`; required for cross-resource location filtering. */
+  unitIdsForLocation?: string[]
   limit?: number
 }) {
   return useQuery({
@@ -49,6 +59,33 @@ export function useAuditLogs(filters?: {
       }
       if (filters?.dateTo) {
         query = query.lte('created_at', filters.dateTo)
+      }
+
+      // Filter by unit_id stored inside the JSONB row payload.
+      // INSERT logs have only new_values; DELETE logs have only old_values; UPDATE logs have both.
+      if (filters?.unitId) {
+        query = query.or(
+          [
+            `new_values->>unit_id.eq.${filters.unitId}`,
+            `old_values->>unit_id.eq.${filters.unitId}`,
+          ].join(',')
+        )
+      }
+
+      // Filter by location: matches `units` rows directly via location_id, and matches
+      // unit-referencing rows (reservations, pricing, ...) via unit_id ∈ unitIdsForLocation.
+      if (filters?.locationId) {
+        const conditions: string[] = [
+          `new_values->>location_id.eq.${filters.locationId}`,
+          `old_values->>location_id.eq.${filters.locationId}`,
+        ]
+        const unitIds = filters.unitIdsForLocation
+        if (unitIds && unitIds.length > 0) {
+          const list = unitIds.join(',')
+          conditions.push(`new_values->>unit_id.in.(${list})`)
+          conditions.push(`old_values->>unit_id.in.(${list})`)
+        }
+        query = query.or(conditions.join(','))
       }
 
       const { data, error } = await query
