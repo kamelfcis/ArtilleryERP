@@ -34,7 +34,7 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
             staleTime: 5 * 60 * 1000, // 5 minutes
             refetchOnWindowFocus: false,
             refetchOnMount: false,
-            refetchOnReconnect: false,
+            refetchOnReconnect: 'always',
             retry: 1,
           },
         },
@@ -55,7 +55,8 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
           // small and avoids caching sensitive data like guest lists.
           shouldDehydrateQuery: (query) =>
             Array.isArray(query.queryKey) &&
-            query.queryKey[0] === 'calendar-window',
+            query.queryKey[0] === 'calendar-window' &&
+            query.state.status === 'success',
         },
       }}
     >

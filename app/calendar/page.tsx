@@ -300,6 +300,7 @@ export default function CalendarPage() {
   // Prefetch the previous and next calendar windows so navigation feels instant.
   useEffect(() => {
     if (!rangeStart || !rangeEnd) return
+    if (!navigator.onLine) return
     const startDate = new Date(rangeStart)
     const endDate = new Date(rangeEnd)
     const durationMs = endDate.getTime() - startDate.getTime()

@@ -237,26 +237,45 @@ export function InAppNotificationBanner() {
     setTimeout(() => dismiss(notif.id), AUTO_DISMISS_MS)
   }, [playSound, showBrowserNotification, queryClient, dismiss, restrictedBranchManager, user?.id])
 
-  // Realtime subscription for instant notifications
+  // Realtime subscription for instant notifications — only when online
   useEffect(() => {
-    const channel = supabase
-      .channel('premium-booking-banner')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'booking_notifications' },
-        (payload) => { handleNewNotification(payload.new as NotificationPayload) }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('[Notifications] Realtime connected')
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('[Notifications] Realtime channel error — falling back to polling')
-        } else if (status === 'TIMED_OUT') {
-          console.error('[Notifications] Realtime timed out — falling back to polling')
-        }
-      })
+    let activeChannel: ReturnType<typeof supabase.channel> | null = null
 
-    return () => { supabase.removeChannel(channel as RealtimeChannel) }
+    const subscribe = () => {
+      if (!navigator.onLine) return
+      activeChannel = supabase
+        .channel('premium-booking-banner')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'booking_notifications' },
+          (payload) => { handleNewNotification(payload.new as NotificationPayload) }
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('[Notifications] Realtime connected')
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('[Notifications] Realtime channel error — falling back to polling')
+          } else if (status === 'TIMED_OUT') {
+            console.error('[Notifications] Realtime timed out — falling back to polling')
+          }
+        })
+    }
+
+    const handleOnline = () => {
+      if (activeChannel) {
+        supabase.removeChannel(activeChannel as RealtimeChannel)
+        activeChannel = null
+      }
+      subscribe()
+    }
+
+    subscribe()
+    window.addEventListener('online', handleOnline)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      if (activeChannel) supabase.removeChannel(activeChannel as RealtimeChannel)
+    }
   }, [handleNewNotification])
 
   // Polling fallback: check for new unread notifications every 15 seconds
