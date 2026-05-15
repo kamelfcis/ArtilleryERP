@@ -84,6 +84,12 @@ const migrationOrder = [
     required: false,
     priority: 12,
   },
+  {
+    file: 'calendar-window-rpc.sql',
+    description: 'تسريع التقويم: عرض موحد + RPC + فهارس + عمود created_by_user_id',
+    required: true,
+    priority: 13,
+  },
 ]
 
 function getFileSize(filePath) {

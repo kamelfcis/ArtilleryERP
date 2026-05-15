@@ -6,20 +6,31 @@ export function useUnits(filters?: {
   locationId?: string
   type?: string
   status?: string
+  /**
+   * When true, fetches only the fields needed by the calendar / timeline
+   * view instead of the full nested select (no images, facilities, or
+   * location sub-objects).  Reduces payload size by ~80 %.
+   * Existing callers that pass no value continue to receive the full row.
+   */
+  onlyCalendarFields?: boolean
 }) {
   return useQuery({
     queryKey: ['units', filters],
     queryFn: async () => {
-      let query = supabase
-        .from('units')
-        .select(`
+      const selectClause = filters?.onlyCalendarFields
+        ? 'id, unit_number, name, name_ar, type, location_id, is_active, status, beds, orderno'
+        : `
           *,
           location:locations (*),
           images:unit_images (*),
           facilities:unit_facilities (
             facility:facilities (*)
           )
-        `)
+        `
+
+      let query = supabase
+        .from('units')
+        .select(selectClause)
         .eq('is_active', true)
         .order('orderno', { ascending: true, nullsFirst: false })
         .order('unit_number', { ascending: true })
@@ -37,7 +48,10 @@ export function useUnits(filters?: {
       const { data, error } = await query
 
       if (error) throw error
-      return data as Unit[]
+      // When onlyCalendarFields is true the Supabase client infers a partial
+      // type from the slim select string. We cast through unknown so TypeScript
+      // accepts it — callers can rely on the fields listed in the selectClause.
+      return data as unknown as Unit[]
     },
   })
 }

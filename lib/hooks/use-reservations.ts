@@ -1,6 +1,7 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { Reservation, ReservationStatus } from '@/lib/types/database'
+import type { CalendarEvent, CalendarWindowArgs } from '@/lib/types/calendar'
 
 // Defense-in-depth ceiling so the implicit PostgREST row cap (typically 1000)
 // can't silently truncate our calendar / dashboard queries. Callers that need
@@ -270,6 +271,46 @@ export function useDeleteReservation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
     },
+  })
+}
+
+// ─────────────────────────────────────────────────────────────
+// Calendar-specific fast-path: single RPC returning flat rows
+// ─────────────────────────────────────────────────────────────
+
+/** Stable query key for a calendar window. */
+export const calendarWindowKey = (a: CalendarWindowArgs) =>
+  ['calendar-window', a] as const
+
+/**
+ * Bare fetch function exported so callers can pass it directly to
+ * queryClient.prefetchQuery without duplicating the RPC call.
+ */
+export async function fetchCalendarWindow(
+  a: CalendarWindowArgs
+): Promise<CalendarEvent[]> {
+  const { data, error } = await supabase.rpc('get_calendar_window', {
+    p_location_id: a.locationId ?? null,
+    p_start: a.start,
+    p_end: a.end,
+    p_status: a.status ?? null,
+  })
+  if (error) throw error
+  return (data ?? []) as CalendarEvent[]
+}
+
+/**
+ * Hook for the calendar page.
+ * Returns flat CalendarEvent rows from vw_calendar_events via a single
+ * Postgres RPC.  Uses keepPreviousData so the calendar stays populated
+ * while the next window is loading (no spinner flash on date navigation).
+ */
+export function useCalendarReservations(a: CalendarWindowArgs) {
+  return useQuery({
+    queryKey: calendarWindowKey(a),
+    queryFn: () => fetchCalendarWindow(a),
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
   })
 }
 

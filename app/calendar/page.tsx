@@ -8,12 +8,13 @@ import resourceTimelinePlugin from '@fullcalendar/resource-timeline'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
-import { useReservations } from '@/lib/hooks/use-reservations'
+import { useCalendarReservations, fetchCalendarWindow, calendarWindowKey, useCreateReservation, useUpdateReservation, useDeleteReservation } from '@/lib/hooks/use-reservations'
+import type { CalendarEvent as CalendarEventRow, CalendarWindowArgs } from '@/lib/types/calendar'
 import { useUnits } from '@/lib/hooks/use-units'
 import { useLocations } from '@/lib/hooks/use-locations'
 import { useCurrentStaff, useStaffList } from '@/lib/hooks/use-staff'
 import { useAuth } from '@/contexts/AuthContext'
-import { useCreateReservation, useUpdateReservation, useDeleteReservation } from '@/lib/hooks/use-reservations'
+import { useReservationsRealtime } from '@/lib/hooks/use-realtime'
 import { useGuests, useCreateGuest } from '@/lib/hooks/use-guests'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -179,7 +180,7 @@ export default function CalendarPage() {
   const [currentView, setCurrentView] = useState<'timeline' | 'day' | 'week' | 'month' | 'resourceTimeline'>('resourceTimeline')
   const [guestDialogOpen, setGuestDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [reservationToDelete, setReservationToDelete] = useState<Reservation | null>(null)
+  const [reservationToDelete, setReservationToDelete] = useState<CalendarEventRow | null>(null)
   const [blockDeleteDialogOpen, setBlockDeleteDialogOpen] = useState(false)
   const [blockToDelete, setBlockToDelete] = useState<any>(null)
   const [isUpdatingStatuses, setIsUpdatingStatuses] = useState(false)
@@ -193,7 +194,7 @@ export default function CalendarPage() {
     newEndDate?: string
     newUnitId?: string
   } | null>(null)
-  const [changeUnitReservation, setChangeUnitReservation] = useState<Reservation | null>(null)
+  const [changeUnitReservation, setChangeUnitReservation] = useState<CalendarEventRow | null>(null)
   const [changeUnitDialogOpen, setChangeUnitDialogOpen] = useState(false)
   const [changingUnit, setChangingUnit] = useState(false)
   const [changeUnitSearch, setChangeUnitSearch] = useState('')
@@ -235,28 +236,8 @@ export default function CalendarPage() {
     enabled: true,
   })
 
-  const { data: reservationCreatorLogs } = useQuery({
-    queryKey: ['audit-logs-reservation-creators'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('audit_logs')
-        .select('resource_id, user_id')
-        .eq('resource_type', 'reservations')
-        .eq('action', 'INSERT')
-      if (error) throw error
-      return data as Array<{ resource_id: string; user_id: string }>
-    },
-  })
-
-  const reservationCreatorById = useMemo(() => {
-    const map = new Map<string, string>()
-    if (reservationCreatorLogs) {
-      for (const log of reservationCreatorLogs) {
-        if (log.resource_id && log.user_id) map.set(log.resource_id, log.user_id)
-      }
-    }
-    return map
-  }, [reservationCreatorLogs])
+  // created_by_user_id is now inlined on every CalendarEventRow from vw_calendar_events.
+  // The audit-logs-reservation-creators query is no longer needed.
 
   const staffByUserId = useMemo(() => {
     const map = new Map<string, string>()
@@ -281,9 +262,11 @@ export default function CalendarPage() {
     : (selectedLocation !== 'all' ? selectedLocation : undefined)
 
   const { data: locations, isLoading: locationsLoading } = useLocations()
-  // Fetch all units for the location (no type filter) to derive available unit types for the dropdown
+  // Fetch all units for the location (no type filter) to derive available unit types for the dropdown.
+  // onlyCalendarFields trims the select to slim columns — no nested images/facilities/location objects.
   const { data: allLocationUnits, isLoading: unitsLoading } = useUnits({
     locationId: effectiveLocationId,
+    onlyCalendarFields: true,
   })
   
   // Filter units client-side by selected types
@@ -298,15 +281,41 @@ export default function CalendarPage() {
     if (!allLocationUnits) return []
     return [...new Set(allLocationUnits.map(u => u.type))]
   }, [allLocationUnits])
-  const { data: reservations, isLoading: reservationsLoading } = useReservations({
+  const calendarArgs: CalendarWindowArgs = {
     locationId: effectiveLocationId,
-    status: selectedStatus !== 'all' ? selectedStatus as any : undefined,
-    // Only fetch reservations that overlap the visible calendar window. This
-    // both speeds up loads and avoids the implicit Supabase row cap silently
-    // dropping future reservations on production datasets.
-    overlapStart: rangeStart,
-    overlapEnd: rangeEnd,
-  })
+    start: rangeStart,
+    end: rangeEnd,
+    status: selectedStatus !== 'all' ? selectedStatus : undefined,
+  }
+  const { data: reservations, isLoading: reservationsLoading } = useCalendarReservations(calendarArgs)
+
+  // Real-time cache patches — mutates the cached window instead of invalidating it.
+  useReservationsRealtime(calendarArgs)
+
+  // Prefetch the previous and next calendar windows so navigation feels instant.
+  useEffect(() => {
+    if (!rangeStart || !rangeEnd) return
+    const startDate = new Date(rangeStart)
+    const endDate = new Date(rangeEnd)
+    const durationMs = endDate.getTime() - startDate.getTime()
+    const durationDays = Math.round(durationMs / (1000 * 60 * 60 * 24)) + 1
+    const fmt = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+    const shift = (dir: -1 | 1): CalendarWindowArgs => {
+      const s = new Date(rangeStart)
+      const e = new Date(rangeEnd)
+      s.setDate(s.getDate() + dir * durationDays)
+      e.setDate(e.getDate() + dir * durationDays)
+      return { ...calendarArgs, start: fmt(s), end: fmt(e) }
+    }
+
+    const prev = shift(-1)
+    const next = shift(+1)
+    queryClient.prefetchQuery({ queryKey: calendarWindowKey(prev), queryFn: () => fetchCalendarWindow(prev), staleTime: 60_000 })
+    queryClient.prefetchQuery({ queryKey: calendarWindowKey(next), queryFn: () => fetchCalendarWindow(next), staleTime: 60_000 })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeStart, rangeEnd, effectiveLocationId, selectedStatus])
   const { data: guests, isLoading: guestsLoading } = useGuests()
   const createReservation = useCreateReservation()
   const createBookingNotif = useCreateBookingNotification()
@@ -341,9 +350,9 @@ export default function CalendarPage() {
     },
   })
 
-  // Fetch room blocks
+  // Fetch room blocks — scoped to the visible date range for efficiency.
   const { data: roomBlocks, isLoading: roomBlocksLoading } = useQuery({
-    queryKey: ['room-blocks'],
+    queryKey: ['room-blocks', rangeStart, rangeEnd],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('room_blocks')
@@ -358,6 +367,8 @@ export default function CalendarPage() {
             )
           )
         `)
+        .lte('start_date', rangeEnd)
+        .gte('end_date', rangeStart)
         .order('start_date', { ascending: false })
 
       if (error) throw error
@@ -482,26 +493,25 @@ export default function CalendarPage() {
     })
   }, [units, selectedUnit])
 
-      // Filter events to only show reservations for filtered units
+      // Filter events to only show reservations for filtered units.
+      // reservations is now CalendarEventRow[] — all guest/unit fields are flat.
       const reservationEvents = useMemo(() => {
         if (!reservations) return []
 
-        return reservations
+        return (reservations as CalendarEventRow[])
           .filter(reservation => filteredUnitIds.has(reservation.unit_id))
           .map(reservation => {
             const statusColor = getStatusColor(reservation.status)
-            const unitNumber = reservation.unit?.unit_number || ''
-            const guestName = `${reservation.guest?.first_name || ''} ${reservation.guest?.last_name || ''}`.trim() || reservation.reservation_number
-            const guestPhone = reservation.guest?.phone || ''
-            // Format created_at date/time
-            const createdAt = reservation.created_at 
-              ? new Date(reservation.created_at).toLocaleString('ar-EG', { 
+            const unitNumber = reservation.unit_number || ''
+            const guestName = `${reservation.guest_first_name_ar || reservation.guest_first_name || ''} ${reservation.guest_last_name_ar || reservation.guest_last_name || ''}`.trim() || ''
+            const guestPhone = reservation.guest_phone || ''
+            const createdAt = reservation.created_at
+              ? new Date(reservation.created_at).toLocaleString('ar-EG', {
                   day: '2-digit', month: '2-digit', year: 'numeric',
-                  hour: '2-digit', minute: '2-digit', hour12: true 
+                  hour: '2-digit', minute: '2-digit', hour12: true,
                 })
               : ''
-            // For resource timeline, show guest name, phone, and creation date
-            const eventTitle = currentView === 'resourceTimeline' 
+            const eventTitle = currentView === 'resourceTimeline'
               ? [guestName, guestPhone ? `📞 ${guestPhone}` : '', createdAt ? `🕐 ${createdAt}` : ''].filter(Boolean).join(' | ')
               : [unitNumber ? `${unitNumber} - ${guestName}` : guestName, guestPhone ? `📞 ${guestPhone}` : '', createdAt ? `🕐 ${createdAt}` : ''].filter(Boolean).join(' | ')
 
@@ -510,15 +520,15 @@ export default function CalendarPage() {
               title: eventTitle,
               start: reservation.check_in_date,
               end: reservation.check_out_date,
-              resourceId: reservation.unit_id, // Link event to resource (unit)
+              resourceId: reservation.unit_id,
               backgroundColor: statusColor,
               borderColor: statusColor,
               classNames: [`status-${reservation.status}`],
               extendedProps: {
                 reservation,
                 status: reservation.status,
-                unitNumber: unitNumber,
-                guestPhone: guestPhone,
+                unitNumber,
+                guestPhone,
               },
             }
           })
@@ -782,7 +792,7 @@ export default function CalendarPage() {
     }
 
     // Handle reservation events - left click navigates to detail
-    const reservation = clickInfo.event.extendedProps.reservation as Reservation
+    const reservation = clickInfo.event.extendedProps.reservation as CalendarEventRow
     if (reservation?.id) {
       saveScrollPosition()
       router.push(`/reservations/${reservation.id}`)
@@ -983,7 +993,7 @@ export default function CalendarPage() {
   }
 
   function handleEventDrop(dropInfo: any) {
-    const reservation = dropInfo.event.extendedProps.reservation as Reservation
+    const reservation = dropInfo.event.extendedProps.reservation as CalendarEventRow
     if (!reservation) return
 
     const newStartDate = dropInfo.event.startStr
@@ -1017,7 +1027,7 @@ export default function CalendarPage() {
   }
 
   function handleEventResize(resizeInfo: any) {
-    const reservation = resizeInfo.event.extendedProps.reservation as Reservation
+    const reservation = resizeInfo.event.extendedProps.reservation as CalendarEventRow
     if (!reservation) return
 
     const fmtDate = (d: string) => new Date(d).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit' })
@@ -1044,7 +1054,7 @@ export default function CalendarPage() {
     const { type, info, reservationId, newStartDate, newEndDate, newUnitId } = pendingEventChange
 
     if (type === 'drop') {
-      const reservation = info.event.extendedProps.reservation as Reservation
+      const reservation = info.event.extendedProps.reservation as CalendarEventRow
       const unitChanged = newUnitId && newUnitId !== reservation.unit_id
 
       try {
@@ -1851,10 +1861,10 @@ export default function CalendarPage() {
                 }
               }}
               eventContent={(arg) => {
-                const reservation = arg.event.extendedProps.reservation as Reservation | undefined
+                const reservation = arg.event.extendedProps.reservation as CalendarEventRow | undefined
                 if (reservation) {
-                  const guestName = `${reservation.guest?.first_name_ar || reservation.guest?.first_name || ''} ${reservation.guest?.last_name_ar || reservation.guest?.last_name || ''}`.trim() || reservation.reservation_number
-                  const phone = reservation.guest?.phone || ''
+                  const guestName = `${reservation.guest_first_name_ar || reservation.guest_first_name || ''} ${reservation.guest_last_name_ar || reservation.guest_last_name || ''}`.trim() || reservation.id.substring(0, 8)
+                  const phone = reservation.guest_phone || ''
 
                   const checkIn = new Date(reservation.check_in_date)
                   const checkOut = new Date(reservation.check_out_date)
@@ -1946,7 +1956,7 @@ export default function CalendarPage() {
                       setBlockDeleteDialogOpen(true)
                       return
                     }
-                    const reservation = arg.event.extendedProps.reservation as Reservation
+                    const reservation = arg.event.extendedProps.reservation as CalendarEventRow
                     if (reservation) {
                       setReservationToDelete(reservation)
                       setDeleteDialogOpen(true)
@@ -2007,7 +2017,7 @@ export default function CalendarPage() {
                   changeUnitBtn.onclick = (e) => {
                     e.stopPropagation()
                     e.preventDefault()
-                    const res = arg.event.extendedProps.reservation as Reservation
+                    const res = arg.event.extendedProps.reservation as CalendarEventRow
                     if (res) {
                       setChangeUnitReservation(res)
                       setChangeUnitDialogOpen(true)
@@ -2068,7 +2078,7 @@ export default function CalendarPage() {
                   openTabBtn.onclick = (e) => {
                     e.stopPropagation()
                     e.preventDefault()
-                    const res = arg.event.extendedProps.reservation as Reservation
+                    const res = arg.event.extendedProps.reservation as CalendarEventRow
                     if (res?.id) {
                       window.open(`/reservations/${res.id}`, '_blank')
                     }
@@ -2078,31 +2088,30 @@ export default function CalendarPage() {
                 }
 
                 // Add right-click tooltip for reservations
-                const reservation = arg.event.extendedProps.reservation as Reservation | undefined
+                const reservation = arg.event.extendedProps.reservation as CalendarEventRow | undefined
                 if (reservation) {
                   // Helper: build tooltip HTML from the latest reservation data
                   const statusMap: Record<string, string> = { pending: 'قيد الانتظار', confirmed: 'مؤكد', checked_in: 'تم تسجيل الدخول', checked_out: 'تم تسجيل الخروج', cancelled: 'ملغي', no_show: 'لم يحضر' }
                   const guestTypeMap: Record<string, string> = { military: 'عسكري', civilian: 'مدني', club_member: 'عضو دار', artillery_family: 'ابناء مدفعية' }
 
-                  function buildTooltipHTML(res: Reservation): string {
-                    const gName = `${res.guest?.first_name_ar || res.guest?.first_name || ''} ${res.guest?.last_name_ar || res.guest?.last_name || ''}`.trim()
-                    const ph = res.guest?.phone || ''
+                  function buildTooltipHTML(res: CalendarEventRow): string {
+                    const gName = `${res.guest_first_name_ar || res.guest_first_name || ''} ${res.guest_last_name_ar || res.guest_last_name || ''}`.trim()
+                    const ph = res.guest_phone || ''
                     const cIn = res.check_in_date ? new Date(res.check_in_date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
                     const cOut = res.check_out_date ? new Date(res.check_out_date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
                     const cAt = res.created_at ? new Date(res.created_at).toLocaleString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : ''
                     const st = res.status || ''
-                    const gType = res.guest?.guest_type || ''
-                    const notes = res.notes_ar || res.notes || ''
-                    const creatorUserId = res.created_by || (res.id ? reservationCreatorById.get(res.id) : undefined)
+                    const gType = ''
+                    const notes = res.notes || ''
+                    const creatorUserId = res.created_by_user_id
                     const creatorName = creatorUserId ? (staffByUserId.get(creatorUserId) || creatorUserId.substring(0, 8) + '...') : null
                     return `
                       <button class="fc-tooltip-close" style="position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2);color:#f1f5f9;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background 0.15s;">&times;</button>
                       <div style="font-weight: 700; font-size: 15px; margin-bottom: 8px; color: #60a5fa; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
-                        👤 ${gName || res.reservation_number}
+                        👤 ${gName || res.id.substring(0, 8)}
                       </div>
                       ${ph ? `<div style="margin-bottom: 4px;">📞 <span style="color: #a5b4fc;">${ph}</span></div>` : ''}
                       ${gType ? `<div style="margin-bottom: 4px;">🏷️ نوع الضيف: <span style="color: #38bdf8;">${guestTypeMap[gType] || gType}</span></div>` : ''}
-                      ${res.reservation_number ? `<div style="margin-bottom: 4px;">🔖 رقم الحجز: <span style="color: #fbbf24;">${res.reservation_number}</span></div>` : ''}
                       <div style="margin-bottom: 4px;">📅 الدخول: <span style="color: #34d399;">${cIn}</span></div>
                       <div style="margin-bottom: 4px;">📅 الخروج: <span style="color: #fb923c;">${cOut}</span></div>
                       ${st ? `<div style="margin-bottom: 4px;">📌 الحالة: <span style="color: #c084fc;">${statusMap[st] || st}</span></div>` : ''}
@@ -2148,7 +2157,7 @@ export default function CalendarPage() {
                       (el as HTMLElement).style.display = 'none'
                     })
                     // Rebuild tooltip content from the LATEST extendedProps data
-                    const latestRes = arg.event.extendedProps.reservation as Reservation
+                    const latestRes = arg.event.extendedProps.reservation as CalendarEventRow
                     tooltip.innerHTML = buildTooltipHTML(latestRes)
                     // Re-attach close button listener
                     const closeBtn = tooltip.querySelector('.fc-tooltip-close') as HTMLElement
@@ -2613,10 +2622,10 @@ export default function CalendarPage() {
             {reservationToDelete && (
               <div className="space-y-2 mt-4 text-center">
                 <div className="text-lg font-bold text-red-600 dark:text-red-400 py-2 px-4 bg-red-50 dark:bg-red-950/30 rounded-lg border border-red-200 dark:border-red-800">
-                  {reservationToDelete.reservation_number}
+                  {reservationToDelete.id.substring(0, 8)}…
                 </div>
                 <div className="text-sm text-muted-foreground">
-                  {reservationToDelete.guest?.first_name_ar || reservationToDelete.guest?.first_name} {reservationToDelete.guest?.last_name_ar || reservationToDelete.guest?.last_name}
+                  {reservationToDelete.guest_first_name_ar || reservationToDelete.guest_first_name} {reservationToDelete.guest_last_name_ar || reservationToDelete.guest_last_name}
                 </div>
               </div>
             )}
