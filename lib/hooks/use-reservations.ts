@@ -160,6 +160,7 @@ export function useCreateReservation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar-window'] })
     },
   })
 }
@@ -252,6 +253,7 @@ export function useUpdateReservation() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
       queryClient.invalidateQueries({ queryKey: ['reservation', data.id] })
+      queryClient.invalidateQueries({ queryKey: ['calendar-window'] })
     },
   })
 }
@@ -270,6 +272,7 @@ export function useDeleteReservation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar-window'] })
     },
   })
 }
