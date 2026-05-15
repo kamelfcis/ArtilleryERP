@@ -17,24 +17,45 @@ export function useRealtimeSubscription(
   const queryClient = useQueryClient()
 
   useEffect(() => {
-    const channel = supabase
-      .channel(`${table}-changes`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: table,
-        },
-        (payload) => {
-          console.log('Realtime update:', payload)
-          queryClient.invalidateQueries({ queryKey })
-        }
-      )
-      .subscribe()
+    let active: RealtimeChannel | null = null
+
+    const subscribe = () => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return
+      active = supabase
+        .channel(`${table}-changes`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: table,
+          },
+          (payload) => {
+            console.log('Realtime update:', payload)
+            queryClient.invalidateQueries({ queryKey })
+          }
+        )
+        .subscribe() as RealtimeChannel
+    }
+
+    const handleOnline = () => {
+      if (active) {
+        supabase.removeChannel(active)
+        active = null
+      }
+      subscribe()
+    }
+
+    subscribe()
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', handleOnline)
+    }
 
     return () => {
-      supabase.removeChannel(channel as RealtimeChannel)
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', handleOnline)
+      }
+      if (active) supabase.removeChannel(active)
     }
   }, [table, queryKey, queryClient])
 }
@@ -102,44 +123,63 @@ export function useReservationsRealtime(window: CalendarWindowArgs) {
     if (!window.start || !window.end) return
 
     const channelName = `cal-reservations-${window.start}-${window.end}-${window.locationId ?? 'all'}-${window.status ?? 'all'}`
+    let active: RealtimeChannel | null = null
 
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'reservations',
-          // Server-side pre-filter: only events whose check_in_date is
-          // on or before the window end.  Client-side we additionally
-          // verify check_out_date >= window.start.
-          filter: `check_in_date=lte.${window.end}`,
-        },
-        (payload: any) => {
-          const row: Record<string, any> =
-            payload.eventType === 'DELETE' ? payload.old : payload.new
+    const subscribe = () => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return
+      active = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'reservations',
+            // Server-side pre-filter: only events whose check_in_date is
+            // on or before the window end.  Client-side we additionally
+            // verify check_out_date >= window.start.
+            filter: `check_in_date=lte.${window.end}`,
+          },
+          (payload: any) => {
+            const row: Record<string, any> =
+              payload.eventType === 'DELETE' ? payload.old : payload.new
 
-          // Client-side overlap guard for INSERT / UPDATE.
-          if (payload.eventType !== 'DELETE') {
-            const checkOut: string = row.check_out_date
-            if (checkOut < windowRef.current.start) return
-            // If a location filter is active, confirm the row belongs.
-            // We don't have location_id directly on reservations so we
-            // let the RPC re-fetch handle it (the fetch is location-scoped).
+            // Client-side overlap guard for INSERT / UPDATE.
+            if (payload.eventType !== 'DELETE') {
+              const checkOut: string = row.check_out_date
+              if (checkOut < windowRef.current.start) return
+            }
+
+            applyDelta(queryClient, windowRef.current, {
+              eventType: payload.eventType,
+              new: payload.new,
+              old: payload.old,
+            })
           }
+        )
+        .subscribe() as RealtimeChannel
+    }
 
-          applyDelta(queryClient, windowRef.current, {
-            eventType: payload.eventType,
-            new: payload.new,
-            old: payload.old,
-          })
-        }
-      )
-      .subscribe()
+    const handleOnline = () => {
+      if (active) {
+        supabase.removeChannel(active)
+        active = null
+      }
+      subscribe()
+    }
+
+    subscribe()
+    if (typeof window !== 'undefined') {
+      // window here refers to the global; alias to avoid shadowing the
+      // CalendarWindowArgs parameter named "window".
+      ;(globalThis as any).addEventListener?.('online', handleOnline)
+    }
 
     return () => {
-      supabase.removeChannel(channel)
+      if (typeof window !== 'undefined') {
+        ;(globalThis as any).removeEventListener?.('online', handleOnline)
+      }
+      if (active) supabase.removeChannel(active)
     }
   }, [window.start, window.end, window.locationId, window.status, queryClient])
 }

@@ -129,6 +129,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function fetchUserRoles(userId: string) {
     try {
       const cached = getCachedSession()
+
+      // Offline: trust the cached session entirely and skip network calls.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        if (cached?.user?.id === userId) {
+          setRoles(cached.roles)
+          setElevatedOps(cached.elevatedOps ?? false)
+        }
+        return
+      }
+
       const { data: privRow } = await supabase
         .from('user_privileges')
         .select('elevated_ops')
@@ -191,6 +201,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setCachedSession(currentSession, currentUser, userRoles, elevated)
       }
     } catch (error) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        // Offline — leave cached roles in place if any.
+        const cached = getCachedSession()
+        if (cached?.user?.id === userId) {
+          setRoles(cached.roles)
+          setElevatedOps(cached.elevatedOps ?? false)
+        }
+        return
+      }
       console.error('Error fetching user roles:', error)
       setRoles([])
       setElevatedOps(false)

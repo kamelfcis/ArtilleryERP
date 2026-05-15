@@ -186,33 +186,37 @@ export function InAppNotificationBanner() {
     playSound()
 
     let reservation: ReservationDetail | undefined
-    try {
-      const { data } = await supabase
-        .from('reservations')
-        .select(`
-          id, reservation_number, check_in_date, check_out_date, total_amount, adults, children, source,
-          guest:guests(first_name, last_name, first_name_ar, last_name_ar, phone),
-          unit:units(unit_number, name, location:locations(name, name_ar))
-        `)
-        .eq('id', notif.reservation_id)
-        .single()
-      const raw = data as any
-      reservation = raw ? {
-        ...raw,
-        guest: Array.isArray(raw.guest) ? raw.guest[0] : raw.guest,
-        unit: Array.isArray(raw.unit) ? raw.unit[0] : raw.unit,
-      } : undefined
-    } catch {}
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      try {
+        const { data } = await supabase
+          .from('reservations')
+          .select(`
+            id, reservation_number, check_in_date, check_out_date, total_amount, adults, children, source,
+            guest:guests(first_name, last_name, first_name_ar, last_name_ar, phone),
+            unit:units(unit_number, name, location:locations(name, name_ar))
+          `)
+          .eq('id', notif.reservation_id)
+          .single()
+        const raw = data as any
+        reservation = raw ? {
+          ...raw,
+          guest: Array.isArray(raw.guest) ? raw.guest[0] : raw.guest,
+          unit: Array.isArray(raw.unit) ? raw.unit[0] : raw.unit,
+        } : undefined
+      } catch {}
+    }
 
     let creatorEmail: string | undefined
-    try {
-      const res = await fetchWithSupabaseAuth('/api/admin/users')
-      if (res.ok) {
-        const json = await res.json()
-        const foundUser = json.users?.find((u: any) => u.id === notif.created_by)
-        creatorEmail = foundUser?.email
-      }
-    } catch {}
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      try {
+        const res = await fetchWithSupabaseAuth('/api/admin/users')
+        if (res.ok) {
+          const json = await res.json()
+          const foundUser = json.users?.find((u: any) => u.id === notif.created_by)
+          creatorEmail = foundUser?.email
+        }
+      } catch {}
+    }
 
     const banner: BannerNotification = {
       notifId: notif.id,
@@ -278,11 +282,13 @@ export function InAppNotificationBanner() {
     }
   }, [handleNewNotification])
 
-  // Polling fallback: check for new unread notifications every 15 seconds
+  // Polling fallback: check for new unread notifications every 15 seconds.
+  // Skips entirely when the browser is offline to avoid console error spam.
   useEffect(() => {
     const lastCheckedRef = { current: new Date().toISOString() }
 
     const poll = async () => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return
       try {
         const { data } = await supabase
           .from('booking_notifications')

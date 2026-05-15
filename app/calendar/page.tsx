@@ -651,14 +651,29 @@ export default function CalendarPage() {
         return [...reservationEvents, ...roomBlockEvents, ...maintenanceEvents]
       }, [reservationEvents, roomBlockEvents, maintenanceEvents])
 
-  // Auto-update unit statuses when calendar page is opened
+  // Auto-update unit statuses when calendar page is opened — only when
+  // we actually have internet. Otherwise skip and retry on reconnect.
   useEffect(() => {
-    updateUnitStatuses()
+    const run = () => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return
+      updateUnitStatuses()
+    }
+    run()
+    const onOnline = () => run()
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Run only once when component mounts
 
   // Function to update unit statuses
   async function updateUnitStatuses() {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      toast({
+        title: 'غير متصل',
+        description: 'سيتم التحديث عند عودة الاتصال',
+      })
+      return
+    }
     try {
       setIsUpdatingStatuses(true)
       const response = await fetch('/api/admin/update-unit-statuses', {
@@ -671,7 +686,6 @@ export default function CalendarPage() {
 
       const result = await response.json()
       
-      // Refresh units and reservations data
       queryClient.invalidateQueries({ queryKey: ['units'] })
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
       
@@ -680,6 +694,10 @@ export default function CalendarPage() {
         description: result.message || 'تم تحديث حالات الوحدات بنجاح',
       })
     } catch (error: any) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        // Silent — we're offline; user will see this on reconnect.
+        return
+      }
       console.error('Error updating unit statuses:', error)
       toast({
         title: 'خطأ',

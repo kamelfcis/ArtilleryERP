@@ -322,7 +322,8 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps = {}) {
                 alt="Logo"
                 width={40}
                 height={40}
-                className="object-cover"
+                className="object-cover w-full h-full"
+                style={{ width: 'auto', height: 'auto' }}
                 priority
               />
             </div>
@@ -336,7 +337,8 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps = {}) {
               alt="Logo"
               width={40}
               height={40}
-              className="object-cover"
+              className="object-cover w-full h-full"
+              style={{ width: 'auto', height: 'auto' }}
               priority
             />
           </div>

@@ -193,6 +193,7 @@ export default function LoginPage() {
                     width={64}
                     height={64}
                     className="rounded-xl object-cover w-full h-full"
+                    style={{ width: 'auto', height: 'auto' }}
                     priority
                   />
                 </div>
@@ -352,6 +353,7 @@ export default function LoginPage() {
                   width={48}
                   height={48}
                   className="rounded-lg object-cover w-full h-full"
+                  style={{ width: 'auto', height: 'auto' }}
                   priority
                 />
               </div>
