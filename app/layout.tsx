@@ -15,6 +15,12 @@ const cairo = Cairo({
 export const metadata: Metadata = {
   title: 'نظام الحجوزات - Military Hospitality CRM',
   description: 'نظام إدارة الحجوزات للضيافة العسكرية',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Artillery ERP',
+  },
   icons: {
     icon: '/logo.jpeg',
     shortcut: '/logo.jpeg',
@@ -29,6 +35,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ar" dir="rtl">
+      <head>
+        <meta name="theme-color" content="#0f172a" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="Artillery ERP" />
+      </head>
       <body className={cairo.className}>
         <QueryProvider>
           <AuthProvider>

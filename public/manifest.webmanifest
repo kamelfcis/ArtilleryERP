@@ -1,0 +1,40 @@
+{
+  "name": "نظام الحجوزات - Artillery ERP",
+  "short_name": "Artillery ERP",
+  "description": "نظام إدارة الحجوزات للضيافة العسكرية",
+  "start_url": "/calendar",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "lang": "ar",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "/logo.jpeg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.jpeg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "categories": ["business", "productivity"],
+  "shortcuts": [
+    {
+      "name": "التقويم",
+      "url": "/calendar",
+      "description": "عرض تقويم الحجوزات"
+    },
+    {
+      "name": "الحجوزات المعلقة",
+      "url": "/pending-reservations",
+      "description": "عرض الحجوزات المعلقة"
+    }
+  ]
+}

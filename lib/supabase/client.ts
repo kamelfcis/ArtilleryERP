@@ -18,7 +18,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
-    autoRefreshToken: true,
+    // Only auto-refresh the JWT when the browser is online.  When offline,
+    // refresh attempts fail with a network error and can trigger repeated
+    // retries that drain the battery and generate noise in the console.
+    autoRefreshToken: typeof navigator !== 'undefined' ? navigator.onLine : true,
     detectSessionInUrl: true,
     flowType: 'pkce',
   },

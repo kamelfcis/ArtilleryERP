@@ -511,6 +511,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps = {}) {
         )}
       </nav>
       <div className="border-t p-4">
+        {!collapsed && <InstallPromptLazy />}
         <Button
           variant="ghost"
           className={cn(
@@ -526,5 +527,15 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps = {}) {
       </div>
     </div>
   )
+}
+
+// Lazy-load to avoid SSR issues with navigator.onLine / beforeinstallprompt.
+function InstallPromptLazy() {
+  const [Comp, setComp] = React.useState<React.ComponentType | null>(null)
+  React.useEffect(() => {
+    import('@/components/offline/InstallPrompt').then(m => setComp(() => m.InstallPrompt))
+  }, [])
+  if (!Comp) return null
+  return <Comp />
 }
 

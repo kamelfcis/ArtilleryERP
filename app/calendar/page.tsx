@@ -10,6 +10,11 @@ import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import { useCalendarReservations, fetchCalendarWindow, calendarWindowKey, useCreateReservation, useUpdateReservation, useDeleteReservation } from '@/lib/hooks/use-reservations'
 import type { CalendarEvent as CalendarEventRow, CalendarWindowArgs } from '@/lib/types/calendar'
+import { useOfflineMutation, useIsOnline } from '@/lib/offline/use-offline-mutation'
+import { useSyncEngine } from '@/lib/offline/sync-engine'
+import { db } from '@/lib/offline/db'
+import { OfflineBanner } from '@/components/offline/OfflineBanner'
+import { ConflictResolutionSheet } from '@/components/offline/ConflictResolutionSheet'
 import { useUnits } from '@/lib/hooks/use-units'
 import { useLocations } from '@/lib/hooks/use-locations'
 import { useCurrentStaff, useStaffList } from '@/lib/hooks/use-staff'
@@ -322,6 +327,44 @@ export default function CalendarPage() {
   const createGuest = useCreateGuest()
   const updateReservation = useUpdateReservation()
   const deleteReservation = useDeleteReservation()
+
+  // ── Offline / PWA ─────────────────────────────────────────────────────────
+  const isOnline = useIsOnline()
+  const offlineMutation = useOfflineMutation(calendarArgs)
+  // Mount the sync engine — drains outbox and delta-pulls on reconnect.
+  useSyncEngine(calendarArgs)
+  const [conflictSheetOpen, setConflictSheetOpen] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
+  // Set of outbox localIds — used to show pending badges on calendar events.
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    let mounted = true
+    const refresh = async () => {
+      if (!mounted) return
+      try {
+        const entries = await db.outbox.toArray()
+        if (mounted) setPendingIds(new Set(entries.map(e => e.localId)))
+        // Surface conflict sheet automatically when conflicts exist.
+        const hasConflicts = entries.some(e => e.conflict)
+        if (hasConflicts && mounted) setConflictSheetOpen(true)
+      } catch { /* IDB not available in SSR */ }
+    }
+    refresh()
+    const id = setInterval(refresh, 4000)
+    return () => { mounted = false; clearInterval(id) }
+  }, [])
+
+  async function handleManualSync() {
+    setIsSyncing(true)
+    try {
+      const { runSync } = await import('@/lib/offline/sync-engine')
+      await runSync(queryClient, calendarArgs)
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   // Room block delete mutation
   const deleteRoomBlock = useMutation({
@@ -799,8 +842,21 @@ export default function CalendarPage() {
     }
   }
 
-  function handleDeleteReservation() {
+  async function handleDeleteReservation() {
     if (!reservationToDelete) return
+
+    if (!isOnline) {
+      // Queue delete in outbox and patch cache optimistically.
+      try {
+        await offlineMutation.remove(reservationToDelete.id)
+        toast({ title: 'محفوظ للمزامنة', description: 'سيُحذف الحجز عند استعادة الاتصال.' })
+      } catch (err: any) {
+        toast({ title: 'خطأ', description: err.message, variant: 'destructive' })
+      }
+      setDeleteDialogOpen(false)
+      setReservationToDelete(null)
+      return
+    }
 
     deleteReservation.mutate(reservationToDelete.id, {
       onSuccess: () => {
@@ -1117,20 +1173,30 @@ export default function CalendarPage() {
         }
 
         // Update the reservation with captured dates and possibly new unit
-        await updateReservation.mutateAsync({
-          id: reservationId,
-          check_in_date: newStartDate,
-          check_out_date: newEndDate,
-          ...(unitChanged ? { unit_id: newUnitId } : {}),
-        })
-
-        const newUnit = unitChanged ? units?.find(u => u.id === newUnitId) : null
-        toast({
-          title: 'نجح',
-          description: unitChanged
-            ? `تم نقل الحجز إلى ${newUnit?.unit_number || newUnitId} وتحديث التواريخ`
-            : 'تم تحديث الحجز بنجاح',
-        })
+        if (!isOnline) {
+          await offlineMutation.update({
+            id: reservationId,
+            check_in_date: newStartDate,
+            check_out_date: newEndDate,
+            ...(unitChanged ? { unit_id: newUnitId } : {}),
+          })
+          const newUnit = unitChanged ? units?.find(u => u.id === newUnitId) : null
+          toast({ title: 'محفوظ للمزامنة', description: unitChanged ? `سيُنقل الحجز إلى ${newUnit?.unit_number || newUnitId} عند الاتصال` : 'سيُحدَّث الحجز عند الاتصال.' })
+        } else {
+          await updateReservation.mutateAsync({
+            id: reservationId,
+            check_in_date: newStartDate,
+            check_out_date: newEndDate,
+            ...(unitChanged ? { unit_id: newUnitId } : {}),
+          })
+          const newUnit = unitChanged ? units?.find(u => u.id === newUnitId) : null
+          toast({
+            title: 'نجح',
+            description: unitChanged
+              ? `تم نقل الحجز إلى ${newUnit?.unit_number || newUnitId} وتحديث التواريخ`
+              : 'تم تحديث الحجز بنجاح',
+          })
+        }
       } catch (error) {
         console.error('Error updating reservation:', error)
         toast({
@@ -1143,15 +1209,20 @@ export default function CalendarPage() {
     } else if (type === 'resize') {
       try {
         // Use captured dates — update both check_in and check_out to handle resize from either side
-        await updateReservation.mutateAsync({
-          id: reservationId,
-          check_in_date: newStartDate,
-          check_out_date: newEndDate,
-        })
-        toast({
-          title: 'نجح',
-          description: 'تم تحديث الحجز بنجاح',
-        })
+        if (!isOnline) {
+          await offlineMutation.update({ id: reservationId, check_in_date: newStartDate, check_out_date: newEndDate })
+          toast({ title: 'محفوظ للمزامنة', description: 'سيُحدَّث الحجز عند استعادة الاتصال.' })
+        } else {
+          await updateReservation.mutateAsync({
+            id: reservationId,
+            check_in_date: newStartDate,
+            check_out_date: newEndDate,
+          })
+          toast({
+            title: 'نجح',
+            description: 'تم تحديث الحجز بنجاح',
+          })
+        }
       } catch (error) {
         toast({
           title: 'خطأ',
@@ -1341,6 +1412,13 @@ export default function CalendarPage() {
 
   return (
     <div className="h-full flex flex-col bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30 dark:from-slate-950 dark:via-blue-950/20 dark:to-purple-950/20 min-h-0">
+      {/* Offline banner — appears when offline or when pending outbox entries exist */}
+      <OfflineBanner onSyncRequest={handleManualSync} syncing={isSyncing} />
+      {/* Conflict resolution sheet — opens automatically when sync conflicts are detected */}
+      <ConflictResolutionSheet
+        open={conflictSheetOpen}
+        onOpenChange={setConflictSheetOpen}
+      />
       {/* Floating Direction Toggle Button */}
       <motion.div
         className="fixed bottom-24 right-6 z-50 no-print"
@@ -2085,6 +2163,37 @@ export default function CalendarPage() {
                   }
 
                   arg.el.appendChild(openTabBtn)
+                }
+
+                // Pending sync badge — shown on events that are queued in the outbox.
+                if (isReservationEvent) {
+                  const res = arg.event.extendedProps.reservation as CalendarEventRow
+                  if (res?.id && pendingIds.has(res.id) && !arg.el.querySelector('.fc-event-pending-badge')) {
+                    const badge = document.createElement('span')
+                    badge.className = 'fc-event-pending-badge'
+                    badge.setAttribute('title', 'معلق — سيُزامن عند الاتصال')
+                    badge.style.cssText = `
+                      position: absolute;
+                      top: -4px;
+                      right: -4px;
+                      z-index: 60;
+                      width: 14px;
+                      height: 14px;
+                      border-radius: 50%;
+                      background: #f59e0b;
+                      border: 2px solid white;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      font-size: 8px;
+                      color: white;
+                      font-weight: 900;
+                      pointer-events: none;
+                    `
+                    badge.textContent = '⏱'
+                    arg.el.style.position = 'relative'
+                    arg.el.appendChild(badge)
+                  }
                 }
 
                 // Add right-click tooltip for reservations
