@@ -320,10 +320,9 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps = {}) {
               <Image
                 src="/logo.jpeg"
                 alt="Logo"
-                width={40}
-                height={40}
-                className="object-cover w-full h-full"
-                style={{ width: 'auto', height: 'auto' }}
+                fill
+                sizes="40px"
+                className="object-cover"
                 priority
               />
             </div>
@@ -335,10 +334,9 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps = {}) {
             <Image
               src="/logo.jpeg"
               alt="Logo"
-              width={40}
-              height={40}
-              className="object-cover w-full h-full"
-              style={{ width: 'auto', height: 'auto' }}
+              fill
+              sizes="40px"
+              className="object-cover"
               priority
             />
           </div>

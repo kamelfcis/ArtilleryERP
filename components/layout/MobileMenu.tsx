@@ -109,7 +109,7 @@ export function MobileMenu() {
         <SheetHeader className="p-4 border-b">
           <SheetTitle className="flex items-center gap-3">
             <div className="relative w-9 h-9 rounded-full overflow-hidden ring-2 ring-slate-200 dark:ring-slate-700">
-              <Image src="/logo.jpeg" alt="Logo" width={36} height={36} className="object-cover w-full h-full" style={{ width: 'auto', height: 'auto' }} />
+              <Image src="/logo.jpeg" alt="Logo" fill sizes="36px" className="object-cover" />
             </div>
             <div className="text-right">
               <div className="text-base font-bold">نظام الحجوزات</div>

@@ -709,17 +709,7 @@ export default function CalendarPage() {
     }
   }
 
-  // Debug: Log when filters change
-  useEffect(() => {
-    console.log('Calendar filters changed:', {
-      selectedLocation,
-      selectedTypes,
-      selectedUnit,
-      unitsCount: units?.length || 0,
-      resourcesCount: resources.length,
-      eventsCount: events.length,
-    })
-  }, [selectedLocation, selectedTypes, selectedUnit, units, resources, events])
+  // (Debug filter logging removed — was noisy in dev console.)
 
   // Scroll to today (or restore saved position) when calendar mounts
   useEffect(() => {
@@ -974,19 +964,22 @@ export default function CalendarPage() {
           continue
         }
 
-        // Fetch pricing data for this unit from pricing table
-        const { data: pricingData, error: pricingError } = await supabase
-          .from('pricing')
-          .select('*')
-          .eq('unit_id', unitId)
-          .eq('is_active', true)
-          .order('created_at', { ascending: false })
-
-        if (pricingError) {
-          console.error('Error fetching pricing:', pricingError)
+        // Fetch pricing data only when online. Offline we fall back to the
+        // calculator's default behaviour (uses unit base price).
+        let pricingData: any[] | null = null
+        if (typeof navigator === 'undefined' || navigator.onLine) {
+          const { data, error: pricingError } = await supabase
+            .from('pricing')
+            .select('*')
+            .eq('unit_id', unitId)
+            .eq('is_active', true)
+            .order('created_at', { ascending: false })
+          if (pricingError && navigator.onLine) {
+            console.error('Error fetching pricing:', pricingError)
+          }
+          pricingData = data
         }
 
-        // Calculate total amount based on guest type and unit pricing
         const totalAmount = await calculateReservationPrice(
           {
             unitId,
@@ -998,18 +991,11 @@ export default function CalendarPage() {
           (pricingData || []) as any[]
         )
 
-        console.log('Pricing Calculation:', {
-          unitId,
-          unitNumber: unit.unit_number,
-          guestType: selectedGuest.guest_type,
-          guestName: `${selectedGuest.first_name} ${selectedGuest.last_name}`,
-          checkIn: pendingReservation.checkIn,
-          checkOut: pendingReservation.checkOut,
-          pricingRulesCount: pricingData?.length || 0,
-          totalAmount,
-        })
-
-        const result = await createReservation.mutateAsync({
+        // Route through the offline-aware mutation. Online: direct supabase
+        // call.  Offline: enqueues to the Dexie outbox and patches the
+        // calendar cache optimistically so the new reservation appears
+        // immediately and syncs when connectivity returns.
+        const result = await offlineMutation.create({
           unit_id: unitId,
           guest_id: guestId,
           check_in_date: pendingReservation.checkIn,
@@ -1019,12 +1005,21 @@ export default function CalendarPage() {
           total_amount: totalAmount,
           adults: 1,
           children: 0,
-          created_by: user?.id,
-        } as Partial<Reservation>)
+          // created_by is passed through to supabase on the online path and
+          // stored verbatim in the outbox for replay on the offline path.
+          ...(user?.id ? { created_by: user.id } : {}),
+        } as any)
 
+        // Notifications require the network — skip when offline (the
+        // reservation itself is already queued for sync).
         const isRestrictedBM =
           hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
-        if (isRestrictedBM && user?.id && result?.id) {
+        if (
+          isRestrictedBM &&
+          user?.id &&
+          result?.id &&
+          (typeof navigator === 'undefined' || navigator.onLine)
+        ) {
           const gName = `${selectedGuest.first_name_ar || selectedGuest.first_name} ${selectedGuest.last_name_ar || selectedGuest.last_name}`
           const loc = locations?.find(l => l.id === unit.location_id)
           const lName = loc ? (loc.name_ar || loc.name) : ''
@@ -1041,11 +1036,16 @@ export default function CalendarPage() {
       }
 
       if (successCount > 0) {
+        const offline = typeof navigator !== 'undefined' && !navigator.onLine
         toast({
-          title: 'نجح',
-          description: successCount === 1
-            ? `تم إنشاء الحجز بنجاح. المبلغ الإجمالي: ${formatCurrency(totalAmountSum)}`
-            : `تم إنشاء ${successCount} حجوزات بنجاح. المبلغ الإجمالي: ${formatCurrency(totalAmountSum)}`,
+          title: offline ? 'محفوظ للمزامنة' : 'نجح',
+          description: offline
+            ? (successCount === 1
+              ? `تم حفظ الحجز محلياً. سيُرسل عند عودة الاتصال. المبلغ: ${formatCurrency(totalAmountSum)}`
+              : `تم حفظ ${successCount} حجوزات محلياً. ستُرسل عند عودة الاتصال. المبلغ: ${formatCurrency(totalAmountSum)}`)
+            : (successCount === 1
+              ? `تم إنشاء الحجز بنجاح. المبلغ الإجمالي: ${formatCurrency(totalAmountSum)}`
+              : `تم إنشاء ${successCount} حجوزات بنجاح. المبلغ الإجمالي: ${formatCurrency(totalAmountSum)}`),
         })
       }
 
@@ -2498,6 +2498,8 @@ export default function CalendarPage() {
           onEscapeKeyDown={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
         >
+          <DialogTitle className="sr-only">جاري تأكيد الحجز</DialogTitle>
+          <DialogDescription className="sr-only">يرجى الانتظار بينما يتم حفظ الحجز</DialogDescription>
           <div className="absolute inset-0 opacity-5 pointer-events-none">
             <div className="absolute inset-0 bg-[linear-gradient(to_right,#000000_1px,transparent_1px),linear-gradient(to_bottom,#000000_1px,transparent_1px)] bg-[size:20px_20px]" />
           </div>

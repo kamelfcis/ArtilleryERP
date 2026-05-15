@@ -87,6 +87,7 @@ export interface NewReservationPayload {
   children?: number
   notes?: string | null
   source?: string
+  created_by?: string
 }
 
 export interface UpdateReservationPayload extends Partial<NewReservationPayload> {

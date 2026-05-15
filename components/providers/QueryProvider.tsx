@@ -101,18 +101,20 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
             refetchOnWindowFocus: false,
             refetchOnMount: false,
             refetchOnReconnect: 'always',
-            // 'offlineFirst' — try the network, but if offline serve cache
-            // without retrying in a tight loop.  Combined with retry: 0 we
-            // avoid the cascade of failing fetches that produced the console
-            // error spam users were seeing.
-            networkMode: 'offlineFirst',
+            // 'online' (the default) pauses queries when navigator reports
+            // offline so the queryFn is never invoked and the console isn't
+            // flooded with fetch errors.  Cached data from IndexedDB stays
+            // readable; queries auto-resume on the next 'online' event.
+            networkMode: 'online',
             retry: (failureCount, error) => {
               if (isOfflineNetworkError(error)) return false
               return failureCount < 1
             },
           },
           mutations: {
-            networkMode: 'offlineFirst',
+            // Mutations are also paused when offline so writes that should
+            // be queued through useOfflineMutation never hit Supabase here.
+            networkMode: 'online',
             retry: false,
           },
         },

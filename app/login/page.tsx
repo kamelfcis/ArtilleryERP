@@ -186,14 +186,13 @@ export default function LoginPage() {
                 }}
                 transition={{ duration: 3, repeat: Infinity }}
               >
-                <div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-sm p-1 border border-white/20 shadow-2xl">
+                <div className="relative w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-sm p-1 border border-white/20 shadow-2xl">
                   <Image
                     src="/logo.jpeg"
                     alt="Logo"
-                    width={64}
-                    height={64}
-                    className="rounded-xl object-cover w-full h-full"
-                    style={{ width: 'auto', height: 'auto' }}
+                    fill
+                    sizes="64px"
+                    className="rounded-xl object-cover"
                     priority
                   />
                 </div>
@@ -346,14 +345,13 @@ export default function LoginPage() {
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <div className="w-12 h-12 rounded-xl bg-white/10 p-1 border border-white/20">
+              <div className="relative w-12 h-12 rounded-xl bg-white/10 p-1 border border-white/20">
                 <Image
                   src="/logo.jpeg"
                   alt="Logo"
-                  width={48}
-                  height={48}
-                  className="rounded-lg object-cover w-full h-full"
-                  style={{ width: 'auto', height: 'auto' }}
+                  fill
+                  sizes="48px"
+                  className="rounded-lg object-cover"
                   priority
                 />
               </div>
