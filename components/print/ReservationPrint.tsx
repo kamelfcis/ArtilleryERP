@@ -487,7 +487,7 @@ export function ReservationPrint({ reservation }: ReservationPrintProps) {
 
           ${reservation.notes_ar || reservation.notes ? `
           <div class="inline-field" style="margin-bottom:6px;">
-            <span class="label">ملاحظات :</span> <span class="dots">${reservation.notes_ar || reservation.notes || ''}</span>
+            <span class="label">مسئول الحجز :</span> <span class="dots">${reservation.notes_ar || reservation.notes || ''}</span>
           </div>
           ` : ''}
 
