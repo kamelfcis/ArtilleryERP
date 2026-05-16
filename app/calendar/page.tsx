@@ -225,6 +225,13 @@ export default function CalendarPage() {
     })
   }
 
+  // Apply direction changes via the FullCalendar API so the widget updates
+  // in-place without a full remount.
+  useEffect(() => {
+    if (!calendarRef.current) return
+    calendarRef.current.getApi().setOption('direction', calendarDirection)
+  }, [calendarDirection])
+
   // Check if user is Staff-only (not admin/manager)
   const { hasRole, user, elevatedOps } = useAuth()
   const { data: currentStaff, isLoading: currentStaffLoading } = useCurrentStaff()
@@ -287,12 +294,13 @@ export default function CalendarPage() {
     if (!allLocationUnits) return []
     return [...new Set(allLocationUnits.map(u => u.type))]
   }, [allLocationUnits])
-  const calendarArgs: CalendarWindowArgs = {
+  const calendarArgs = useMemo<CalendarWindowArgs>(() => ({
     locationId: effectiveLocationId,
     start: rangeStart,
     end: rangeEnd,
     status: selectedStatus !== 'all' ? selectedStatus : undefined,
-  }
+  }), [effectiveLocationId, rangeStart, rangeEnd, selectedStatus])
+
   const { data: reservations, isLoading: reservationsLoading } = useCalendarReservations(calendarArgs)
 
   // Real-time cache patches — mutates the cached window instead of invalidating it.
@@ -323,7 +331,7 @@ export default function CalendarPage() {
     queryClient.prefetchQuery({ queryKey: calendarWindowKey(next), queryFn: () => fetchCalendarWindow(next), staleTime: 60_000 })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeStart, rangeEnd, effectiveLocationId, selectedStatus])
-  const { data: guests, isLoading: guestsLoading } = useGuests()
+  const { data: guests } = useGuests()
   const createReservation = useCreateReservation()
   const createBookingNotif = useCreateBookingNotification()
   const createGuest = useCreateGuest()
@@ -342,19 +350,26 @@ export default function CalendarPage() {
 
   useEffect(() => {
     let mounted = true
+    let timerId: ReturnType<typeof setTimeout>
+
     const refresh = async () => {
       if (!mounted) return
       try {
         const entries = await db.outbox.toArray()
-        if (mounted) setPendingIds(new Set(entries.map(e => e.localId)))
-        // Surface conflict sheet automatically when conflicts exist.
-        const hasConflicts = entries.some(e => e.conflict)
-        if (hasConflicts && mounted) setConflictSheetOpen(true)
-      } catch { /* IDB not available in SSR */ }
+        if (mounted) {
+          setPendingIds(new Set(entries.map(e => e.localId)))
+          const hasConflicts = entries.some(e => e.conflict)
+          if (hasConflicts) setConflictSheetOpen(true)
+        }
+        // Poll frequently when items are pending, slowly when the outbox is empty.
+        if (mounted) timerId = setTimeout(refresh, entries.length > 0 ? 4000 : 30000)
+      } catch {
+        if (mounted) timerId = setTimeout(refresh, 30000)
+      }
     }
+
     refresh()
-    const id = setInterval(refresh, 4000)
-    return () => { mounted = false; clearInterval(id) }
+    return () => { mounted = false; clearTimeout(timerId) }
   }, [])
 
   async function handleManualSync() {
@@ -1349,8 +1364,6 @@ export default function CalendarPage() {
   const calendarDataLoading =
     unitsLoading ||
     reservationsLoading ||
-    locationsLoading ||
-    guestsLoading ||
     roomBlocksLoading ||
     staffProfileLoading
 
@@ -1798,9 +1811,9 @@ export default function CalendarPage() {
       {/* Premium Full Screen Calendar with margins */}
       <motion.div
         ref={scrollContainerRef}
-        initial={{ opacity: 0, scale: 0.98 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.5, delay: 0.2 }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.25 }}
         className="flex-1 overflow-auto px-2 pb-2 min-h-0"
       >
         <div 
@@ -1808,7 +1821,7 @@ export default function CalendarPage() {
           className="h-full min-h-[600px] bg-gradient-to-br from-white via-blue-50/30 to-purple-50/30 dark:from-slate-900 dark:via-blue-950/20 dark:to-purple-950/20 shadow-xl overflow-hidden backdrop-blur-xl relative rounded-xl">
           <div className="p-2 relative z-10">
             <FullCalendar
-              key={`calendar-${selectedLocation}-${selectedTypes.join(',')}-${selectedUnit}-${calendarDirection}`}
+              key="main-calendar"
               ref={calendarRef}
               plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, resourceTimelinePlugin]}
               initialView={currentView === 'resourceTimeline' ? 'resourceTimelineCustom' :
@@ -1993,10 +2006,10 @@ export default function CalendarPage() {
                 // Add delete button to event (hidden for restricted BranchManagers only)
                 const isRestrictedBM =
                   hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
-                arg.el.classList.add('group', 'relative')
-                arg.el.style.position = 'relative'
-                
-                if (!isRestrictedBM && !arg.el.querySelector('.fc-event-delete-btn')) {
+                  arg.el.classList.add('group', 'relative')
+                  arg.el.style.position = 'relative'
+                  
+                  if (!isRestrictedBM && !arg.el.querySelector('.fc-event-delete-btn')) {
                   const deleteBtn = document.createElement('button')
                   deleteBtn.innerHTML = '🗑️'
                   deleteBtn.className = 'fc-event-delete-btn'
@@ -2018,30 +2031,8 @@ export default function CalendarPage() {
                     align-items: center;
                     justify-content: center;
                     font-size: 11px;
-                    opacity: 0;
-                    transition: all 0.2s ease;
                     box-shadow: 0 2px 6px rgba(239, 68, 68, 0.4);
                   `
-                  
-                  arg.el.addEventListener('mouseenter', () => {
-                    deleteBtn.style.opacity = '1'
-                    deleteBtn.style.transform = 'scale(1.15)'
-                  })
-                  arg.el.addEventListener('mouseleave', () => {
-                    deleteBtn.style.opacity = '0'
-                    deleteBtn.style.transform = 'scale(1)'
-                  })
-                  
-                  deleteBtn.addEventListener('mouseenter', () => {
-                    deleteBtn.style.background = 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)'
-                    deleteBtn.style.transform = 'scale(1.25)'
-                    deleteBtn.style.boxShadow = '0 4px 8px rgba(239, 68, 68, 0.6)'
-                  })
-                  deleteBtn.addEventListener('mouseleave', () => {
-                    deleteBtn.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
-                    deleteBtn.style.transform = 'scale(1.15)'
-                    deleteBtn.style.boxShadow = '0 2px 6px rgba(239, 68, 68, 0.4)'
-                  })
                   
                   deleteBtn.onclick = (e) => {
                     e.stopPropagation()
@@ -2085,30 +2076,8 @@ export default function CalendarPage() {
                     align-items: center;
                     justify-content: center;
                     font-size: 11px;
-                    opacity: 0;
-                    transition: all 0.2s ease;
                     box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4);
                   `
-
-                  arg.el.addEventListener('mouseenter', () => {
-                    changeUnitBtn.style.opacity = '1'
-                    changeUnitBtn.style.transform = 'scale(1.15)'
-                  })
-                  arg.el.addEventListener('mouseleave', () => {
-                    changeUnitBtn.style.opacity = '0'
-                    changeUnitBtn.style.transform = 'scale(1)'
-                  })
-
-                  changeUnitBtn.addEventListener('mouseenter', () => {
-                    changeUnitBtn.style.background = 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)'
-                    changeUnitBtn.style.transform = 'scale(1.25)'
-                    changeUnitBtn.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.6)'
-                  })
-                  changeUnitBtn.addEventListener('mouseleave', () => {
-                    changeUnitBtn.style.background = 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)'
-                    changeUnitBtn.style.transform = 'scale(1.15)'
-                    changeUnitBtn.style.boxShadow = '0 2px 6px rgba(59, 130, 246, 0.4)'
-                  })
 
                   changeUnitBtn.onclick = (e) => {
                     e.stopPropagation()
@@ -2146,30 +2115,8 @@ export default function CalendarPage() {
                     justify-content: center;
                     font-size: 13px;
                     font-weight: 900;
-                    opacity: 0;
-                    transition: all 0.2s ease;
                     box-shadow: 0 2px 6px rgba(16, 185, 129, 0.4);
                   `
-
-                  arg.el.addEventListener('mouseenter', () => {
-                    openTabBtn.style.opacity = '1'
-                    openTabBtn.style.transform = 'scale(1.15)'
-                  })
-                  arg.el.addEventListener('mouseleave', () => {
-                    openTabBtn.style.opacity = '0'
-                    openTabBtn.style.transform = 'scale(1)'
-                  })
-
-                  openTabBtn.addEventListener('mouseenter', () => {
-                    openTabBtn.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)'
-                    openTabBtn.style.transform = 'scale(1.25)'
-                    openTabBtn.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.6)'
-                  })
-                  openTabBtn.addEventListener('mouseleave', () => {
-                    openTabBtn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-                    openTabBtn.style.transform = 'scale(1.15)'
-                    openTabBtn.style.boxShadow = '0 2px 6px rgba(16, 185, 129, 0.4)'
-                  })
 
                   openTabBtn.onclick = (e) => {
                     e.stopPropagation()

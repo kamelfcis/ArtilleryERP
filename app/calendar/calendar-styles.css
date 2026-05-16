@@ -713,6 +713,44 @@
   border-left: 3px solid rgba(96, 165, 250, 0.4) !important;
 }
 
+/* ── Event action buttons — shown on hover via CSS instead of JS listeners ── */
+
+/* Buttons are hidden by default (opacity: 0 set inline) */
+.fc-event-delete-btn,
+.fc-event-change-unit-btn,
+.fc-event-open-tab-btn {
+  opacity: 0 !important;
+  transform: scale(1) !important;
+  transition: opacity 0.18s ease, transform 0.18s ease, background 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+/* Show all action buttons when the event is hovered */
+.fc-event:hover .fc-event-delete-btn,
+.fc-event:hover .fc-event-change-unit-btn,
+.fc-event:hover .fc-event-open-tab-btn {
+  opacity: 1 !important;
+  transform: scale(1.15) !important;
+}
+
+/* Individual button hover states */
+.fc-event-delete-btn:hover {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%) !important;
+  transform: scale(1.25) !important;
+  box-shadow: 0 4px 8px rgba(239, 68, 68, 0.6) !important;
+}
+
+.fc-event-change-unit-btn:hover {
+  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%) !important;
+  transform: scale(1.25) !important;
+  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.6) !important;
+}
+
+.fc-event-open-tab-btn:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
+  transform: scale(1.25) !important;
+  box-shadow: 0 4px 8px rgba(16, 185, 129, 0.6) !important;
+}
+
 /* ── Maintenance block events ── */
 .maintenance-block {
   background: repeating-linear-gradient(
