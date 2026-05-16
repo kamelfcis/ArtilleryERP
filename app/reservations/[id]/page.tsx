@@ -21,6 +21,7 @@ import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
 import { CheckInOutActions } from '@/components/reservations/CheckInOutActions'
 import { ReservationPrint } from '@/components/print/ReservationPrint'
+import { WhatsAppShareButton } from '@/components/whatsapp/WhatsAppShareButton'
 import { PaymentTracker } from '@/components/payments/PaymentTracker'
 import { LoyaltyCard } from '@/components/loyalty/LoyaltyCard'
 import { ServiceQuickAdd } from '@/components/reservations/ServiceQuickAdd'
@@ -386,6 +387,7 @@ export default function ReservationDetailPage() {
         >
           <CheckInOutActions reservation={reservation} />
           <ReservationPrint reservation={reservation} />
+          <WhatsAppShareButton reservation={reservation} />
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
             <Link href={`/reservations/${id}/attachments`}>
               <Button variant="outline" className="relative overflow-hidden group border-2 hover:border-primary transition-all">

@@ -1844,9 +1844,9 @@ export default function CalendarPage() {
                 }
               }}
               dayMaxEvents={true}
-              resourceAreaWidth="180px"
+              resourceAreaWidth="240px"
               resourceAreaHeaderContent={
-                <div className="text-center w-full font-bold text-lg">الوحدة</div>
+                <div className="text-center w-full font-bold text-3xl">الوحدة</div>
               }
               resourceOrder="orderno,title"
               slotMinTime="00:00:00"
@@ -1940,17 +1940,17 @@ export default function CalendarPage() {
                         align-items: center;
                         justify-content: center;
                         flex-shrink: 0;
-                        width: 38px;
-                        height: 38px;
+                        width: 48px;
+                        height: 48px;
                         border-radius: 10px;
                         background: ${isMaintenance ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : iconGradient};
                         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
                       ">
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                           ${iconData.path}
                         </svg>
                       </span>
-                      <span style="font-weight: 600; color: ${isMaintenance ? '#92400e' : 'rgba(59, 130, 246, 0.9)'}; white-space: nowrap; font-size: 13px;">${arg.resource.title}</span>
+                      <span style="font-weight: 600; color: ${isMaintenance ? '#92400e' : 'rgba(59, 130, 246, 0.9)'}; white-space: nowrap; font-size: 20px;">${arg.resource.title}</span>
                       ${maintenanceBadge}
                     </div>
                   `
