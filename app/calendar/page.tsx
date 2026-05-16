@@ -39,7 +39,7 @@ import { useCreateBookingNotification } from '@/lib/hooks/use-booking-notificati
 import { RefreshCw, RotateCcw, Search, UserPlus, Users, Home, Phone, Mail, User, Trash2, AlertTriangle, Calendar, CalendarDays, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minimize2, Building2, Hotel, Mountain, Layers, Building, Bed, DoorOpen, Crown, Trees, Split, Castle, Sparkles, Menu, Check, Filter, ArrowLeftRight, FileText } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet'
-import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query'
+import { useQueryClient, useQuery, useMutation, keepPreviousData } from '@tanstack/react-query'
 import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
 import { supabase } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
@@ -398,6 +398,8 @@ export default function CalendarPage() {
   // Fetch room blocks — scoped to the visible date range for efficiency.
   const { data: roomBlocks, isLoading: roomBlocksLoading } = useQuery({
     queryKey: ['room-blocks', rangeStart, rangeEnd],
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('room_blocks')
@@ -917,10 +919,15 @@ export default function CalendarPage() {
     
     // Unselect the date range
     selectInfo.view.calendar.unselect()
+
+    // Clear the live nights counter in the navbar
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('calendar:drag-nights', { detail: { nights: 0 } }))
+    }
   }
 
-  async function handleCreateReservation(guestId: string, unitIds: string[], notes?: string) {
-    if (!pendingReservation || unitIds.length === 0) {
+  async function handleCreateReservation(guestId: string, unitIds: string[], notes: string, checkIn: string, checkOut: string) {
+    if (unitIds.length === 0) {
       toast({
         title: 'خطأ',
         description: 'يرجى اختيار وحدة واحدة على الأقل',
@@ -932,9 +939,6 @@ export default function CalendarPage() {
     // Close selection dialog immediately — optimistic update will paint the calendar
     setGuestDialogOpen(false)
     setPendingReservation(null)
-
-    // Snapshot values needed inside async closures
-    const snapshot = pendingReservation
 
     const selectedGuest = guests?.find(g => g.id === guestId)
     if (!selectedGuest) {
@@ -971,8 +975,8 @@ export default function CalendarPage() {
         const totalAmount = await calculateReservationPrice(
           {
             unitId,
-            checkInDate: snapshot.checkIn,
-            checkOutDate: snapshot.checkOut,
+            checkInDate: checkIn,
+            checkOutDate: checkOut,
             unitType: unit.type,
             guestType: selectedGuest.guest_type,
           },
@@ -982,8 +986,8 @@ export default function CalendarPage() {
         const result = await offlineMutation.create({
           unit_id: unitId,
           guest_id: guestId,
-          check_in_date: snapshot.checkIn,
-          check_out_date: snapshot.checkOut,
+          check_in_date: checkIn,
+          check_out_date: checkOut,
           status: 'pending',
           source: 'online',
           total_amount: totalAmount,
@@ -999,12 +1003,12 @@ export default function CalendarPage() {
           const loc = locations?.find(l => l.id === unit.location_id)
           const lName = loc ? (loc.name_ar || loc.name) : ''
           const nights = Math.ceil(
-            (new Date(snapshot.checkOut).getTime() - new Date(snapshot.checkIn).getTime()) / 86400000
+            (new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000
           )
           createBookingNotif.mutate({
             reservation_id: result.id,
             created_by: user.id,
-            message: `📋 حجز جديد من ${user.email || 'مدير فرع'} | الضيف: ${gName} | الوحدة: ${unit.unit_number} — ${lName} | ${snapshot.checkIn} إلى ${snapshot.checkOut} (${nights} ليلة) | المبلغ: ${totalAmount} ج.م`,
+            message: `📋 حجز جديد من ${user.email || 'مدير فرع'} | الضيف: ${gName} | الوحدة: ${unit.unit_number} — ${lName} | ${checkIn} إلى ${checkOut} (${nights} ليلة) | المبلغ: ${totalAmount} ج.م`,
           })
         }
 
@@ -1804,7 +1808,7 @@ export default function CalendarPage() {
           className="h-full min-h-[600px] bg-gradient-to-br from-white via-blue-50/30 to-purple-50/30 dark:from-slate-900 dark:via-blue-950/20 dark:to-purple-950/20 shadow-xl overflow-hidden backdrop-blur-xl relative rounded-xl">
           <div className="p-2 relative z-10">
             <FullCalendar
-              key={`calendar-${selectedLocation}-${selectedTypes.join(',')}-${selectedUnit}-${rangeStart}-${rangeEnd}-${calendarDirection}`}
+              key={`calendar-${selectedLocation}-${selectedTypes.join(',')}-${selectedUnit}-${calendarDirection}`}
               ref={calendarRef}
               plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, resourceTimelinePlugin]}
               initialView={currentView === 'resourceTimeline' ? 'resourceTimelineCustom' :
@@ -1826,6 +1830,19 @@ export default function CalendarPage() {
               eventResourceEditable={true}
               selectable={true}
               selectMirror={true}
+              selectAllow={(selectInfo) => {
+                const ms = selectInfo.end.getTime() - selectInfo.start.getTime()
+                const nights = Math.max(0, Math.round(ms / 86400000))
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('calendar:drag-nights', { detail: { nights } }))
+                }
+                return true
+              }}
+              unselect={() => {
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('calendar:drag-nights', { detail: { nights: 0 } }))
+                }
+              }}
               dayMaxEvents={true}
               resourceAreaWidth="180px"
               resourceAreaHeaderContent={
@@ -2405,18 +2422,18 @@ export default function CalendarPage() {
 
       {/* Guest Selection Dialog */}
       <Dialog open={guestDialogOpen} onOpenChange={setGuestDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden !fixed !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2">
-          <DialogHeader className="px-6 pt-5 pb-4 border-b shrink-0">
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden !fixed !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2 bg-gradient-to-br from-blue-50/60 via-purple-50/40 to-pink-50/40 dark:from-slate-900 dark:via-blue-950/30 dark:to-purple-950/20 border-2 border-blue-200/60 dark:border-blue-700/50 shadow-2xl">
+          <DialogHeader className="px-6 pt-5 pb-4 border-b border-blue-100/80 dark:border-blue-800/50 shrink-0 bg-gradient-to-r from-white/80 via-blue-50/60 to-indigo-50/60 dark:from-slate-900/80 dark:via-blue-950/40 dark:to-indigo-950/40">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shrink-0">
                 <CalendarDays className="h-5 w-5" />
               </div>
               <div className="flex-1 min-w-0">
-                <DialogTitle className="text-lg font-semibold tracking-tight">
+                <DialogTitle className="text-lg font-bold tracking-tight bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
                   إنشاء حجز جديد
                 </DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                  اختر الوحدة ثم الضيف لإكمال الحجز
+                  اختر التواريخ والوحدة ثم الضيف لإكمال الحجز
                 </DialogDescription>
               </div>
             </div>
@@ -2426,9 +2443,11 @@ export default function CalendarPage() {
               guests={guests || []}
               units={units || []}
               initialUnitId={pendingReservation?.unitId || ''}
+              initialCheckIn={pendingReservation?.checkIn || ''}
+              initialCheckOut={pendingReservation?.checkOut || ''}
               onCreateGuest={createGuest}
-              onSelectGuest={(guestId, unitIds, notes) => {
-                handleCreateReservation(guestId, unitIds, notes)
+              onSelectGuest={(guestId, unitIds, notesValue, checkIn, checkOut) => {
+                handleCreateReservation(guestId, unitIds, notesValue, checkIn, checkOut)
               }}
               onCancel={() => {
                 setGuestDialogOpen(false)
@@ -2763,6 +2782,8 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
   guests: guestsProp,
   units,
   initialUnitId = '',
+  initialCheckIn = '',
+  initialCheckOut = '',
   onCreateGuest,
   onSelectGuest,
   onCancel,
@@ -2772,8 +2793,10 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
   guests: any[]
   units: any[]
   initialUnitId?: string
+  initialCheckIn?: string
+  initialCheckOut?: string
   onCreateGuest: any
-  onSelectGuest: (guestId: string, unitIds: string[], notes: string) => void
+  onSelectGuest: (guestId: string, unitIds: string[], notes: string, checkIn: string, checkOut: string) => void
   onCancel: () => void
   newGuestCreated: string | null
   onGuestCreated: () => void
@@ -2785,7 +2808,26 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
   const [showNewGuestForm, setShowNewGuestForm] = useState(false)
   const [visibleCount, setVisibleCount] = useState(30)
   const [notes, setNotes] = useState('')
+  const [checkInDraft, setCheckInDraft] = useState(initialCheckIn)
+  const [checkOutDraft, setCheckOutDraft] = useState(initialCheckOut)
+  const [pendingGuest, setPendingGuest] = useState<any | null>(null)
   const queryClient = useQueryClient()
+
+  // Sync date drafts when dialog reopens with new dates
+  useEffect(() => {
+    setCheckInDraft(initialCheckIn)
+    setCheckOutDraft(initialCheckOut)
+  }, [initialCheckIn, initialCheckOut])
+
+  const datesValid = useMemo(() => {
+    if (!checkInDraft || !checkOutDraft) return false
+    return new Date(checkOutDraft) > new Date(checkInDraft)
+  }, [checkInDraft, checkOutDraft])
+
+  const nights = useMemo(() => {
+    if (!datesValid) return 0
+    return Math.ceil((new Date(checkOutDraft).getTime() - new Date(checkInDraft).getTime()) / 86400000)
+  }, [checkInDraft, checkOutDraft, datesValid])
 
   // Reset visible count when search changes so first paint stays cheap.
   useEffect(() => { setVisibleCount(30) }, [debouncedSearch])
@@ -2847,6 +2889,81 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
   const visibleGuests = useMemo(() => filteredGuests.slice(0, visibleCount), [filteredGuests, visibleCount])
   const hasMore = filteredGuests.length > visibleCount
 
+  if (pendingGuest) {
+    const guestName = `${pendingGuest.first_name_ar || pendingGuest.first_name || ''} ${pendingGuest.last_name_ar || pendingGuest.last_name || ''}`.trim()
+    const selectedUnits = units.filter(u => selectedUnitIds.includes(u.id))
+    return (
+      <div className="flex flex-col gap-4 p-4">
+        <div className="rounded-2xl border-2 border-emerald-200 dark:border-emerald-800 bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 dark:from-emerald-950/30 dark:via-teal-950/20 dark:to-cyan-950/20 p-5 shadow-md space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md">
+              <Check className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold bg-gradient-to-r from-emerald-700 to-teal-700 dark:from-emerald-400 dark:to-teal-400 bg-clip-text text-transparent">
+                تأكيد الحجز
+              </h3>
+              <p className="text-xs text-muted-foreground">يرجى التحقق من البيانات قبل التأكيد</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            {[
+              { label: 'الضيف', value: guestName },
+              { label: 'عدد الوحدات', value: `${selectedUnits.length} وحدة` },
+              { label: 'تاريخ الدخول', value: checkInDraft },
+              { label: 'تاريخ الخروج', value: checkOutDraft },
+            ].map(({ label, value }) => (
+              <div key={label} className="rounded-xl bg-white/70 dark:bg-slate-800/60 border border-emerald-100 dark:border-emerald-800/40 p-2.5 space-y-0.5">
+                <div className="text-xs text-muted-foreground font-medium">{label}</div>
+                <div className="font-bold text-sm truncate">{value}</div>
+              </div>
+            ))}
+            <div className="col-span-2 rounded-xl bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-200 dark:border-emerald-800/40 p-2.5 flex items-center justify-between">
+              <span className="text-xs text-muted-foreground font-medium">عدد الليالي</span>
+              <span className="font-bold text-lg bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">{nights} {nights === 1 ? 'ليلة' : 'ليالٍ'}</span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {selectedUnits.map(u => (
+              <span key={u.id} className="px-2 py-1 rounded-md bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-xs font-bold border border-blue-200/60 dark:border-blue-700/40">
+                وحدة {u.unit_number}
+              </span>
+            ))}
+          </div>
+
+          {notes && (
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-2.5 text-xs">
+              <span className="font-bold text-amber-800 dark:text-amber-300">ملاحظات: </span>
+              <span className="text-amber-900 dark:text-amber-200">{notes}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-3 border-t border-emerald-100 dark:border-emerald-800/50 bg-gradient-to-r from-white/95 via-emerald-50/80 to-teal-50/80 dark:from-slate-900/95 dark:via-emerald-950/60 dark:to-teal-950/60 backdrop-blur flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setPendingGuest(null)}
+            className="flex-1 h-10 border-emerald-200 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+          >
+            رجوع
+          </Button>
+          <Button
+            onClick={() => {
+              onSelectGuest(pendingGuest.id, selectedUnitIds, notes, checkInDraft, checkOutDraft)
+              setPendingGuest(null)
+            }}
+            className="flex-1 h-10 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold shadow-lg hover:shadow-xl transition-all hover:scale-[1.01]"
+          >
+            <Check className="h-4 w-4 ml-2" />
+            تأكيد الحجز
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   if (showNewGuestForm) {
     return (
       <div className="space-y-4 p-4">
@@ -2878,11 +2995,50 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
 
   return (
     <div className="flex flex-col gap-3 p-4">
-      {/* 1. Unit Selection */}
-      <section className="rounded-2xl border border-border/60 bg-card/50 ring-1 ring-border/40 p-4 shadow-sm space-y-3">
-        <Label className="flex items-center gap-2 text-sm font-semibold">
-          <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">١</span>
-          <Home className="h-4 w-4 text-muted-foreground" />
+      {/* 1. Dates */}
+      <section className="rounded-2xl border border-emerald-200/60 dark:border-emerald-800/50 bg-gradient-to-br from-emerald-50/80 to-green-50/60 dark:from-emerald-950/30 dark:to-green-950/20 ring-1 ring-emerald-200/60 dark:ring-emerald-800/40 p-4 shadow-sm space-y-3">
+        <Label className="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+          <span className="w-6 h-6 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 text-white text-xs font-bold flex items-center justify-center shrink-0 shadow-sm">١</span>
+          <CalendarDays className="h-4 w-4 text-emerald-500" />
+          تواريخ الحجز *
+          {datesValid && (
+            <span className="mr-auto text-xs font-bold px-2.5 py-0.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm">
+              {nights} {nights === 1 ? 'ليلة' : 'ليالٍ'}
+            </span>
+          )}
+        </Label>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">تاريخ الدخول</Label>
+            <Input
+              type="date"
+              value={checkInDraft}
+              onChange={(e) => setCheckInDraft(e.target.value)}
+              className="h-9 text-sm border-emerald-200 dark:border-emerald-700 focus:border-emerald-500 focus:ring-emerald-500/20 bg-white/80 dark:bg-slate-900/60"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">تاريخ الخروج</Label>
+            <Input
+              type="date"
+              value={checkOutDraft}
+              onChange={(e) => setCheckOutDraft(e.target.value)}
+              className="h-9 text-sm border-emerald-200 dark:border-emerald-700 focus:border-emerald-500 focus:ring-emerald-500/20 bg-white/80 dark:bg-slate-900/60"
+            />
+          </div>
+        </div>
+        {checkInDraft && checkOutDraft && !datesValid && (
+          <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-1.5">
+            تاريخ الخروج يجب أن يكون بعد تاريخ الدخول
+          </p>
+        )}
+      </section>
+
+      {/* 2. Unit Selection */}
+      <section className="rounded-2xl border border-blue-200/60 dark:border-blue-800/50 bg-gradient-to-br from-blue-50/80 to-indigo-50/60 dark:from-blue-950/30 dark:to-indigo-950/20 ring-1 ring-blue-200/60 dark:ring-blue-800/40 p-4 shadow-sm space-y-3">
+        <Label className="flex items-center gap-2 text-sm font-semibold text-blue-800 dark:text-blue-300">
+          <span className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-xs font-bold flex items-center justify-center shrink-0 shadow-sm">٢</span>
+          <Home className="h-4 w-4 text-blue-500" />
           اختر الوحدة *
         </Label>
         <div className="relative">
@@ -2949,11 +3105,11 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
         </div>
       </section>
 
-      {/* 2. Reservation Notes */}
-      <section className="rounded-2xl border border-border/60 bg-card/50 ring-1 ring-border/40 p-4 shadow-sm space-y-2">
-        <Label className="flex items-center gap-2 text-sm font-semibold">
-          <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">٢</span>
-          <FileText className="h-4 w-4 text-muted-foreground" />
+      {/* 3. Reservation Notes */}
+      <section className="rounded-2xl border border-amber-200/60 dark:border-amber-800/50 bg-gradient-to-br from-amber-50/80 to-orange-50/60 dark:from-amber-950/30 dark:to-orange-950/20 ring-1 ring-amber-200/60 dark:ring-amber-800/40 p-4 shadow-sm space-y-2">
+        <Label className="flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-300">
+          <span className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white text-xs font-bold flex items-center justify-center shrink-0 shadow-sm">٣</span>
+          <FileText className="h-4 w-4 text-amber-500" />
           ملاحظات الحجز
           <span className="text-xs font-normal text-muted-foreground">(اختياري)</span>
         </Label>
@@ -2966,11 +3122,11 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
         />
       </section>
 
-      {/* 3. Guest Search & List */}
-      <section className="rounded-2xl border border-border/60 bg-card/50 ring-1 ring-border/40 p-4 shadow-sm space-y-3">
-        <Label className="flex items-center gap-2 text-sm font-semibold">
-          <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">٣</span>
-          <Users className="h-4 w-4 text-muted-foreground" />
+      {/* 4. Guest Search & List */}
+      <section className="rounded-2xl border border-purple-200/60 dark:border-purple-800/50 bg-gradient-to-br from-purple-50/80 to-fuchsia-50/60 dark:from-purple-950/30 dark:to-fuchsia-950/20 ring-1 ring-purple-200/60 dark:ring-purple-800/40 p-4 shadow-sm space-y-3">
+        <Label className="flex items-center gap-2 text-sm font-semibold text-purple-800 dark:text-purple-300">
+          <span className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-fuchsia-600 text-white text-xs font-bold flex items-center justify-center shrink-0 shadow-sm">٤</span>
+          <Users className="h-4 w-4 text-purple-500" />
           ابحث عن الضيف
         </Label>
         {selectedUnitIds.length === 0 && (
@@ -3002,11 +3158,16 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
                     tabIndex={disabled ? -1 : 0}
                     onClick={() => {
                       if (disabled) return
-                      onSelectGuest(guest.id, selectedUnitIds, notes)
+                      if (!datesValid || selectedUnitIds.length === 0) {
+                        toast({ title: 'تحقق من الإدخال', description: 'تأكد من اختيار وحدة وتاريخ صالح', variant: 'destructive' })
+                        return
+                      }
+                      setPendingGuest(guest)
                     }}
                     onKeyDown={(e) => {
                       if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
-                        onSelectGuest(guest.id, selectedUnitIds, notes)
+                        if (!datesValid || selectedUnitIds.length === 0) return
+                        setPendingGuest(guest)
                       }
                     }}
                     className={`flex items-center gap-3 p-2.5 rounded-xl border transition-colors ${disabled ? 'opacity-50 cursor-not-allowed bg-card' : 'cursor-pointer bg-card hover:bg-accent hover:border-primary/40 active:scale-[0.99]'}`}
@@ -3047,16 +3208,16 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
       </section>
 
       {/* Sticky footer */}
-      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-3 mt-1 border-t bg-card/95 backdrop-blur flex gap-2">
+      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-3 mt-1 border-t border-blue-100/80 dark:border-blue-800/50 bg-gradient-to-r from-white/95 via-blue-50/80 to-indigo-50/80 dark:from-slate-900/95 dark:via-blue-950/60 dark:to-indigo-950/60 backdrop-blur flex gap-2">
         <Button
           variant="outline"
           onClick={() => setShowNewGuestForm(true)}
-          className="flex-1 h-9 text-sm gap-2"
+          className="flex-1 h-9 text-sm gap-2 border-blue-200 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-blue-700 dark:text-blue-300"
         >
           <UserPlus className="h-4 w-4" />
           إنشاء ضيف جديد
         </Button>
-        <Button variant="ghost" onClick={onCancel} className="h-9 text-sm px-4">
+        <Button variant="ghost" onClick={onCancel} className="h-9 text-sm px-4 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400">
           إلغاء
         </Button>
       </div>

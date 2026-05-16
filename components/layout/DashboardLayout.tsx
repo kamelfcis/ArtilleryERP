@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { Sidebar } from './Sidebar'
 import { MobileMenu } from './MobileMenu'
@@ -12,7 +12,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useSidebar } from '@/contexts/SidebarContext'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/use-toast'
-import { Menu, ImageDown, ClipboardCopy, Printer } from 'lucide-react'
+import { Menu, ImageDown, ClipboardCopy, Printer, ChevronLeft, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
 
@@ -40,17 +40,28 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isCalendarPage = pathname === '/calendar'
   const { collapsed, setCollapsed, toggle } = useSidebar()
+  const [dragNights, setDragNights] = useState(0)
 
   useEffect(() => {
     setCollapsed(isCalendarPage)
   }, [isCalendarPage, setCollapsed])
+
+  useEffect(() => {
+    if (!isCalendarPage) return
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ nights: number }>).detail
+      setDragNights(detail?.nights ?? 0)
+    }
+    window.addEventListener('calendar:drag-nights', handler)
+    return () => window.removeEventListener('calendar:drag-nights', handler)
+  }, [isCalendarPage])
 
   return (
     <div className="flex h-screen overflow-hidden">
       <InAppNotificationBanner />
       <Sidebar collapsed={collapsed} onToggle={toggle} />
       <main className="flex-1 overflow-hidden relative flex flex-col">
-        <div className="sticky top-0 z-10 bg-background border-b px-3 py-2 md:p-4 flex items-center justify-between shrink-0">
+        <div className="sticky top-0 z-10 bg-background border-b px-3 py-2 md:p-4 grid grid-cols-3 items-center shrink-0">
           <div className="flex items-center gap-3">
             {/* Desktop sidebar toggle */}
             <Button
@@ -81,7 +92,41 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          {/* Center column — nav arrows (calendar page only) */}
+          <div className="flex justify-center">
+            {isCalendarPage && (
+              <div className="flex items-center gap-2 rounded-full border border-indigo-200/60 dark:border-indigo-700/60 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-md px-2 py-1">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))}
+                  className="h-9 w-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white shadow-md hover:shadow-lg transition-all"
+                  title="اليوم السابق"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </Button>
+                {dragNights > 0 ? (
+                  <span className="px-3 py-1 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-extrabold shadow-md select-none whitespace-nowrap">
+                    {dragNights} {dragNights === 1 ? 'ليلة' : 'ليالٍ'}
+                  </span>
+                ) : (
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 px-1 select-none">التنقل</span>
+                )}
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))}
+                  className="h-9 w-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-md hover:shadow-lg transition-all"
+                  title="اليوم التالي"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Right column */}
+          <div className="flex items-center gap-2 justify-end">
             {isCalendarPage && (
               <>
                 <Button
