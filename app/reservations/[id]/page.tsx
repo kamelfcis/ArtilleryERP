@@ -72,6 +72,12 @@ export default function ReservationDetailPage() {
   const [notes, setNotes] = useState('')
   const [notesSaving, setNotesSaving] = useState(false)
 
+  // Dates editing state
+  const [editingDates, setEditingDates] = useState(false)
+  const [datesSaving, setDatesSaving] = useState(false)
+  const [checkInDraft, setCheckInDraft] = useState('')
+  const [checkOutDraft, setCheckOutDraft] = useState('')
+
   // Guest editing state
   const [guestEditing, setGuestEditing] = useState(false)
   const [guestSaving, setGuestSaving] = useState(false)
@@ -93,10 +99,12 @@ export default function ReservationDetailPage() {
     guest_type: 'military' as string,
   })
 
-  // Sync notes from reservation data
+  // Sync notes and date drafts from reservation data
   useEffect(() => {
     if (reservation) {
       setNotes(reservation.notes || '')
+      setCheckInDraft(reservation.check_in_date)
+      setCheckOutDraft(reservation.check_out_date)
     }
   }, [reservation])
 
@@ -152,10 +160,12 @@ export default function ReservationDetailPage() {
     }
   }
 
-  async function recalculateAndUpdatePrice(guestType: string) {
+  async function recalculateAndUpdatePrice(
+    guestType?: string,
+    overrides?: { checkInDate?: string; checkOutDate?: string }
+  ) {
     if (!reservation) return
     try {
-      // Fetch active pricing data for this unit
       const { data: pricingData, error: pricingError } = await supabase
         .from('pricing')
         .select('*')
@@ -170,10 +180,10 @@ export default function ReservationDetailPage() {
       const newTotal = await calculateReservationPrice(
         {
           unitId: reservation.unit_id,
-          checkInDate: reservation.check_in_date,
-          checkOutDate: reservation.check_out_date,
+          checkInDate: overrides?.checkInDate ?? reservation.check_in_date,
+          checkOutDate: overrides?.checkOutDate ?? reservation.check_out_date,
           unitType: reservation.unit?.type || 'room',
-          guestType: guestType as any,
+          guestType: (guestType ?? reservation.guest?.guest_type ?? 'military') as any,
         },
         (pricingData || []) as any[]
       )
@@ -196,6 +206,33 @@ export default function ReservationDetailPage() {
         description: 'تم تحديث البيانات لكن فشل في إعادة حساب السعر',
         variant: 'destructive',
       })
+    }
+  }
+
+  async function handleSaveDates() {
+    if (!reservation) return
+    if (!checkInDraft || !checkOutDraft) {
+      toast({ title: 'خطأ', description: 'يرجى إدخال التاريخين', variant: 'destructive' })
+      return
+    }
+    if (new Date(checkOutDraft) <= new Date(checkInDraft)) {
+      toast({ title: 'خطأ', description: 'تاريخ الخروج يجب أن يكون بعد تاريخ الدخول', variant: 'destructive' })
+      return
+    }
+    setDatesSaving(true)
+    try {
+      await updateReservation.mutateAsync({
+        id,
+        check_in_date: checkInDraft,
+        check_out_date: checkOutDraft,
+      })
+      await recalculateAndUpdatePrice(undefined, { checkInDate: checkInDraft, checkOutDate: checkOutDraft })
+      setEditingDates(false)
+      toast({ title: 'نجح', description: 'تم تحديث تواريخ الحجز' })
+    } catch (e) {
+      toast({ title: 'خطأ', description: 'فشل في تحديث التواريخ', variant: 'destructive' })
+    } finally {
+      setDatesSaving(false)
     }
   }
 
@@ -470,24 +507,88 @@ export default function ReservationDetailPage() {
                   </SelectContent>
                 </Select>
               </motion.div>
-              <motion.div
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.6 }}
-                className="flex items-center justify-between p-3 rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-blue-200/50 dark:border-blue-800/50"
-              >
-                <span className="text-muted-foreground font-medium">تاريخ الدخول:</span>
-                <span className="font-semibold text-slate-900 dark:text-slate-100">{formatDateShort(reservation.check_in_date)}</span>
-              </motion.div>
-              <motion.div
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.7 }}
-                className="flex items-center justify-between p-3 rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-blue-200/50 dark:border-blue-800/50"
-              >
-                <span className="text-muted-foreground font-medium">تاريخ الخروج:</span>
-                <span className="font-semibold text-slate-900 dark:text-slate-100">{formatDateShort(reservation.check_out_date)}</span>
-              </motion.div>
+              {editingDates ? (
+                <motion.div
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.6 }}
+                  className="rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-blue-200/50 dark:border-blue-800/50 p-3 space-y-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-muted-foreground font-medium whitespace-nowrap">تاريخ الدخول:</Label>
+                    <Input
+                      type="date"
+                      value={checkInDraft}
+                      onChange={(e) => setCheckInDraft(e.target.value)}
+                      className="w-44 bg-white/70 dark:bg-slate-800/70 border-2 hover:border-blue-400 transition-all"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-muted-foreground font-medium whitespace-nowrap">تاريخ الخروج:</Label>
+                    <Input
+                      type="date"
+                      value={checkOutDraft}
+                      onChange={(e) => setCheckOutDraft(e.target.value)}
+                      className="w-44 bg-white/70 dark:bg-slate-800/70 border-2 hover:border-blue-400 transition-all"
+                    />
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setCheckInDraft(reservation.check_in_date)
+                        setCheckOutDraft(reservation.check_out_date)
+                        setEditingDates(false)
+                      }}
+                      disabled={datesSaving}
+                    >
+                      <X className="h-3.5 w-3.5 ml-1" />
+                      إلغاء
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleSaveDates}
+                      disabled={datesSaving}
+                    >
+                      <Save className="h-3.5 w-3.5 ml-1" />
+                      {datesSaving ? 'جاري الحفظ...' : 'حفظ'}
+                    </Button>
+                  </div>
+                </motion.div>
+              ) : (
+                <>
+                  <motion.div
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.6 }}
+                    className="flex items-center justify-between p-3 rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-blue-200/50 dark:border-blue-800/50"
+                  >
+                    <span className="text-muted-foreground font-medium">تاريخ الدخول:</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">{formatDateShort(reservation.check_in_date)}</span>
+                      {!restrictedBranchManager && (
+                        <button
+                          onClick={() => setEditingDates(true)}
+                          className="text-muted-foreground hover:text-primary transition-colors p-0.5 rounded"
+                          title="تعديل التواريخ"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </motion.div>
+                  <motion.div
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.7 }}
+                    className="flex items-center justify-between p-3 rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-blue-200/50 dark:border-blue-800/50"
+                  >
+                    <span className="text-muted-foreground font-medium">تاريخ الخروج:</span>
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">{formatDateShort(reservation.check_out_date)}</span>
+                  </motion.div>
+                </>
+              )}
               <motion.div
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
