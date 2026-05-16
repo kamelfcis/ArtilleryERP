@@ -268,10 +268,10 @@ export function ReservationPrint({ reservation }: ReservationPrintProps) {
             .rules-page .page-border { padding: 16px 20px; }
             .rules-header { display: flex; align-items: flex-start; direction: ltr; margin-bottom: 6px; }
             .rules-header .qr-img { width: 80px; height: 80px; object-fit: contain; flex-shrink: 0; }
-            .rules-top-title { text-align: center; font-size: 22px; font-weight: bold; text-decoration: underline; margin-bottom: 6px; }
-            .rules-page h2 { text-align: center; font-size: 21px; margin-bottom: 8px; text-decoration: underline; }
-            .rules-page ol { padding-right: 22px; font-size: 15px; line-height: 1.9; }
-            .rules-page ol li { margin-bottom: 2px; }
+            .rules-top-title { text-align: center; font-size: 20px; font-weight: bold; text-decoration: underline; margin-bottom: 4px; }
+            .rules-page h2 { text-align: center; font-size: 19px; margin-bottom: 4px; text-decoration: underline; }
+            .rules-page ol { padding-right: 22px; font-size: 14px; line-height: 1.6; }
+            .rules-page ol li { margin-bottom: 1px; }
             .rules-sig { margin-top: 12px; font-size: 15px; font-weight: bold; }
             .rules-sig .sig-line { border-bottom: 1px dotted #000; min-width: 200px; display: inline-block; }
 
@@ -491,20 +491,20 @@ export function ReservationPrint({ reservation }: ReservationPrintProps) {
           </div>
           ` : ''}
 
-          <!-- Notes Box -->
-          <div class="note-box" style="margin-bottom:8px;">
-            <div class="note-title">ملحوظة :</div>
-            <div>١ - فى حالة ارتجاع العقد يتم خصم مبلغ ٢٥٪ من اجمالى قيمة التعاقد حتى ٣ أيام بخلاف يوم بداية العقد.</div>
-            <div>٢ - فى حالة ارتجاع العقد قبل بداية التعاقد بأقل من ٣ أيام يتم خصم ٥٠٪ من قيمة التعاقد.</div>
-            <div>٣ - لا يسمح بارتجاع قيمة العقد بعد مُضى أول يوم تعاقد.</div>
-            <div>٤ - ميعاد استلام الوحدة الساعة ١٢ ظهراً والتسليم ١٠ صباحاً</div>
-            <div>٥ - يتم دفع قيمة تأمين للشاليه ٥٠٠ ج.م والشقة والفيلا ١٠٠٠ ج.م عند الإسكان فى القرية.</div>
-            <div>٦ - يجب تسليم الشقة نظيفة؛ وفى حالة عدم تسليم الوحدة نظيفة يتم خصم ٢٠٠ ج.م من قيمة التأمين المدفوع فى القرية.</div>
-          </div>
-
-          <!-- Page 2 Header: QR only on the left -->
-          <div class="rules-header">
-            ${qrBase64 ? `<img src="${qrBase64}" class="qr-img" alt="QR" />` : ''}
+          <!-- Notes Box with QR inline -->
+          <div class="note-box" style="margin-bottom:6px;">
+            <div style="display:flex; gap:10px; align-items:flex-start;">
+              ${qrBase64 ? `<img src="${qrBase64}" alt="QR" style="width:70px; height:70px; object-fit:contain; flex-shrink:0;" />` : ''}
+              <div style="flex:1;">
+                <div class="note-title" style="text-align:right; margin:0 0 4px 0; padding:0; background:transparent; border:none;">ملحوظة :</div>
+                <div>١ - فى حالة ارتجاع العقد يتم خصم مبلغ ٢٥٪ من اجمالى قيمة التعاقد حتى ٣ أيام بخلاف يوم بداية العقد.</div>
+                <div>٢ - فى حالة ارتجاع العقد قبل بداية التعاقد بأقل من ٣ أيام يتم خصم ٥٠٪ من قيمة التعاقد.</div>
+                <div>٣ - لا يسمح بارتجاع قيمة العقد بعد مُضى أول يوم تعاقد.</div>
+                <div>٤ - ميعاد استلام الوحدة الساعة ١٢ ظهراً والتسليم ١٠ صباحاً</div>
+                <div>٥ - يتم دفع قيمة تأمين للشاليه ٥٠٠ ج.م والشقة والفيلا ١٠٠٠ ج.م عند الإسكان فى القرية.</div>
+                <div>٦ - يجب تسليم الشقة نظيفة؛ وفى حالة عدم تسليم الوحدة نظيفة يتم خصم ٢٠٠ ج.م من قيمة التأمين المدفوع فى القرية.</div>
+              </div>
+            </div>
           </div>
           <div class="rules-top-title">تعليمات الإسكان بقرية روكيت بيتش الندى</div>
           <h2>التعليمات الرئيسية لتنظيم الإسكان :</h2>
