@@ -17,52 +17,27 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
     try {
       setSending(true)
 
+      // Build the contract HTML (logos are embedded as base64 by buildContractHtml)
       const html = await buildContractHtml(reservation, {
         reservationServices: reservationServices || [],
       })
 
-      const iframe = document.createElement('iframe')
-      iframe.setAttribute('aria-hidden', 'true')
-      // Size iframe to the printable content area (A4 minus 2× @page margin of 0.15in = 3.81mm each side)
-      iframe.style.cssText =
-        'position:fixed;left:-9999px;top:0;width:202.38mm;height:289.38mm;border:0;visibility:hidden'
-      document.body.appendChild(iframe)
-      const doc = iframe.contentDocument
-      if (!doc) {
-        document.body.removeChild(iframe)
-        throw new Error('تعذر إنشاء إطار المعاينة')
+      // Call the server-side Puppeteer route which renders the HTML using Chrome's
+      // print engine — identical output to the browser's "Print / Save as PDF" dialog.
+      const response = await fetch('/api/generate-contract-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html }),
+      })
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        throw new Error(body.error || `HTTP ${response.status}`)
       }
-      doc.open()
-      doc.write(html)
-      doc.close()
 
-      // Wait for Google Fonts (Amiri) to fully load inside the iframe before capturing
-      try {
-        await (iframe.contentWindow as any)?.document?.fonts?.ready
-      } catch {}
-      // Extra settle time for layout and images
-      await new Promise((r) => setTimeout(r, 400))
+      const blob = await response.blob()
 
-      const html2pdf = (await import('html2pdf.js')).default as any
-      const blob: Blob = await html2pdf()
-        .set({
-          margin: 3.81,   // matches @page margin: 0.15in in the print stylesheet
-          filename: `contract-${reservation.reservation_number}.pdf`,
-          html2canvas: {
-            scale: 4,             // sharper than print's scale 3
-            useCORS: true,
-            logging: false,
-            windowWidth: 765,     // 202.38mm × 96dpi / 25.4 — pins rasterizer to content width
-            backgroundColor: '#ffffff',
-          },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-          pagebreak: { mode: ['css', 'legacy'], before: '.rules-page', avoid: 'tr' },
-        })
-        .from(doc.body)
-        .outputPdf('blob')
-
-      document.body.removeChild(iframe)
-
+      // Upload PDF to Supabase Storage so we can share a public link via WhatsApp
       const path = `${reservation.id}/contract.pdf`
       const { error: upErr } = await supabase.storage
         .from('reservation-files')
