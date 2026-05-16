@@ -190,7 +190,7 @@ export default function CalendarPage() {
   const [blockDeleteDialogOpen, setBlockDeleteDialogOpen] = useState(false)
   const [blockToDelete, setBlockToDelete] = useState<any>(null)
   const [isUpdatingStatuses, setIsUpdatingStatuses] = useState(false)
-  const [isCreatingReservation, setIsCreatingReservation] = useState(false)
+
   const [pendingEventChange, setPendingEventChange] = useState<{
     type: 'drop' | 'resize'
     info: any
@@ -929,136 +929,119 @@ export default function CalendarPage() {
       return
     }
 
-    // Close guest dialog first, show loading spinner
+    // Close selection dialog immediately — optimistic update will paint the calendar
     setGuestDialogOpen(false)
-    setIsCreatingReservation(true)
+    setPendingReservation(null)
 
-    try {
-      // Get guest to determine guest type
-      const selectedGuest = guests?.find(g => g.id === guestId)
-      if (!selectedGuest) {
-        setIsCreatingReservation(false)
-        toast({
-          title: 'خطأ',
-          description: 'الضيف غير موجود',
-          variant: 'destructive',
-        })
-        return
-      }
+    // Snapshot values needed inside async closures
+    const snapshot = pendingReservation
 
-      const { calculateReservationPrice } = await import('@/lib/utils/pricing')
-      let successCount = 0
-      let totalAmountSum = 0
+    const selectedGuest = guests?.find(g => g.id === guestId)
+    if (!selectedGuest) {
+      toast({ title: 'خطأ', description: 'الضيف غير موجود', variant: 'destructive' })
+      return
+    }
 
-      for (const unitId of unitIds) {
-        // Get unit
-        const unit = units?.find(u => u.id === unitId)
-        if (!unit) {
-          toast({
-            title: 'تحذير',
-            description: `الوحدة ${unitId} غير موجودة، تم تخطيها`,
-            variant: 'destructive',
-          })
-          continue
-        }
+    const { calculateReservationPrice } = await import('@/lib/utils/pricing')
+    const unitMap = new Map((units || []).map(u => [u.id, u]))
+    const uniqueUnitIds = Array.from(new Set(unitIds))
+    const isOnline = typeof navigator === 'undefined' || navigator.onLine
+    const isRestrictedBM =
+      hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
 
-        // Fetch pricing data only when online. Offline we fall back to the
-        // calculator's default behaviour (uses unit base price).
+    // Run all per-unit creates in parallel so N units take ≈ time of the slowest one
+    const results = await Promise.allSettled(
+      uniqueUnitIds.map(async (unitId) => {
+        const unit = unitMap.get(unitId)
+        if (!unit) throw new Error(`الوحدة ${unitId} غير موجودة`)
+
+        // Fetch pricing only when online; offline falls back to unit base price
         let pricingData: any[] | null = null
-        if (typeof navigator === 'undefined' || navigator.onLine) {
+        if (isOnline) {
           const { data, error: pricingError } = await supabase
             .from('pricing')
             .select('*')
             .eq('unit_id', unitId)
             .eq('is_active', true)
             .order('created_at', { ascending: false })
-          if (pricingError && navigator.onLine) {
-            console.error('Error fetching pricing:', pricingError)
-          }
+          if (pricingError) console.error('Error fetching pricing:', pricingError)
           pricingData = data
         }
 
         const totalAmount = await calculateReservationPrice(
           {
             unitId,
-            checkInDate: pendingReservation.checkIn,
-            checkOutDate: pendingReservation.checkOut,
+            checkInDate: snapshot.checkIn,
+            checkOutDate: snapshot.checkOut,
             unitType: unit.type,
             guestType: selectedGuest.guest_type,
           },
           (pricingData || []) as any[]
         )
 
-        // Route through the offline-aware mutation. Online: direct supabase
-        // call.  Offline: enqueues to the Dexie outbox and patches the
-        // calendar cache optimistically so the new reservation appears
-        // immediately and syncs when connectivity returns.
         const result = await offlineMutation.create({
           unit_id: unitId,
           guest_id: guestId,
-          check_in_date: pendingReservation.checkIn,
-          check_out_date: pendingReservation.checkOut,
+          check_in_date: snapshot.checkIn,
+          check_out_date: snapshot.checkOut,
           status: 'pending',
           source: 'online',
           total_amount: totalAmount,
           adults: 1,
           children: 0,
           notes: notes || null,
-          // created_by is passed through to supabase on the online path and
-          // stored verbatim in the outbox for replay on the offline path.
           ...(user?.id ? { created_by: user.id } : {}),
         } as any)
 
-        // Notifications require the network — skip when offline (the
-        // reservation itself is already queued for sync).
-        const isRestrictedBM =
-          hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
-        if (
-          isRestrictedBM &&
-          user?.id &&
-          result?.id &&
-          (typeof navigator === 'undefined' || navigator.onLine)
-        ) {
+        // Fire-and-forget booking notification for restricted branch managers
+        if (isRestrictedBM && user?.id && result?.id && isOnline) {
           const gName = `${selectedGuest.first_name_ar || selectedGuest.first_name} ${selectedGuest.last_name_ar || selectedGuest.last_name}`
           const loc = locations?.find(l => l.id === unit.location_id)
           const lName = loc ? (loc.name_ar || loc.name) : ''
-          const nights = Math.ceil((new Date(pendingReservation.checkOut).getTime() - new Date(pendingReservation.checkIn).getTime()) / 86400000)
+          const nights = Math.ceil(
+            (new Date(snapshot.checkOut).getTime() - new Date(snapshot.checkIn).getTime()) / 86400000
+          )
           createBookingNotif.mutate({
             reservation_id: result.id,
             created_by: user.id,
-            message: `📋 حجز جديد من ${user.email || 'مدير فرع'} | الضيف: ${gName} | الوحدة: ${unit.unit_number} — ${lName} | ${pendingReservation.checkIn} إلى ${pendingReservation.checkOut} (${nights} ليلة) | المبلغ: ${totalAmount} ج.م`,
+            message: `📋 حجز جديد من ${user.email || 'مدير فرع'} | الضيف: ${gName} | الوحدة: ${unit.unit_number} — ${lName} | ${snapshot.checkIn} إلى ${snapshot.checkOut} (${nights} ليلة) | المبلغ: ${totalAmount} ج.م`,
           })
         }
 
-        successCount++
-        totalAmountSum += totalAmount
-      }
+        return totalAmount
+      })
+    )
 
-      if (successCount > 0) {
-        const offline = typeof navigator !== 'undefined' && !navigator.onLine
-        toast({
-          title: offline ? 'محفوظ للمزامنة' : 'نجح',
-          description: offline
-            ? (successCount === 1
-              ? `تم حفظ الحجز محلياً. سيُرسل عند عودة الاتصال. المبلغ: ${formatCurrency(totalAmountSum)}`
-              : `تم حفظ ${successCount} حجوزات محلياً. ستُرسل عند عودة الاتصال. المبلغ: ${formatCurrency(totalAmountSum)}`)
-            : (successCount === 1
-              ? `تم إنشاء الحجز بنجاح. المبلغ الإجمالي: ${formatCurrency(totalAmountSum)}`
-              : `تم إنشاء ${successCount} حجوزات بنجاح. المبلغ الإجمالي: ${formatCurrency(totalAmountSum)}`),
-        })
-      }
+    const successCount = results.filter(r => r.status === 'fulfilled').length
+    const totalAmountSum = results.reduce(
+      (s, r) => s + (r.status === 'fulfilled' ? (r.value as number) : 0),
+      0
+    )
 
-      setIsCreatingReservation(false)
-      setPendingReservation(null)
-      setNewGuestCreated(null)
-    } catch (error: any) {
-      setIsCreatingReservation(false)
+    if (successCount > 0) {
+      const offline = typeof navigator !== 'undefined' && !navigator.onLine
       toast({
-        title: 'خطأ',
-        description: error.message || 'فشل في إنشاء الحجز',
+        title: offline ? 'محفوظ للمزامنة' : 'نجح',
+        description: offline
+          ? (successCount === 1
+            ? `تم حفظ الحجز محلياً. سيُرسل عند عودة الاتصال. المبلغ: ${formatCurrency(totalAmountSum)}`
+            : `تم حفظ ${successCount} حجوزات محلياً. ستُرسل عند عودة الاتصال. المبلغ: ${formatCurrency(totalAmountSum)}`)
+          : (successCount === 1
+            ? `تم إنشاء الحجز بنجاح. المبلغ الإجمالي: ${formatCurrency(totalAmountSum)}`
+            : `تم إنشاء ${successCount} حجوزات بنجاح. المبلغ الإجمالي: ${formatCurrency(totalAmountSum)}`),
+      })
+    }
+
+    const failCount = results.filter(r => r.status === 'rejected').length
+    if (failCount > 0) {
+      toast({
+        title: 'تحذير',
+        description: `فشل إنشاء ${failCount} حجز. يرجى المحاولة مجدداً.`,
         variant: 'destructive',
       })
     }
+
+    setNewGuestCreated(null)
   }
 
   function handleGuestCreated() {
@@ -2424,13 +2407,19 @@ export default function CalendarPage() {
       <Dialog open={guestDialogOpen} onOpenChange={setGuestDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden !fixed !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2">
           <DialogHeader className="px-6 pt-5 pb-4 border-b shrink-0">
-            <DialogTitle className="text-xl font-semibold flex items-center gap-2">
-              <User className="h-5 w-5 text-primary" />
-              إنشاء حجز جديد
-            </DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground mt-1">
-              اختر الوحدة ثم الضيف لإكمال الحجز
-            </DialogDescription>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
+                <CalendarDays className="h-5 w-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <DialogTitle className="text-lg font-semibold tracking-tight">
+                  إنشاء حجز جديد
+                </DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                  اختر الوحدة ثم الضيف لإكمال الحجز
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
           <div className="overflow-y-auto flex-1">
             <GuestSelectionDialog
@@ -2449,80 +2438,6 @@ export default function CalendarPage() {
               newGuestCreated={newGuestCreated}
               onGuestCreated={handleGuestCreated}
             />
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Premium Loading Spinner - Reservation Confirmation */}
-      <Dialog open={isCreatingReservation} onOpenChange={() => {}}>
-        <DialogContent
-          className="max-w-md border-0 shadow-2xl bg-gradient-to-br from-white via-blue-50/80 to-indigo-50/80 dark:from-slate-900 dark:via-blue-950/40 dark:to-indigo-950/40 backdrop-blur-xl !fixed !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2 [&>button]:hidden"
-          onPointerDownOutside={(e) => e.preventDefault()}
-          onEscapeKeyDown={(e) => e.preventDefault()}
-          onInteractOutside={(e) => e.preventDefault()}
-        >
-          <DialogTitle className="sr-only">جاري تأكيد الحجز</DialogTitle>
-          <DialogDescription className="sr-only">يرجى الانتظار بينما يتم حفظ الحجز</DialogDescription>
-          <div className="absolute inset-0 opacity-5 pointer-events-none">
-            <div className="absolute inset-0 bg-[linear-gradient(to_right,#000000_1px,transparent_1px),linear-gradient(to_bottom,#000000_1px,transparent_1px)] bg-[size:20px_20px]" />
-          </div>
-          <motion.div
-            className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-300/20 to-transparent pointer-events-none"
-            animate={{ x: ['-100%', '100%'] }}
-            transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-          />
-          <div className="relative z-10 flex flex-col items-center justify-center py-10 gap-6">
-            {/* Animated Spinner */}
-            <div className="relative w-24 h-24">
-              <motion.div
-                className="absolute inset-0 rounded-full border-4 border-blue-200 dark:border-blue-800"
-              />
-              <motion.div
-                className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-600 border-r-indigo-500"
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-              />
-              <motion.div
-                className="absolute inset-2 rounded-full border-4 border-transparent border-b-purple-500 border-l-blue-400"
-                animate={{ rotate: -360 }}
-                transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
-              />
-              <motion.div
-                className="absolute inset-0 flex items-center justify-center"
-                animate={{ scale: [1, 1.15, 1] }}
-                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-              >
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg">
-                  <CalendarDays className="h-5 w-5 text-white" />
-                </div>
-              </motion.div>
-            </div>
-
-            {/* Text */}
-            <div className="text-center space-y-3">
-              <motion.h3
-                className="text-2xl font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent"
-                animate={{ opacity: [0.7, 1, 0.7] }}
-                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-              >
-                جاري تأكيد الحجز...
-              </motion.h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">
-                يرجى الانتظار وعدم الضغط مرة أخرى
-              </p>
-            </div>
-
-            {/* Animated dots */}
-            <div className="flex gap-2">
-              {[0, 1, 2].map((i) => (
-                <motion.div
-                  key={i}
-                  className="w-3 h-3 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600"
-                  animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
-                  transition={{ duration: 1, repeat: Infinity, ease: 'easeInOut', delay: i * 0.2 }}
-                />
-              ))}
-            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -2899,34 +2814,37 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
   const { data: guestsData } = useGuests(debouncedSearch || undefined)
   const guests = guestsData || guestsProp
 
-  const filteredUnits = units.filter(
-    (unit) =>
-      unit.unit_number?.toLowerCase().includes(unitSearch.toLowerCase()) ||
-      unit.name?.toLowerCase().includes(unitSearch.toLowerCase()) ||
-      unit.name_ar?.includes(unitSearch) ||
-      unit.type?.toLowerCase().includes(unitSearch.toLowerCase())
-  )
+  const filteredUnits = useMemo(() => {
+    if (!unitSearch) return units
+    const q = unitSearch.toLowerCase()
+    return units.filter(
+      (unit) =>
+        unit.unit_number?.toLowerCase().includes(q) ||
+        unit.name?.toLowerCase().includes(q) ||
+        unit.name_ar?.includes(unitSearch) ||
+        unit.type?.toLowerCase().includes(q)
+    )
+  }, [units, unitSearch])
 
-  // Client-side narrow while debounce is settling — feels instant.
-  const searchLower = search.toLowerCase()
-  const searchDigits = search.replace(/[\u0660-\u0669]/g, (d) =>
-    String(d.charCodeAt(0) - 0x0660)
-  )
-  const filteredGuests = !search
-    ? guests
-    : guests.filter(
-        (g) =>
-          g.first_name?.toLowerCase().includes(searchLower) ||
-          g.last_name?.toLowerCase().includes(searchLower) ||
-          g.first_name_ar?.includes(search) ||
-          g.last_name_ar?.includes(search) ||
-          g.phone?.includes(searchDigits) ||
-          g.email?.toLowerCase().includes(searchLower) ||
-          g.national_id?.includes(searchDigits)
-      )
+  const filteredGuests = useMemo(() => {
+    if (!search) return guests
+    const q = search.toLowerCase()
+    const digits = search.replace(/[\u0660-\u0669]/g, (d) =>
+      String(d.charCodeAt(0) - 0x0660)
+    )
+    return guests.filter(
+      (g) =>
+        g.first_name?.toLowerCase().includes(q) ||
+        g.last_name?.toLowerCase().includes(q) ||
+        g.first_name_ar?.includes(search) ||
+        g.last_name_ar?.includes(search) ||
+        g.phone?.includes(digits) ||
+        g.email?.toLowerCase().includes(q) ||
+        g.national_id?.includes(digits)
+    )
+  }, [guests, search])
 
-  // Only render the first `visibleCount` guests to keep initial paint cheap.
-  const visibleGuests = filteredGuests.slice(0, visibleCount)
+  const visibleGuests = useMemo(() => filteredGuests.slice(0, visibleCount), [filteredGuests, visibleCount])
   const hasMore = filteredGuests.length > visibleCount
 
   if (showNewGuestForm) {
@@ -2959,15 +2877,16 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
   }
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="flex flex-col gap-3 p-4">
       {/* 1. Unit Selection */}
-      <div className="border rounded-xl p-4 bg-card space-y-3">
+      <section className="rounded-2xl border border-border/60 bg-card/50 ring-1 ring-border/40 p-4 shadow-sm space-y-3">
         <Label className="flex items-center gap-2 text-sm font-semibold">
-          <Home className="h-4 w-4 text-primary" />
+          <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">١</span>
+          <Home className="h-4 w-4 text-muted-foreground" />
           اختر الوحدة *
         </Label>
         <div className="relative">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
             placeholder="ابحث عن وحدة... (رقم، اسم، نوع)"
             value={unitSearch}
@@ -2993,19 +2912,19 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
             تحديد الكل
           </label>
           {selectedUnitIds.length > 0 && (
-            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
               {selectedUnitIds.length} وحدة محددة
             </span>
           )}
         </div>
-        <div className="max-h-48 overflow-y-auto space-y-1 border rounded-lg p-2 bg-background">
+        <div className="max-h-48 overflow-y-auto space-y-1 border rounded-xl p-2 bg-background/60">
           {filteredUnits.length > 0 ? (
             filteredUnits.map((unit) => {
               const isSelected = selectedUnitIds.includes(unit.id)
               return (
                 <label
                   key={unit.id}
-                  className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors hover:bg-accent ${isSelected ? 'bg-primary/5 ring-1 ring-primary/30' : ''}`}
+                  className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors hover:bg-accent ${isSelected ? 'bg-primary/5 ring-2 ring-primary border border-primary' : 'border border-transparent'}`}
                 >
                   <input
                     type="checkbox"
@@ -3013,7 +2932,7 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
                     onChange={() => toggleUnit(unit.id)}
                     className="w-4 h-4 accent-primary flex-shrink-0"
                   />
-                  <span className="w-7 h-7 rounded bg-primary/10 flex items-center justify-center text-primary text-xs font-bold flex-shrink-0">
+                  <span className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center text-primary text-xs font-bold flex-shrink-0">
                     {unit.unit_number}
                   </span>
                   <div className="flex flex-col min-w-0">
@@ -3028,12 +2947,13 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
             <p className="p-3 text-center text-sm text-muted-foreground">لا توجد وحدات مطابقة</p>
           )}
         </div>
-      </div>
+      </section>
 
       {/* 2. Reservation Notes */}
-      <div className="border rounded-xl p-4 bg-card space-y-2">
+      <section className="rounded-2xl border border-border/60 bg-card/50 ring-1 ring-border/40 p-4 shadow-sm space-y-2">
         <Label className="flex items-center gap-2 text-sm font-semibold">
-          <FileText className="h-4 w-4 text-primary" />
+          <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">٢</span>
+          <FileText className="h-4 w-4 text-muted-foreground" />
           ملاحظات الحجز
           <span className="text-xs font-normal text-muted-foreground">(اختياري)</span>
         </Label>
@@ -3041,24 +2961,25 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="أضف أي ملاحظات خاصة بالحجز..."
-          rows={3}
+          rows={2}
           className="resize-none text-sm"
         />
-      </div>
+      </section>
 
       {/* 3. Guest Search & List */}
-      <div className="border rounded-xl p-4 bg-card space-y-3">
+      <section className="rounded-2xl border border-border/60 bg-card/50 ring-1 ring-border/40 p-4 shadow-sm space-y-3">
         <Label className="flex items-center gap-2 text-sm font-semibold">
-          <Users className="h-4 w-4 text-primary" />
+          <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">٣</span>
+          <Users className="h-4 w-4 text-muted-foreground" />
           ابحث عن الضيف
         </Label>
         {selectedUnitIds.length === 0 && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+          <p className="text-xs text-muted-foreground bg-muted/40 border border-dashed border-border rounded-lg px-3 py-2">
             يرجى اختيار وحدة أولاً قبل اختيار الضيف
           </p>
         )}
         <div className="relative">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -3088,16 +3009,16 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
                         onSelectGuest(guest.id, selectedUnitIds, notes)
                       }
                     }}
-                    className={`flex items-center gap-3 p-2.5 rounded-lg border bg-card transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-accent hover:border-primary/40'}`}
+                    className={`flex items-center gap-3 p-2.5 rounded-xl border transition-colors ${disabled ? 'opacity-50 cursor-not-allowed bg-card' : 'cursor-pointer bg-card hover:bg-accent hover:border-primary/40 active:scale-[0.99]'}`}
                   >
-                    <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                    <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                       <Users className="h-4 w-4 text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-sm truncate">{name}</div>
                       {sub && <div className="text-xs text-muted-foreground truncate">{sub}</div>}
                       {guest.military_rank_ar && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                        <span className="text-xs px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 font-medium">
                           {guest.military_rank_ar}
                         </span>
                       )}
@@ -3110,7 +3031,7 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
                 <button
                   type="button"
                   onClick={() => setVisibleCount(c => c + 30)}
-                  className="w-full py-2 text-sm text-primary hover:underline"
+                  className="w-full py-2 text-sm text-primary hover:underline font-medium"
                 >
                   عرض المزيد ({filteredGuests.length - visibleCount} متبقي)
                 </button>
@@ -3118,15 +3039,15 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
             </>
           ) : (
             <div className="text-center py-10 text-muted-foreground">
-              <Users className="h-10 w-10 mx-auto mb-2 opacity-40" />
+              <Users className="h-10 w-10 mx-auto mb-2 opacity-30" />
               <p className="text-sm">{search ? 'لا توجد نتائج' : 'لا يوجد ضيوف'}</p>
             </div>
           )}
         </div>
-      </div>
+      </section>
 
-      {/* 3. Create New Guest + Cancel */}
-      <div className="flex gap-2">
+      {/* Sticky footer */}
+      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-3 mt-1 border-t bg-card/95 backdrop-blur flex gap-2">
         <Button
           variant="outline"
           onClick={() => setShowNewGuestForm(true)}
