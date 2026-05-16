@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useEffect, useMemo } from 'react'
+import React, { useRef, useState, useEffect, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import FullCalendar from '@fullcalendar/react'
@@ -931,9 +931,6 @@ export default function CalendarPage() {
     // Close guest dialog first, show loading spinner
     setGuestDialogOpen(false)
     setIsCreatingReservation(true)
-
-    // Yield to browser so the spinner renders and animates before heavy work
-    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
 
     try {
       // Get guest to determine guest type
@@ -2421,56 +2418,20 @@ export default function CalendarPage() {
         </div>
       </motion.div>
 
-      {/* Premium Guest Selection Dialog */}
+      {/* Guest Selection Dialog */}
       <Dialog open={guestDialogOpen} onOpenChange={setGuestDialogOpen}>
-        <DialogContent 
-          className="max-w-6xl max-h-[95vh] overflow-hidden border-0 shadow-2xl bg-gradient-to-br from-white via-blue-50/50 to-purple-50/50 dark:from-slate-900 dark:via-blue-950/20 dark:to-purple-950/20 backdrop-blur-xl !fixed !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2"
-        >
-          {/* Premium Background Effects */}
-          <div className="absolute inset-0 opacity-5 pointer-events-none">
-            <div className="absolute inset-0 bg-[linear-gradient(to_right,#000000_1px,transparent_1px),linear-gradient(to_bottom,#000000_1px,transparent_1px)] bg-[size:20px_20px]" />
-          </div>
-          <motion.div
-            className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-200/20 to-transparent pointer-events-none"
-            animate={{
-              x: ['-100%', '100%'],
-            }}
-            transition={{
-              duration: 3,
-              repeat: Infinity,
-              ease: "linear",
-              repeatDelay: 2,
-            }}
-          />
-          
-          <DialogHeader className="relative z-10 border-b border-blue-200/50 dark:border-blue-800/50 pb-4">
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3 }}
-            >
-              <DialogTitle className="text-3xl font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent flex items-center gap-3">
-                <motion.div
-                  animate={{
-                    rotate: [0, 360],
-                  }}
-                  transition={{
-                    duration: 20,
-                    repeat: Infinity,
-                    ease: 'linear',
-                  }}
-                >
-                  <User className="h-8 w-8 text-blue-600" />
-                </motion.div>
-                إنشاء حجز جديد
-              </DialogTitle>
-              <DialogDescription className="text-base mt-2 text-slate-600 dark:text-slate-400">
-                اختر الضيف والوحدة لإكمال الحجز
-              </DialogDescription>
-            </motion.div>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden !fixed !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2">
+          <DialogHeader className="px-6 pt-5 pb-4 border-b shrink-0">
+            <DialogTitle className="text-xl font-semibold flex items-center gap-2">
+              <User className="h-5 w-5 text-primary" />
+              إنشاء حجز جديد
+            </DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground mt-1">
+              اختر الوحدة ثم الضيف لإكمال الحجز
+            </DialogDescription>
           </DialogHeader>
-          <div className="relative z-10 max-h-[85vh] overflow-y-auto">
-            <PremiumGuestSelectionDialog
+          <div className="overflow-y-auto flex-1">
+            <GuestSelectionDialog
               guests={guests || []}
               units={units || []}
               initialUnitId={pendingReservation?.unitId || ''}
@@ -2881,7 +2842,7 @@ export default function CalendarPage() {
   )
 }
 
-function PremiumGuestSelectionDialog({
+const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
   guests: guestsProp,
   units,
   initialUnitId = '',
@@ -2905,13 +2866,15 @@ function PremiumGuestSelectionDialog({
   const [unitSearch, setUnitSearch] = useState('')
   const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>(initialUnitId ? [initialUnitId] : [])
   const [showNewGuestForm, setShowNewGuestForm] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(30)
   const queryClient = useQueryClient()
 
-  // Update selectedUnitIds when initialUnitId changes (e.g., when dialog reopens)
+  // Reset visible count when search changes so first paint stays cheap.
+  useEffect(() => { setVisibleCount(30) }, [debouncedSearch])
+
+  // Update selectedUnitIds when initialUnitId changes (e.g. when dialog reopens)
   useEffect(() => {
-    if (initialUnitId) {
-      setSelectedUnitIds([initialUnitId])
-    }
+    if (initialUnitId) setSelectedUnitIds([initialUnitId])
   }, [initialUnitId])
 
   // Debounce the guest search so each keystroke doesn't fire a Supabase query.
@@ -2926,14 +2889,10 @@ function PremiumGuestSelectionDialog({
     )
   }
 
-  // Server-side search across the full guests table (the prior call without
-  // a search arg only returned the latest 100 rows, so older guests were
-  // unreachable). Falls back to the latest 100 when no search is entered.
+  // Server-side search across the full guests table.
   const { data: guestsData } = useGuests(debouncedSearch || undefined)
-  // Use the fresh data from hook if available, otherwise fall back to prop
   const guests = guestsData || guestsProp
 
-  // Filter units based on search
   const filteredUnits = units.filter(
     (unit) =>
       unit.unit_number?.toLowerCase().includes(unitSearch.toLowerCase()) ||
@@ -2942,10 +2901,7 @@ function PremiumGuestSelectionDialog({
       unit.type?.toLowerCase().includes(unitSearch.toLowerCase())
   )
 
-  // The hook already returns matches for `debouncedSearch`. While the user is
-  // still typing (before the debounce settles) we narrow the previously
-  // returned set client-side using the live `search` term so the UI feels
-  // instant. Mirrors the server-side fields (incl. Arabic names + national_id).
+  // Client-side narrow while debounce is settling — feels instant.
   const searchLower = search.toLowerCase()
   const searchDigits = search.replace(/[\u0660-\u0669]/g, (d) =>
     String(d.charCodeAt(0) - 0x0660)
@@ -2963,373 +2919,204 @@ function PremiumGuestSelectionDialog({
           g.national_id?.includes(searchDigits)
       )
 
+  // Only render the first `visibleCount` guests to keep initial paint cheap.
+  const visibleGuests = filteredGuests.slice(0, visibleCount)
+  const hasMore = filteredGuests.length > visibleCount
+
   if (showNewGuestForm) {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="space-y-6 p-4"
-      >
-        <div className="relative overflow-hidden border-2 rounded-xl p-6 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-950/30 dark:via-indigo-950/30 dark:to-purple-950/30 backdrop-blur-sm">
-          <div className="absolute inset-0 opacity-5">
-            <div className="absolute inset-0 bg-[linear-gradient(to_right,#000000_1px,transparent_1px),linear-gradient(to_bottom,#000000_1px,transparent_1px)] bg-[size:20px_20px]" />
+      <div className="space-y-4 p-4">
+        <div className="border rounded-xl p-5 bg-card">
+          <div className="flex items-center gap-2 mb-4">
+            <UserPlus className="h-5 w-5 text-primary" />
+            <h3 className="text-base font-semibold">إضافة ضيف جديد</h3>
           </div>
-          <motion.div
-            className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-200/20 to-transparent"
-            animate={{
-              x: ['-100%', '100%'],
-            }}
-            transition={{
-              duration: 3,
-              repeat: Infinity,
-              ease: "linear",
-              repeatDelay: 2,
+          <GuestForm
+            onSuccess={() => {
+              queryClient.invalidateQueries({ queryKey: ['guests'] })
+              setTimeout(() => {
+                onGuestCreated()
+                setShowNewGuestForm(false)
+                toast({
+                  title: 'نجح',
+                  description: 'تم إنشاء الضيف بنجاح. يرجى اختياره من القائمة.',
+                })
+              }, 500)
             }}
           />
-          <div className="relative z-10">
-            <div className="flex items-center gap-3 mb-6">
-              <motion.div
-                animate={{
-                  rotate: [0, 360],
-                }}
-                transition={{
-                  duration: 20,
-                  repeat: Infinity,
-                  ease: 'linear',
-                }}
-              >
-                <UserPlus className="h-6 w-6 text-blue-600" />
-              </motion.div>
-              <h3 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                إضافة ضيف جديد
-              </h3>
-            </div>
-            <GuestForm
-              onSuccess={() => {
-                // Refresh guests list - this will automatically update the guests list in the dialog
-                queryClient.invalidateQueries({ queryKey: ['guests'] })
-                // Wait a bit for the query to refetch, then go back to guest selection
-                setTimeout(() => {
-                  onGuestCreated()
-                  setShowNewGuestForm(false)
-                  toast({
-                    title: 'نجح',
-                    description: 'تم إنشاء الضيف بنجاح. يرجى اختياره من القائمة.',
-                  })
-                }, 500)
-              }}
-            />
-          </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowNewGuestForm(false)} className="flex-1">
-            رجوع
-          </Button>
-        </div>
-      </motion.div>
+        <Button variant="outline" onClick={() => setShowNewGuestForm(false)} className="w-full">
+          رجوع
+        </Button>
+      </div>
     )
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-6 p-4"
-    >
-      {/* 1. Guest Search - Premium Card */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="relative overflow-hidden border-2 rounded-2xl p-6 bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 dark:from-emerald-950/30 dark:via-teal-950/30 dark:to-cyan-950/30 backdrop-blur-sm"
-      >
-        <div className="absolute inset-0 opacity-5">
-          <div className="absolute inset-0 bg-[linear-gradient(to_right,#000000_1px,transparent_1px),linear-gradient(to_bottom,#000000_1px,transparent_1px)] bg-[size:20px_20px]" />
-        </div>
-        <motion.div
-          className="absolute inset-0 bg-gradient-to-r from-transparent via-emerald-200/20 to-transparent"
-          animate={{
-            x: ['-100%', '100%'],
-          }}
-          transition={{
-            duration: 3,
-            repeat: Infinity,
-            ease: "linear",
-            repeatDelay: 2,
-          }}
-        />
-        <div className="relative z-10 space-y-4">
-          <Label className="flex items-center justify-center gap-3 text-xl font-bold">
-            <motion.div
-              className="p-2 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg"
-              animate={{
-                rotate: [0, -5, 5, 0],
-              }}
-              transition={{
-                duration: 3,
-                repeat: Infinity,
-                ease: 'easeInOut',
-              }}
-            >
-              <Users className="h-6 w-6 text-white" />
-            </motion.div>
-            <span className="bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-              ابحث عن الضيف أو أنشئ ضيف جديد
-            </span>
-          </Label>
-          <div className="relative max-w-md mx-auto">
-            <Search className="absolute right-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-emerald-500 z-10" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="ابحث بالاسم أو رقم الهاتف أو البريد..."
-              className="pr-12 relative z-10 border-2 border-emerald-200 dark:border-emerald-800 h-12 text-base rounded-xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all text-center placeholder:text-slate-400"
-            />
-          </div>
-        </div>
-      </motion.div>
-
-      {/* 2. Guests List - Premium Cards */}
-      <div className="max-h-60 overflow-y-auto space-y-3">
-        {filteredGuests.length > 0 ? (
-          filteredGuests.map((guest, index) => (
-            <motion.div
-              key={guest.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05 }}
-              whileHover={{ scale: 1.02, x: -4 }}
-              className="relative overflow-hidden border-2 rounded-xl p-4 cursor-pointer group hover:shadow-xl transition-all bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-800/50"
-              onClick={() => {
-                if (selectedUnitIds.length === 0) {
-                  toast({
-                    title: 'خطأ',
-                    description: 'يرجى اختيار وحدة واحدة على الأقل',
-                    variant: 'destructive',
-                  })
-                  return
-                }
-                onSelectGuest(guest.id, selectedUnitIds)
-              }}
-            >
-              <div className="absolute inset-0 opacity-5">
-                <div className="absolute inset-0 bg-[linear-gradient(to_right,#000000_1px,transparent_1px),linear-gradient(to_bottom,#000000_1px,transparent_1px)] bg-[size:20px_20px]" />
-              </div>
-              <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-primary/10 to-transparent rounded-bl-full opacity-0 group-hover:opacity-100 transition-opacity" />
-              <div className="relative flex items-center gap-4">
-                <div className="flex-shrink-0 w-14 h-14 rounded-full bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center border-2 border-primary/20">
-                  <Users className="h-7 w-7 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-lg flex items-center gap-2">
-                    {guest.first_name_ar || guest.first_name} {guest.last_name_ar || guest.last_name}
-                  </div>
-                  <div className="text-sm text-muted-foreground flex items-center gap-4 mt-2">
-                    {guest.phone && (
-                      <span className="flex items-center gap-2">
-                        <Phone className="h-4 w-4" />
-                        {guest.phone}
-                      </span>
-                    )}
-                    {guest.email && (
-                      <span className="flex items-center gap-2">
-                        <Mail className="h-4 w-4" />
-                        {guest.email}
-                      </span>
-                    )}
-                    {guest.military_rank_ar && (
-                      <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-xs font-semibold">
-                        {guest.military_rank_ar}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <motion.div
-                  className="opacity-0 group-hover:opacity-100 transition-opacity"
-                  whileHover={{ scale: 1.2 }}
-                >
-                  <div className="w-3 h-3 rounded-full bg-primary animate-pulse" />
-                </motion.div>
-              </div>
-            </motion.div>
-          ))
-        ) : (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-center py-16 text-muted-foreground"
-          >
-            <motion.div
-              animate={{
-                scale: [1, 1.1, 1],
-              }}
-              transition={{
-                duration: 2,
-                repeat: Infinity,
-              }}
-            >
-              <Users className="h-16 w-16 mx-auto mb-4 opacity-50" />
-            </motion.div>
-            <p className="text-xl font-semibold">{search ? 'لا توجد نتائج' : 'لا يوجد ضيوف'}</p>
-            <p className="text-sm mt-2">قم بإنشاء ضيف جديد</p>
-          </motion.div>
-        )}
-      </div>
-
-      {/* 3. Create New Guest Button */}
-      <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-        <Button
-          variant="outline"
-          onClick={() => setShowNewGuestForm(true)}
-          className="w-full relative overflow-hidden group border-2 hover:border-primary transition-all h-12 text-base"
-        >
-          <motion.div
-            className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/10 to-transparent"
-            animate={{
-              x: ['-100%', '100%'],
-            }}
-            transition={{
-              duration: 2,
-              repeat: Infinity,
-              ease: 'linear',
-            }}
+    <div className="space-y-4 p-4">
+      {/* 1. Unit Selection */}
+      <div className="border rounded-xl p-4 bg-card space-y-3">
+        <Label className="flex items-center gap-2 text-sm font-semibold">
+          <Home className="h-4 w-4 text-primary" />
+          اختر الوحدة *
+        </Label>
+        <div className="relative">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="ابحث عن وحدة... (رقم، اسم، نوع)"
+            value={unitSearch}
+            onChange={(e) => setUnitSearch(e.target.value)}
+            className="pr-9 h-9 text-sm"
           />
-          <UserPlus className="mr-2 h-5 w-5 relative z-10" />
-          <span className="relative z-10 font-semibold">إنشاء ضيف جديد</span>
-        </Button>
-      </motion.div>
-
-      {/* 4. Unit Selection - Premium Card */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="relative overflow-hidden border-2 rounded-2xl p-6 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-950/30 dark:via-indigo-950/30 dark:to-purple-950/30 backdrop-blur-sm"
-      >
-        <div className="absolute inset-0 opacity-5">
-          <div className="absolute inset-0 bg-[linear-gradient(to_right,#000000_1px,transparent_1px),linear-gradient(to_bottom,#000000_1px,transparent_1px)] bg-[size:20px_20px]" />
         </div>
-        <motion.div
-          className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-200/20 to-transparent"
-          animate={{
-            x: ['-100%', '100%'],
-          }}
-          transition={{
-            duration: 3,
-            repeat: Infinity,
-            ease: "linear",
-            repeatDelay: 2,
-          }}
-        />
-        <div className="relative z-10 space-y-4">
-          <Label className="flex items-center justify-center gap-3 text-xl font-bold">
-            <motion.div
-              className="p-2 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg"
-              animate={{
-                rotate: [0, 5, -5, 0],
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-muted-foreground select-none">
+            <input
+              type="checkbox"
+              checked={filteredUnits.length > 0 && filteredUnits.every(u => selectedUnitIds.includes(u.id))}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  setSelectedUnitIds(prev => [...new Set([...prev, ...filteredUnits.map(u => u.id)])])
+                } else {
+                  const filteredIds = new Set(filteredUnits.map(u => u.id))
+                  setSelectedUnitIds(prev => prev.filter(id => !filteredIds.has(id)))
+                }
               }}
-              transition={{
-                duration: 3,
-                repeat: Infinity,
-                ease: 'easeInOut',
-              }}
-            >
-              <Home className="h-6 w-6 text-white" />
-            </motion.div>
-            <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-              اختر الوحدة *
-            </span>
-          </Label>
-          
-          {/* Unit Search Input */}
-          <div className="relative max-w-md mx-auto">
-            <div className="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none">
-              <Search className="h-5 w-5 text-blue-500" />
-            </div>
-            <Input
-              placeholder="ابحث عن وحدة... (رقم، اسم، نوع)"
-              value={unitSearch}
-              onChange={(e) => setUnitSearch(e.target.value)}
-              className="pr-12 h-12 text-base border-2 border-blue-200 dark:border-blue-800 rounded-xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all text-center placeholder:text-slate-400"
+              className="w-4 h-4 accent-primary"
             />
-          </div>
-
-          {/* Select All / Deselect All */}
-          <div className="flex items-center justify-between max-w-md mx-auto">
-            <label className="flex items-center gap-2 cursor-pointer text-sm font-semibold text-blue-600 dark:text-blue-400">
-              <input
-                type="checkbox"
-                checked={filteredUnits.length > 0 && filteredUnits.every(u => selectedUnitIds.includes(u.id))}
-                onChange={(e) => {
-                  if (e.target.checked) {
-                    setSelectedUnitIds(prev => [...new Set([...prev, ...filteredUnits.map(u => u.id)])])
-                  } else {
-                    const filteredIds = new Set(filteredUnits.map(u => u.id))
-                    setSelectedUnitIds(prev => prev.filter(id => !filteredIds.has(id)))
-                  }
-                }}
-                className="w-5 h-5 rounded accent-blue-600"
-              />
-              تحديد الكل
-            </label>
-            {selectedUnitIds.length > 0 && (
-              <span className="text-xs font-bold px-3 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                {selectedUnitIds.length} وحدة محددة
-              </span>
-            )}
-          </div>
-
-          {/* Unit Checkbox List */}
-          <div className="max-h-64 overflow-y-auto space-y-2 max-w-md mx-auto border-2 border-blue-200 dark:border-blue-800 rounded-xl p-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
-            {filteredUnits.length > 0 ? (
-              filteredUnits.map((unit) => (
+            تحديد الكل
+          </label>
+          {selectedUnitIds.length > 0 && (
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+              {selectedUnitIds.length} وحدة محددة
+            </span>
+          )}
+        </div>
+        <div className="max-h-48 overflow-y-auto space-y-1 border rounded-lg p-2 bg-background">
+          {filteredUnits.length > 0 ? (
+            filteredUnits.map((unit) => {
+              const isSelected = selectedUnitIds.includes(unit.id)
+              return (
                 <label
                   key={unit.id}
-                  className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all hover:bg-blue-50 dark:hover:bg-blue-950/30 ${selectedUnitIds.includes(unit.id) ? 'bg-blue-50 dark:bg-blue-950/40 ring-1 ring-blue-300 dark:ring-blue-700' : ''}`}
+                  className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors hover:bg-accent ${isSelected ? 'bg-primary/5 ring-1 ring-primary/30' : ''}`}
                 >
                   <input
                     type="checkbox"
-                    checked={selectedUnitIds.includes(unit.id)}
+                    checked={isSelected}
                     onChange={() => toggleUnit(unit.id)}
-                    className="w-5 h-5 rounded accent-blue-600 flex-shrink-0"
+                    className="w-4 h-4 accent-primary flex-shrink-0"
                   />
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold shadow-md flex-shrink-0">
+                  <span className="w-7 h-7 rounded bg-primary/10 flex items-center justify-center text-primary text-xs font-bold flex-shrink-0">
                     {unit.unit_number}
-                  </div>
+                  </span>
                   <div className="flex flex-col min-w-0">
-                    <span className="font-semibold text-sm truncate">{unit.name_ar || unit.name}</span>
+                    <span className="font-medium text-sm truncate">{unit.name_ar || unit.name}</span>
                     <span className="text-xs text-muted-foreground">{unit.type}</span>
                   </div>
+                  {isSelected && <Check className="h-3.5 w-3.5 text-primary ml-auto flex-shrink-0" />}
                 </label>
-              ))
-            ) : (
-              <div className="p-4 text-center text-muted-foreground">
-                لا توجد وحدات مطابقة للبحث
-              </div>
-            )}
-          </div>
-
-          {/* Selected Units Preview */}
-          {selectedUnitIds.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="max-w-md mx-auto p-3 rounded-xl bg-gradient-to-r from-blue-500/10 to-indigo-500/10 border border-blue-200 dark:border-blue-800 text-center"
-            >
-              <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                ✓ تم اختيار {selectedUnitIds.length} وحدة: {selectedUnitIds.map(id => units.find(u => u.id === id)?.unit_number).filter(Boolean).join('، ')}
-              </span>
-            </motion.div>
+              )
+            })
+          ) : (
+            <p className="p-3 text-center text-sm text-muted-foreground">لا توجد وحدات مطابقة</p>
           )}
         </div>
-      </motion.div>
+      </div>
 
-      {/* 5. Cancel Button */}
-      <div className="flex gap-3 pt-4 border-t border-blue-200/50 dark:border-blue-800/50">
-        <Button variant="outline" onClick={onCancel} className="w-full h-12 text-base">
+      {/* 2. Guest Search & List */}
+      <div className="border rounded-xl p-4 bg-card space-y-3">
+        <Label className="flex items-center gap-2 text-sm font-semibold">
+          <Users className="h-4 w-4 text-primary" />
+          ابحث عن الضيف
+        </Label>
+        {selectedUnitIds.length === 0 && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+            يرجى اختيار وحدة أولاً قبل اختيار الضيف
+          </p>
+        )}
+        <div className="relative">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="ابحث بالاسم أو رقم الهاتف أو البريد..."
+            className="pr-9 h-9 text-sm"
+            autoFocus
+          />
+        </div>
+        <div className="max-h-56 overflow-y-auto space-y-1">
+          {visibleGuests.length > 0 ? (
+            <>
+              {visibleGuests.map((guest) => {
+                const name = `${guest.first_name_ar || guest.first_name || ''} ${guest.last_name_ar || guest.last_name || ''}`.trim()
+                const sub = guest.phone || guest.email || ''
+                const disabled = selectedUnitIds.length === 0
+                return (
+                  <div
+                    key={guest.id}
+                    role="button"
+                    tabIndex={disabled ? -1 : 0}
+                    onClick={() => {
+                      if (disabled) return
+                      onSelectGuest(guest.id, selectedUnitIds)
+                    }}
+                    onKeyDown={(e) => {
+                      if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
+                        onSelectGuest(guest.id, selectedUnitIds)
+                      }
+                    }}
+                    className={`flex items-center gap-3 p-2.5 rounded-lg border bg-card transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-accent hover:border-primary/40'}`}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                      <Users className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-sm truncate">{name}</div>
+                      {sub && <div className="text-xs text-muted-foreground truncate">{sub}</div>}
+                      {guest.military_rank_ar && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                          {guest.military_rank_ar}
+                        </span>
+                      )}
+                    </div>
+                    <ChevronLeft className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  </div>
+                )
+              })}
+              {hasMore && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount(c => c + 30)}
+                  className="w-full py-2 text-sm text-primary hover:underline"
+                >
+                  عرض المزيد ({filteredGuests.length - visibleCount} متبقي)
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="text-center py-10 text-muted-foreground">
+              <Users className="h-10 w-10 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">{search ? 'لا توجد نتائج' : 'لا يوجد ضيوف'}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 3. Create New Guest + Cancel */}
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          onClick={() => setShowNewGuestForm(true)}
+          className="flex-1 h-9 text-sm gap-2"
+        >
+          <UserPlus className="h-4 w-4" />
+          إنشاء ضيف جديد
+        </Button>
+        <Button variant="ghost" onClick={onCancel} className="h-9 text-sm px-4">
           إلغاء
         </Button>
       </div>
-    </motion.div>
+    </div>
   )
-}
+})
