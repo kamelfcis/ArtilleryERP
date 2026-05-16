@@ -493,7 +493,7 @@ export function ReservationPrint({ reservation }: ReservationPrintProps) {
 
           <!-- Notes Box with QR inline -->
           <div class="note-box" style="margin-bottom:6px;">
-            <div style="display:flex; gap:10px; align-items:flex-start;">
+            <div style="display:flex; flex-direction:row-reverse; gap:10px; align-items:flex-start;">
               ${qrBase64 ? `<img src="${qrBase64}" alt="QR" style="width:70px; height:70px; object-fit:contain; flex-shrink:0;" />` : ''}
               <div style="flex:1;">
                 <div class="note-title" style="text-align:right; margin:0 0 4px 0; padding:0; background:transparent; border:none;">ملحوظة :</div>
