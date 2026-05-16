@@ -29,13 +29,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { GuestForm } from '@/components/forms/GuestForm'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Reservation } from '@/lib/types/database'
 import { CalendarViewSwitcher } from '@/components/calendar/CalendarViewSwitcher'
 import arLocale from '@fullcalendar/core/locales/ar'
 import { RESERVATION_STATUSES } from '@/lib/constants'
 import { useCreateBookingNotification } from '@/lib/hooks/use-booking-notifications'
-import { RefreshCw, RotateCcw, Search, UserPlus, Users, Home, Phone, Mail, User, Trash2, AlertTriangle, Calendar, CalendarDays, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minimize2, Building2, Hotel, Mountain, Layers, Building, Bed, DoorOpen, Crown, Trees, Split, Castle, Sparkles, Menu, Check, Filter, ArrowLeftRight } from 'lucide-react'
+import { RefreshCw, RotateCcw, Search, UserPlus, Users, Home, Phone, Mail, User, Trash2, AlertTriangle, Calendar, CalendarDays, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minimize2, Building2, Hotel, Mountain, Layers, Building, Bed, DoorOpen, Crown, Trees, Split, Castle, Sparkles, Menu, Check, Filter, ArrowLeftRight, FileText } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet'
 import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query'
@@ -918,7 +919,7 @@ export default function CalendarPage() {
     selectInfo.view.calendar.unselect()
   }
 
-  async function handleCreateReservation(guestId: string, unitIds: string[]) {
+  async function handleCreateReservation(guestId: string, unitIds: string[], notes?: string) {
     if (!pendingReservation || unitIds.length === 0) {
       toast({
         title: 'خطأ',
@@ -1002,6 +1003,7 @@ export default function CalendarPage() {
           total_amount: totalAmount,
           adults: 1,
           children: 0,
+          notes: notes || null,
           // created_by is passed through to supabase on the online path and
           // stored verbatim in the outbox for replay on the offline path.
           ...(user?.id ? { created_by: user.id } : {}),
@@ -2436,8 +2438,8 @@ export default function CalendarPage() {
               units={units || []}
               initialUnitId={pendingReservation?.unitId || ''}
               onCreateGuest={createGuest}
-              onSelectGuest={(guestId, unitIds) => {
-                handleCreateReservation(guestId, unitIds)
+              onSelectGuest={(guestId, unitIds, notes) => {
+                handleCreateReservation(guestId, unitIds, notes)
               }}
               onCancel={() => {
                 setGuestDialogOpen(false)
@@ -2856,7 +2858,7 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
   units: any[]
   initialUnitId?: string
   onCreateGuest: any
-  onSelectGuest: (guestId: string, unitIds: string[]) => void
+  onSelectGuest: (guestId: string, unitIds: string[], notes: string) => void
   onCancel: () => void
   newGuestCreated: string | null
   onGuestCreated: () => void
@@ -2867,14 +2869,18 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
   const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>(initialUnitId ? [initialUnitId] : [])
   const [showNewGuestForm, setShowNewGuestForm] = useState(false)
   const [visibleCount, setVisibleCount] = useState(30)
+  const [notes, setNotes] = useState('')
   const queryClient = useQueryClient()
 
   // Reset visible count when search changes so first paint stays cheap.
   useEffect(() => { setVisibleCount(30) }, [debouncedSearch])
 
-  // Update selectedUnitIds when initialUnitId changes (e.g. when dialog reopens)
+  // Update selectedUnitIds and reset notes when initialUnitId changes (dialog reopens)
   useEffect(() => {
-    if (initialUnitId) setSelectedUnitIds([initialUnitId])
+    if (initialUnitId) {
+      setSelectedUnitIds([initialUnitId])
+      setNotes('')
+    }
   }, [initialUnitId])
 
   // Debounce the guest search so each keystroke doesn't fire a Supabase query.
@@ -3024,7 +3030,23 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
         </div>
       </div>
 
-      {/* 2. Guest Search & List */}
+      {/* 2. Reservation Notes */}
+      <div className="border rounded-xl p-4 bg-card space-y-2">
+        <Label className="flex items-center gap-2 text-sm font-semibold">
+          <FileText className="h-4 w-4 text-primary" />
+          ملاحظات الحجز
+          <span className="text-xs font-normal text-muted-foreground">(اختياري)</span>
+        </Label>
+        <Textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="أضف أي ملاحظات خاصة بالحجز..."
+          rows={3}
+          className="resize-none text-sm"
+        />
+      </div>
+
+      {/* 3. Guest Search & List */}
       <div className="border rounded-xl p-4 bg-card space-y-3">
         <Label className="flex items-center gap-2 text-sm font-semibold">
           <Users className="h-4 w-4 text-primary" />
@@ -3059,11 +3081,11 @@ const GuestSelectionDialog = React.memo(function GuestSelectionDialog({
                     tabIndex={disabled ? -1 : 0}
                     onClick={() => {
                       if (disabled) return
-                      onSelectGuest(guest.id, selectedUnitIds)
+                      onSelectGuest(guest.id, selectedUnitIds, notes)
                     }}
                     onKeyDown={(e) => {
                       if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
-                        onSelectGuest(guest.id, selectedUnitIds)
+                        onSelectGuest(guest.id, selectedUnitIds, notes)
                       }
                     }}
                     className={`flex items-center gap-3 p-2.5 rounded-lg border bg-card transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-accent hover:border-primary/40'}`}
