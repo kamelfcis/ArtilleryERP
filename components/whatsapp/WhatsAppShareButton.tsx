@@ -34,14 +34,20 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
       doc.open()
       doc.write(html)
       doc.close()
-      await new Promise((r) => setTimeout(r, 150))
+
+      // Wait for Google Fonts (Amiri) to fully load inside the iframe before capturing
+      try {
+        await (iframe.contentWindow as any)?.document?.fonts?.ready
+      } catch {}
+      // Extra settle time for layout and images
+      await new Promise((r) => setTimeout(r, 400))
 
       const html2pdf = (await import('html2pdf.js')).default as any
       const blob: Blob = await html2pdf()
         .set({
-          margin: 0,
+          margin: [4, 4, 4, 4],
           filename: `contract-${reservation.reservation_number}.pdf`,
-          html2canvas: { scale: 2, useCORS: true },
+          html2canvas: { scale: 3, useCORS: true, logging: false },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
           pagebreak: { mode: ['css', 'legacy'] },
         })
@@ -50,7 +56,7 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
 
       document.body.removeChild(iframe)
 
-      const path = `contracts/${reservation.id}.pdf`
+      const path = `${reservation.id}/contract.pdf`
       const { error: upErr } = await supabase.storage
         .from('reservation-files')
         .upload(path, blob, { upsert: true, contentType: 'application/pdf' })
