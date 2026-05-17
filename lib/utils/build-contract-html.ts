@@ -294,25 +294,12 @@ const printContent = `
         @media print {
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
-          .header-copy-note {
-  position: absolute;
-  top: 0;
-  right: 0;
-  font-size: 10px;
-  color: #666;
-  direction: rtl;
-}
-
-.header-print-date {
-  position: absolute;
-  top: 15px;
-  right: 0;
-  font-size: 9px;
-  color: #333;
-  direction: rtl;
-  border-top: 1px solid #999;
-  padding-top: 2px;
-  font-weight: bold;
+          .header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
 }
       </style>
     </head>
@@ -323,20 +310,28 @@ const printContent = `
       <div class="page-border">
 
       <!-- HEADER -->
-      <div class="header">
-        ${logoBase64 ? `<img src="${logoBase64}" class="header-logo" alt="Logo" />` : ''}
-        <div class="header-center">
-          <div class="brand-title">${locationName}</div>
-        </div>
-        <div style="flex-shrink:0; text-align:center; direction:rtl;">
-          <div style="font-size:20px; font-weight:bold;">دار ضباط المدفعية</div>
-          <div style="font-size:17px; font-weight:bold; margin-top:1px;">قسم الإسكان</div>
-        </div>
-        <div class="header-copy-note">هذه النسخة تسلم للمتعاقد شخصياً</div>
-        <div class="header-print-date">
-  تاريخ الطباعة : ${printDateTime}
+     <div class="header">
+
+  <div style="display:flex; width:100%; align-items:center; justify-content:space-between;">
+    ${logoBase64 ? `<img src="${logoBase64}" class="header-logo" />` : ''}
+
+    <div class="header-center">
+      <div class="brand-title">${locationName}</div>
+    </div>
+
+    <div style="text-align:center; direction:rtl;">
+      <div style="font-size:20px; font-weight:bold;">دار ضباط المدفعية</div>
+      <div style="font-size:17px; font-weight:bold;">قسم الإسكان</div>
+    </div>
+  </div>
+
+  <!-- CENTER META BLOCK -->
+  <div class="header-meta-center" style="margin-top:6px;">
+    <div class="copy-note">هذه النسخة تسلم للمتعاقد شخصياً</div>
+    <div class="print-date">تاريخ الطباعة : ${printDateTime}</div>
+  </div>
+
 </div>
-      </div>
       <div style="text-align:center; margin-bottom:2px;">
         <div class="header-center">
           <div class="title">عقد</div>
@@ -519,7 +514,7 @@ const printContent = `
 
       ${reservation.notes_ar || reservation.notes ? `
       <div class="inline-field" style="margin-top:5px;">
-        <span class="label">مسئول الحجز :</span> <span class="dots">${reservation.notes_ar || reservation.notes || ''}</span>
+        <span class="label">مسئول الحجز :</span> <span class="dots"> </span>
       </div>
       ` : ''}
       
