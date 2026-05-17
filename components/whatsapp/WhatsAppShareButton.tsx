@@ -14,37 +14,63 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
   const [sending, setSending] = useState(false)
 
   async function handleShare() {
+    let pdfWindow: Window | null = null
     try {
       setSending(true)
 
-      // Build the contract HTML (logos are embedded as base64 by buildContractHtml)
       const html = await buildContractHtml(reservation, {
         reservationServices: reservationServices || [],
       })
 
-      // Call the server-side Puppeteer route which renders the HTML using Chrome's
-      // print engine — identical output to the browser's "Print / Save as PDF" dialog.
-      const response = await fetch('/api/generate-contract-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ html }),
-      })
+      // Open a real browser window — identical to what the print button does.
+      // Real windows fully load web fonts (Google Fonts / Amiri), so the layout
+      // rendered here is byte-for-byte the same as the print output.
+      // We position it off-screen so the user doesn't see a flash.
+      pdfWindow = window.open('', '_blank', 'width=794,height=1122,left=-9999,top=0')
+      if (!pdfWindow) throw new Error('لم يتمكن المتصفح من فتح النافذة — تأكد من السماح بالنوافذ المنبثقة')
 
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}))
-        throw new Error(body.error || `HTTP ${response.status}`)
-      }
+      pdfWindow.document.open()
+      pdfWindow.document.write(html)
+      pdfWindow.document.close()
 
-      const blob = await response.blob()
+      // Wait for web fonts (Amiri from Google Fonts) to fully load in that window
+      await pdfWindow.document.fonts.ready
 
-      // Upload PDF to Supabase Storage so we can share a public link via WhatsApp
+      // Extra settle time for images and layout (same base64 images as print)
+      await new Promise((r) => setTimeout(r, 800))
+
+      // Capture the rendered document as a PDF blob.
+      // Settings mirror the @page rule in build-contract-html.ts (0.15in margin)
+      // and the A4 content area (794px wide at 96 dpi).
+      const html2pdf = (await import('html2pdf.js')).default as any
+      const blob: Blob = await html2pdf()
+        .set({
+          margin: 3.81,   // 0.15in converted to mm
+          filename: `contract-${reservation.reservation_number}.pdf`,
+          html2canvas: {
+            scale: 3,
+            useCORS: true,
+            logging: false,
+            windowWidth: 794,   // A4 at 96 dpi (210mm × 96 / 25.4)
+            backgroundColor: '#ffffff',
+          },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          pagebreak: { mode: ['css', 'legacy'], before: '.rules-page', avoid: 'tr' },
+        })
+        .from(pdfWindow.document.body)
+        .outputPdf('blob')
+
+      pdfWindow.close()
+      pdfWindow = null
+
+      // Upload to Supabase Storage with no CDN caching so the guest always gets the fresh PDF
       const path = `${reservation.id}/contract.pdf`
       const { error: upErr } = await supabase.storage
         .from('reservation-files')
         .upload(path, blob, {
           upsert: true,
           contentType: 'application/pdf',
-          cacheControl: '0',  // disable CDN cache so guests always get the latest PDF
+          cacheControl: '0',
         })
       if (upErr) throw upErr
 
@@ -52,7 +78,7 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
         data: { publicUrl },
       } = supabase.storage.from('reservation-files').getPublicUrl(path)
 
-      // Append a timestamp to bust any intermediate proxy/CDN cache
+      // Append a cache-buster so WhatsApp's own proxy can't serve a stale version
       const publicUrlWithBust = `${publicUrl}?v=${Date.now()}`
 
       const guestName =
@@ -70,6 +96,7 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
         description: 'تم فتح واتساب — اختر جهة الاتصال ثم اضغط إرسال',
       })
     } catch (e: unknown) {
+      if (pdfWindow) { try { pdfWindow.close() } catch {} }
       const message = e instanceof Error ? e.message : 'حدث خطأ غير متوقع'
       toast({ title: 'فشل الإرسال', description: message, variant: 'destructive' })
     } finally {
