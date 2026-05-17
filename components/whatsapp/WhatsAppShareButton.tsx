@@ -9,12 +9,17 @@ import { buildContractHtml } from '@/lib/utils/build-contract-html'
 import { useReservationServices } from '@/lib/hooks/use-services'
 import type { Reservation } from '@/lib/types/database'
 
+// A4 dimensions at 96 dpi (1 inch = 96px; 1mm = 96/25.4 px)
+// 210mm × 297mm  →  794px × 1122px
+const A4_W_PX = 794
+const A4_H_PX = 1122
+
 export function WhatsAppShareButton({ reservation }: { reservation: Reservation }) {
   const { data: reservationServices } = useReservationServices(reservation.id)
   const [sending, setSending] = useState(false)
 
   async function handleShare() {
-    let pdfWindow: Window | null = null
+    let iframe: HTMLIFrameElement | null = null
     try {
       setSending(true)
 
@@ -22,48 +27,76 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
         reservationServices: reservationServices || [],
       })
 
-      // Open a real browser window — identical to what the print button does.
-      // Real windows fully load web fonts (Google Fonts / Amiri), so the layout
-      // rendered here is byte-for-byte the same as the print output.
-      // We position it off-screen so the user doesn't see a flash.
-      pdfWindow = window.open('', '_blank', 'width=794,height=1122,left=-9999,top=0')
-      if (!pdfWindow) throw new Error('لم يتمكن المتصفح من فتح النافذة — تأكد من السماح بالنوافذ المنبثقة')
+      // ── Inject a CSS override block so that inside the capture iframe:
+      //    • 100vw = 794px (A4 width at 96 dpi)
+      //    • 100vh = 1122px (A4 height at 96 dpi)
+      // This makes `min-height: calc(100vh - 0.6in - 8px)` resolve to the same
+      // value it resolves to in the browser's print engine, giving identical layout.
+      const cssOverride = `
+        <style id="pdf-override">
+          html { width: ${A4_W_PX}px !important; height: ${A4_H_PX}px !important; overflow: visible !important; }
+          body { width: ${A4_W_PX}px !important; min-height: ${A4_H_PX}px !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; }
+        </style>`
+      const htmlWithOverride = html.replace('</head>', cssOverride + '</head>')
 
-      pdfWindow.document.open()
-      pdfWindow.document.write(html)
-      pdfWindow.document.close()
+      // ── Off-screen iframe: placed far to the left so it is never visible, but
+      //    the browser renders it fully (unlike visibility:hidden which can skip fonts).
+      iframe = document.createElement('iframe')
+      iframe.setAttribute('aria-hidden', 'true')
+      iframe.style.cssText = [
+        'position:fixed',
+        `left:-${A4_W_PX + 100}px`,
+        'top:0',
+        `width:${A4_W_PX}px`,
+        `height:${A4_H_PX}px`,
+        'border:0',
+        'background:#fff',
+        'overflow:hidden',
+      ].join(';')
+      document.body.appendChild(iframe)
 
-      // Wait for web fonts (Amiri from Google Fonts) to fully load in that window
-      await pdfWindow.document.fonts.ready
+      const doc = iframe.contentDocument!
+      doc.open()
+      doc.write(htmlWithOverride)
+      doc.close()
 
-      // Extra settle time for images and layout (same base64 images as print)
-      await new Promise((r) => setTimeout(r, 800))
+      // Wait for Google Fonts (Amiri) to load — the iframe is visible to the
+      // renderer so web fonts are fetched immediately, just like the print window.
+      try { await (iframe.contentWindow as any)?.document?.fonts?.ready } catch {}
 
-      // Capture the rendered document as a PDF blob.
-      // Settings mirror the @page rule in build-contract-html.ts (0.15in margin)
-      // and the A4 content area (794px wide at 96 dpi).
+      // Extra settle for images (logos are base64 so they resolve fast) + layout
+      await new Promise((r) => setTimeout(r, 1000))
+
       const html2pdf = (await import('html2pdf.js')).default as any
+
+      // ── html2canvas options:
+      //    windowWidth / windowHeight must match the iframe's pixel size so that
+      //    viewport-relative CSS units (vw, vh) resolve identically to the print engine.
+      //    scale:3 gives 3× resolution for sharp Arabic text.
       const blob: Blob = await html2pdf()
         .set({
-          margin: 3.81,   // 0.15in converted to mm
+          margin: 3.81,   // 0.15in — same as @page margin in the contract stylesheet
           filename: `contract-${reservation.reservation_number}.pdf`,
           html2canvas: {
             scale: 3,
             useCORS: true,
             logging: false,
-            windowWidth: 794,   // A4 at 96 dpi (210mm × 96 / 25.4)
+            windowWidth: A4_W_PX,
+            windowHeight: A4_H_PX,
             backgroundColor: '#ffffff',
           },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          // Force a hard page-break before the rules page (page 2).
+          // 'avoid: tr' prevents table rows from being sliced mid-row.
           pagebreak: { mode: ['css', 'legacy'], before: '.rules-page', avoid: 'tr' },
         })
-        .from(pdfWindow.document.body)
+        .from(doc.body)
         .outputPdf('blob')
 
-      pdfWindow.close()
-      pdfWindow = null
+      document.body.removeChild(iframe)
+      iframe = null
 
-      // Upload to Supabase Storage with no CDN caching so the guest always gets the fresh PDF
+      // Upload with cacheControl:0 so the CDN never serves a stale version
       const path = `${reservation.id}/contract.pdf`
       const { error: upErr } = await supabase.storage
         .from('reservation-files')
@@ -78,7 +111,7 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
         data: { publicUrl },
       } = supabase.storage.from('reservation-files').getPublicUrl(path)
 
-      // Append a cache-buster so WhatsApp's own proxy can't serve a stale version
+      // Cache-bust so WhatsApp's proxy can't serve an old PDF
       const publicUrlWithBust = `${publicUrl}?v=${Date.now()}`
 
       const guestName =
@@ -96,7 +129,7 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
         description: 'تم فتح واتساب — اختر جهة الاتصال ثم اضغط إرسال',
       })
     } catch (e: unknown) {
-      if (pdfWindow) { try { pdfWindow.close() } catch {} }
+      if (iframe && document.body.contains(iframe)) document.body.removeChild(iframe)
       const message = e instanceof Error ? e.message : 'حدث خطأ غير متوقع'
       toast({ title: 'فشل الإرسال', description: message, variant: 'destructive' })
     } finally {
