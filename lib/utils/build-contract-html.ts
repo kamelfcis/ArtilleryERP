@@ -182,11 +182,17 @@ const printContent = `
         .header-logo { width: 72px; height: 72px; object-fit: contain; flex-shrink: 0; }
         .header-center { flex: 1; text-align: center; direction: rtl; }
         .header-center .brand-title {
-          font-family: 'Amiri', serif;
-          font-size: 27px;
+          /* Use Tahoma/Arial first — they have proper Arabic glyph shaping
+             and are guaranteed to be available.  Amiri (Google Fonts) is
+             kept as a stylistic fallback when it loads.
+             We deliberately removed:
+               • font-style: italic   — italic Arabic shears glyph joins
+               • letter-spacing: 2px  — letter-spacing BREAKS the kashida
+                                         connections between Arabic letters,
+                                         which made the text look shattered. */
+          font-family: 'Tahoma', 'Arial', 'Simplified Arabic', 'Amiri', sans-serif;
+          font-size: 26px;
           font-weight: 700;
-          font-style: italic;
-          letter-spacing: 2px;
           color: #1a1a1a;
           text-shadow: 1px 1px 2px rgba(0,0,0,0.15);
           padding-bottom: 4px;
@@ -247,8 +253,35 @@ const printContent = `
         .rules-header .qr-img { width: 80px; height: 80px; object-fit: contain; flex-shrink: 0; }
         .rules-top-title { text-align: center; font-size: 20px; font-weight: bold; text-decoration: underline; margin-bottom: 4px; }
         .rules-page h2 { text-align: center; font-size: 19px; margin-bottom: 4px; text-decoration: underline; }
-        .rules-page ol { padding-right: 22px; font-size: 14px; line-height: 1.6; }
-        .rules-page ol li { margin-bottom: 1px; }
+        /* Custom RTL-safe ordered list.
+           html2canvas does NOT paint native <ol> markers correctly in RTL
+           direction — they end up on the LEFT side of each line.  We replace
+           the native list-style with CSS counters and absolutely position the
+           number on the RIGHT, which renders identically in both the print
+           preview and the canvas-rasterised WhatsApp PDF. */
+        .rules-page ol {
+          list-style: none;
+          padding: 0;
+          margin: 0;
+          counter-reset: rules-counter;
+          font-size: 14px;
+          line-height: 1.6;
+        }
+        .rules-page ol li {
+          counter-increment: rules-counter;
+          position: relative;
+          padding-right: 28px;
+          margin-bottom: 1px;
+        }
+        .rules-page ol li::before {
+          content: counter(rules-counter) ".";
+          position: absolute;
+          right: 0;
+          top: 0;
+          font-weight: bold;
+          min-width: 22px;
+          text-align: right;
+        }
         .rules-sig { margin-top: 12px; font-size: 15px; font-weight: bold; }
         .rules-sig .sig-line { border-bottom: 1px dotted #000; min-width: 200px; display: inline-block; }
 
