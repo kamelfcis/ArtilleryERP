@@ -294,13 +294,24 @@ const printContent = `
         @media print {
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
-          .header-print-date {
+          .header-copy-note {
   position: absolute;
-  top: 16px;
+  top: 0;
   right: 0;
   font-size: 10px;
-  color: #444;
+  color: #666;
   direction: rtl;
+}
+
+.header-print-date {
+  position: absolute;
+  top: 15px;
+  right: 0;
+  font-size: 9px;
+  color: #333;
+  direction: rtl;
+  border-top: 1px solid #999;
+  padding-top: 2px;
   font-weight: bold;
 }
       </style>
