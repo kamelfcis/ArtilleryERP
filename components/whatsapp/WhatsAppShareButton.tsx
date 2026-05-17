@@ -21,9 +21,10 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
   const [sending, setSending] = useState(false)
 
   async function handleShare() {
-    // Elements injected into the current document — cleaned up in finally block
+    // DOM nodes injected during capture — always removed in finally block
     let captureRoot: HTMLDivElement | null = null
     let styleTag: HTMLStyleElement | null = null
+    let overlay: HTMLDivElement | null = null
 
     try {
       setSending(true)
@@ -32,10 +33,7 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
         reservationServices: reservationServices || [],
       })
 
-      // ── 1. Pull the body content and <style> blocks out of the full HTML ───────
-      // We do NOT use an iframe: instead we inject directly into the CURRENT
-      // document so that html2canvas runs in the same DOM context, which gives
-      // correct Arabic/RTL text rendering and proper font access.
+      // ── 1. Extract <style> blocks and <body> content from the full HTML ──────
       const rawStyles = (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [])
         .map((s) => s.replace(/<\/?style[^>]*>/gi, ''))
         .join('\n')
@@ -43,35 +41,46 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
       const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i)
       const bodyContent = bodyMatch ? bodyMatch[1] : ''
 
-      // ── 2. Scope the injected CSS so it never bleeds into the app UI ───────────
-      //  • Replace bare "body {" and "html {" selectors with the container id
-      //  • Remove @page rules (screen-irrelevant)
-      //  • Fix the 100vh-based min-height with the exact A4 pixel value
-      const scopedCss = rawStyles
-        .replace(/@page\s*\{[^}]*\}/g, '')
-        .replace(/\bbody\b(\s*\{)/g, '#__wa_pdf_root$1')
-        .replace(/\bhtml\b(\s*\{)/g, '#__wa_pdf_root$1')
-        // Override the viewport-dependent min-height with the A4 pixel constant
-        + `\n#__wa_pdf_root .page-border { min-height: ${PAGE_BORDER_MIN_H}px !important; }`
+      // ── 2. Scope CSS to #__wa_pdf_root so it never bleeds into the app UI ───
+      //  • Replace bare body/html selectors with the container id
+      //  • Drop @page rules (not applicable in screen context)
+      //  • Replace calc(100vh…) min-height with a fixed A4 pixel value
+      const scopedCss =
+        rawStyles
+          .replace(/@page\s*\{[^}]*\}/g, '')
+          .replace(/\bbody\b(\s*\{)/g, '#__wa_pdf_root$1')
+          .replace(/\bhtml\b(\s*\{)/g, '#__wa_pdf_root$1') +
+        `\n#__wa_pdf_root .page-border { min-height: ${PAGE_BORDER_MIN_H}px !important; }`
 
       styleTag = document.createElement('style')
       styleTag.id = '__wa_pdf_styles'
       styleTag.textContent = scopedCss
       document.head.appendChild(styleTag)
 
-      // ── 3. Create off-screen container in the CURRENT document ────────────────
+      // ── 3. Full-screen overlay hides the contract from the user ──────────────
+      // html2canvas captures only the target element's own DOM subtree, so the
+      // overlay (which sits on top in z-order) is invisible in the final PDF.
+      overlay = document.createElement('div')
+      overlay.style.cssText =
+        'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:10000;pointer-events:none;'
+      document.body.appendChild(overlay)
+
+      // ── 4. Render container at (0,0) — a real viewport position ─────────────
+      // IMPORTANT: z-index must be POSITIVE so html2canvas composites it above
+      // the document background.  A negative z-index caused the body to paint
+      // over the element, producing a completely blank canvas (= empty PDF).
       captureRoot = document.createElement('div')
       captureRoot.id = '__wa_pdf_root'
       captureRoot.setAttribute('dir', 'rtl')
       captureRoot.style.cssText = [
         'position:fixed',
-        `left:-${A4_W + 200}px`,   // completely off-screen
+        'left:0',
         'top:0',
         `width:${A4_W}px`,
         `min-height:${A4_H * 2}px`,
         'overflow:visible',
         'background:#fff',
-        'z-index:-9999',
+        'z-index:9999', // below overlay (10000) → hidden from user, but valid for html2canvas
         'direction:rtl',
         'color:#000',
         'font-size:14px',
@@ -80,25 +89,23 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
       captureRoot.innerHTML = bodyContent
       document.body.appendChild(captureRoot)
 
-      // ── 4. Wait for web fonts (Amiri via the @import in scopedCss) ─────────────
+      // ── 5. Wait for web fonts (Amiri @import inside scopedCss) ───────────────
       await document.fonts.ready
-      await new Promise((r) => setTimeout(r, 1200))
+      await new Promise((r) => setTimeout(r, 1000))
 
-      // ── 5. Generate PDF via html2pdf (html2canvas + jsPDF) ───────────────────
-      // html2canvas is now in the same document as captureRoot, so Arabic/RTL
-      // text is rendered correctly by the browser's native canvas text API.
-      // windowWidth/windowHeight tell html2canvas what the "viewport" is so that
-      // vw/vh units resolve to A4 dimensions.
+      // ── 6. Generate PDF via html2pdf (html2canvas → jsPDF) ───────────────────
       const html2pdf = (await import('html2pdf.js')).default as any
       const blob: Blob = await html2pdf()
         .set({
-          margin: 3.81,   // 0.15 in — matches @page margin in the print stylesheet
+          margin: 3.81,
           filename: `contract-${reservation.reservation_number}.pdf`,
           html2canvas: {
             scale: 2,
             useCORS: true,
             allowTaint: false,
             logging: false,
+            scrollX: 0,
+            scrollY: 0,
             windowWidth: A4_W,
             windowHeight: A4_H,
             backgroundColor: '#ffffff',
@@ -109,7 +116,7 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
         .from(captureRoot)
         .outputPdf('blob')
 
-      // ── 6. Upload to Supabase with no CDN cache ───────────────────────────────
+      // ── 7. Upload to Supabase with no CDN cache ───────────────────────────────
       const path = `${reservation.id}/contract.pdf`
       const { error: upErr } = await supabase.storage
         .from('reservation-files')
@@ -144,8 +151,8 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
       const message = e instanceof Error ? e.message : 'حدث خطأ غير متوقع'
       toast({ title: 'فشل الإرسال', description: message, variant: 'destructive' })
     } finally {
-      // Always clean up the injected DOM elements
       if (captureRoot && document.body.contains(captureRoot)) document.body.removeChild(captureRoot)
+      if (overlay && document.body.contains(overlay)) document.body.removeChild(overlay)
       if (styleTag && document.head.contains(styleTag)) document.head.removeChild(styleTag)
       setSending(false)
     }
