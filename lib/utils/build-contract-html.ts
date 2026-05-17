@@ -94,7 +94,13 @@ const todayStr = new Date().toLocaleDateString('ar-EG', { day: '2-digit', month:
 const unitTypeAr = UNIT_TYPE_AR[reservation.unit?.type || ''] || reservation.unit?.type || ''
 const guestTypeAr = GUEST_TYPE_AR[reservation.guest?.guest_type || ''] || ''
 const totalPersons = reservation.unit?.capacity || 0
-
+const printDateTime = new Date().toLocaleString('ar-EG', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+})
 // Build family rows (4 blank rows for manual entry)
 let familyRowsHtml = ''
 for (let i = 0; i < 4; i++) {
@@ -288,6 +294,15 @@ const printContent = `
         @media print {
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
+          .header-print-date {
+  position: absolute;
+  top: 16px;
+  right: 0;
+  font-size: 10px;
+  color: #444;
+  direction: rtl;
+  font-weight: bold;
+}
       </style>
     </head>
     <body>
@@ -307,6 +322,9 @@ const printContent = `
           <div style="font-size:17px; font-weight:bold; margin-top:1px;">قسم الإسكان</div>
         </div>
         <div class="header-copy-note">هذه النسخة تسلم للمتعاقد شخصياً</div>
+        <div class="header-print-date">
+  تاريخ الطباعة : ${printDateTime}
+</div>
       </div>
       <div style="text-align:center; margin-bottom:2px;">
         <div class="header-center">
