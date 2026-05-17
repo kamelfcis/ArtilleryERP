@@ -226,8 +226,22 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
         } = supabase.storage.from('reservation-files').getPublicUrl(path)
         const publicUrlWithBust = `${publicUrl}?v=${Date.now()}`
         const msg =
-          `مرحباً ${guestName || 'ضيفنا الكريم'}\nرابط عقد الحجز رقم ${reservation.reservation_number}:\n${publicUrlWithBust}`
-
+        `🏨✨ فندق كينج توت — إدارة المدفعية ✨🏨
+      
+      أهلاً وسهلاً بكم 🤝💚
+      الأستاذ/ة الفاضل/ة: ${guestName || 'ضيفنا الكريم'}
+      
+      يسعدنا أن نرحب بكم ضيوفاً كراماً في نزلنا، ونتمنى لكم إقامة مريحة وهادئة مليئة بالطمأنينة والخير 🌿😊
+      
+      📎 نرفق لكم رابط عقد الحجز الخاص بكم:
+      🔢 رقم العقد: ${reservation.reservation_number}
+      
+      🔗 الرابط:
+      ${publicUrlWithBust}
+      
+      نتمنى لكم أياماً سعيدة وبداية إقامة موفقة 🌟
+      مع أطيب التحيات والتقدير 💐
+      فريق الإسكان — فندق كينج توت 🏖️❤️`
         window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank')
 
         toast({
