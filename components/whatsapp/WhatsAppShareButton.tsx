@@ -144,7 +144,8 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
           // The undocumented 4th-arg / `foreignObjectRendering: false` keep
           // the manual painter active (more reliable for RTL than SVG mode).
           foreignObjectRendering: false,
-          // @ts-expect-error: html2canvas types don't expose ownerDocument
+          // ownerDocument is undocumented in @types/html2canvas but accepted
+          // at runtime — that's why the whole options object is cast to any.
           ownerDocument: idoc,
         } as any)
 
