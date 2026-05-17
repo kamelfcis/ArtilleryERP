@@ -64,6 +64,12 @@ const nextConfig = {
       },
     ],
   },
+  experimental: {
+    // puppeteer-core and chromium-min use private class fields (#field) in their
+    // ESM builds which Next.js 14's webpack cannot parse. Mark them as external so
+    // webpack skips bundling them and Node.js loads them directly at runtime.
+    serverComponentsExternalPackages: ['puppeteer-core', '@sparticuz/chromium-min'],
+  },
 }
 
 module.exports = withPWA(nextConfig)
