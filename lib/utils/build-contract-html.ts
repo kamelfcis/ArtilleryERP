@@ -348,7 +348,7 @@ const printContent = `
       </div>
 
       <!-- 3. Family Members -->
-      <div class="section-title">بيانات الأسرة حاملى بطاقات عضوية النادى :</div>
+   <div class="section-title">بيانات الأسرة حاملى بطاقات عضوية الدار :</div>
       <table>
         <tr>
           <th style="width:5%">م</th>
@@ -493,7 +493,30 @@ const printContent = `
         <span class="label">مسئول الحجز :</span> <span class="dots">${reservation.notes_ar || reservation.notes || ''}</span>
       </div>
       ` : ''}
+      
 
+      <!-- Follow instructions notice -->
+<div style="
+  margin-top: 10px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #000;
+">
+  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"
+       viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2.5" stroke-linecap="round"
+       stroke-linejoin="round">
+    <path d="M19 12H5"></path>
+    <path d="M12 19l-7-7 7-7"></path>
+  </svg>
+
+  <span>برجاء اتباع التعليمات في الخلف</span>
+</div>
       </div><!-- /.page-border -->
     </div>
 
