@@ -117,11 +117,22 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
         .outputPdf('blob')
 
       // ── 7. Upload to Supabase with no CDN cache ───────────────────────────────
+      // NOTE: we deliberately delete-then-insert instead of using { upsert: true }.
+      // The reservation-files bucket has RLS policies for INSERT and DELETE but
+      // NOT for UPDATE. upsert triggers UPDATE on existing rows → 400. Removing
+      // first and inserting fresh stays inside the allowed policy set.
+      if (!blob || blob.size === 0) {
+        throw new Error('فشل توليد ملف العقد - الملف فارغ')
+      }
+
       const path = `${reservation.id}/contract.pdf`
+
+      // Best-effort delete; ignore "object not found" errors on first upload.
+      await supabase.storage.from('reservation-files').remove([path])
+
       const { error: upErr } = await supabase.storage
         .from('reservation-files')
         .upload(path, blob, {
-          upsert: true,
           contentType: 'application/pdf',
           cacheControl: '0',
         })
