@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// Allow up to 60s on Vercel Pro; automatically clamped to 10s on Hobby plan
-export const maxDuration = 60
+export const runtime = 'nodejs'         // ensure Vercel runs this on Node, not Edge
+export const dynamic = 'force-dynamic'  // never cache the API response itself
+export const maxDuration = 60           // allow up to 60s (Vercel Pro); clamped to 10s on Hobby
 
 export async function POST(request: NextRequest) {
   let browser: import('puppeteer-core').Browser | null = null

@@ -41,17 +41,24 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
       const path = `${reservation.id}/contract.pdf`
       const { error: upErr } = await supabase.storage
         .from('reservation-files')
-        .upload(path, blob, { upsert: true, contentType: 'application/pdf' })
+        .upload(path, blob, {
+          upsert: true,
+          contentType: 'application/pdf',
+          cacheControl: '0',  // disable CDN cache so guests always get the latest PDF
+        })
       if (upErr) throw upErr
 
       const {
         data: { publicUrl },
       } = supabase.storage.from('reservation-files').getPublicUrl(path)
 
+      // Append a timestamp to bust any intermediate proxy/CDN cache
+      const publicUrlWithBust = `${publicUrl}?v=${Date.now()}`
+
       const guestName =
         `${reservation.guest?.first_name_ar || reservation.guest?.first_name || ''} ${reservation.guest?.last_name_ar || reservation.guest?.last_name || ''}`.trim()
       const msg =
-        `مرحباً ${guestName || 'ضيفنا الكريم'}\nرابط عقد الحجز رقم ${reservation.reservation_number}:\n${publicUrl}`
+        `مرحباً ${guestName || 'ضيفنا الكريم'}\nرابط عقد الحجز رقم ${reservation.reservation_number}:\n${publicUrlWithBust}`
 
       window.open(
         `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`,
