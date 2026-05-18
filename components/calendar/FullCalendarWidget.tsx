@@ -337,12 +337,17 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
                 return
               }
 
-              const isRestrictedBM =
-                hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
               arg.el.classList.add('group', 'relative')
               arg.el.style.position = 'relative'
 
-              if (!isRestrictedBM && !arg.el.querySelector('.fc-event-delete-btn')) {
+              const isRestrictedBM =
+                hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
+              const canDelete =
+                hasRole('SuperAdmin' as any) ||
+                hasRole('Receptionist' as any) ||
+                elevatedOps ||
+                (hasRole('BranchManager' as any) && !isRestrictedBM)
+              if (canDelete && !arg.el.querySelector('.fc-event-delete-btn')) {
                 const deleteBtn = document.createElement('button')
                 deleteBtn.innerHTML = '🗑️'
                 deleteBtn.className = 'fc-event-delete-btn'

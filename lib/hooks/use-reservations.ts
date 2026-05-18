@@ -263,12 +263,14 @@ export function useDeleteReservation() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('reservations')
         .delete()
         .eq('id', id)
+        .select('id')
 
       if (error) throw error
+      if (!data || data.length === 0) throw new Error('لا تملك صلاحية حذف هذا الحجز')
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
