@@ -5,6 +5,33 @@ import { RealtimeChannel } from '@supabase/supabase-js'
 import type { CalendarEvent, CalendarWindowArgs } from '@/lib/types/calendar'
 import { calendarWindowKey, fetchCalendarWindow } from '@/lib/hooks/use-reservations'
 
+/** Coalesce rapid realtime bursts into a single window refetch. */
+const REALTIME_DEBOUNCE_MS = 400
+const pendingRefetches = new Map<string, ReturnType<typeof setTimeout>>()
+
+function scheduleWindowRefetch(
+  queryClient: ReturnType<typeof useQueryClient>,
+  window: CalendarWindowArgs
+) {
+  const keyStr = JSON.stringify(calendarWindowKey(window))
+  const existing = pendingRefetches.get(keyStr)
+  if (existing) clearTimeout(existing)
+
+  pendingRefetches.set(
+    keyStr,
+    setTimeout(async () => {
+      pendingRefetches.delete(keyStr)
+      const key = calendarWindowKey(window)
+      try {
+        const fresh = await fetchCalendarWindow(window)
+        queryClient.setQueryData<CalendarEvent[]>(key, fresh)
+      } catch {
+        // Silent — next user action or poll will refresh.
+      }
+    }, REALTIME_DEBOUNCE_MS)
+  )
+}
+
 /**
  * @deprecated For the calendar page use useReservationsRealtime instead,
  * which patches the query cache in-place rather than invalidating it.
@@ -98,9 +125,8 @@ async function applyDelta(
   }
 
   // INSERT or UPDATE — we need the full view row to get inlined fields.
-  // Re-fetch the window; this is a single cheap RPC call.
-  const fresh = await fetchCalendarWindow(window)
-  queryClient.setQueryData<CalendarEvent[]>(key, fresh)
+  // Debounced re-fetch avoids refetch storms during bulk edits.
+  scheduleWindowRefetch(queryClient, window)
 }
 
 /**

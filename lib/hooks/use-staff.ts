@@ -32,9 +32,15 @@ export function useCurrentStaff() {
 }
 
 // Get all staff members (optionally filtered by location)
-export function useStaffList(filters?: { locationId?: string; isActive?: boolean }) {
+export function useStaffList(
+  filters?: { locationId?: string; isActive?: boolean },
+  options?: { enabled?: boolean }
+) {
   return useQuery({
     queryKey: ['staff', filters],
+    enabled: options?.enabled !== false,
+    staleTime: 300_000,
+    gcTime: 600_000,
     queryFn: async () => {
       let query = supabase
         .from('staff')

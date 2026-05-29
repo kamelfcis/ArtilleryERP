@@ -13,8 +13,10 @@ import { useSidebar } from '@/contexts/SidebarContext'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/use-toast'
 import { Menu, ImageDown, ClipboardCopy, Printer, ChevronLeft, ChevronRight } from 'lucide-react'
-import Link from 'next/link'
 import Image from 'next/image'
+import { CalendarToolbarFilters } from '@/components/calendar/CalendarToolbarFilters'
+import { useOptionalCalendarFilters } from '@/contexts/CalendarFilterContext'
+import { cn } from '@/lib/utils'
 
 async function grabScreen(): Promise<Blob> {
   const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -39,6 +41,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
   const pathname = usePathname()
   const isCalendarPage = pathname === '/calendar'
+  const calendarFilters = useOptionalCalendarFilters()
+  const headerExpanded = calendarFilters?.headerExpanded ?? true
   const { collapsed, setCollapsed, toggle } = useSidebar()
   const [dragNights, setDragNights] = useState(0)
 
@@ -57,45 +61,34 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   }, [isCalendarPage])
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-dvh overflow-hidden">
       <InAppNotificationBanner />
       <Sidebar collapsed={collapsed} onToggle={toggle} />
-      <main className="flex-1 overflow-hidden relative flex flex-col">
-        <div className="sticky top-0 z-10 bg-background border-b px-3 py-2 md:p-4 grid grid-cols-3 items-center shrink-0">
-          <div className="flex items-center gap-3">
+      <main className="flex-1 min-h-0 overflow-hidden relative flex flex-col">
+        <div
+          className={cn(
+            'sticky top-0 z-10 bg-background border-b shrink-0 transition-[max-height,padding,opacity,border-color] duration-300 ease-out overflow-hidden',
+            isCalendarPage
+              ? 'grid grid-cols-[auto_1fr_auto] items-center gap-1.5 md:gap-3 px-3 py-1.5 md:px-4 md:py-2'
+              : 'grid grid-cols-3 items-center px-3 py-2 md:p-4',
+            isCalendarPage && !headerExpanded && 'max-h-0 !py-0 opacity-0 border-b-transparent pointer-events-none'
+          )}
+        >
+          <div className="flex items-center gap-2 md:gap-3 min-w-0 justify-start">
             {/* Desktop sidebar toggle */}
             <Button
               variant="ghost"
               size="icon"
               onClick={toggle}
               title={collapsed ? 'فتح القائمة' : 'إغلاق القائمة'}
-              className="hidden md:inline-flex"
+              className="hidden md:inline-flex shrink-0"
             >
               <Menu className="h-6 w-6" />
             </Button>
             {/* Mobile hamburger menu */}
             <MobileMenu />
-            <div className="flex items-center gap-3 mobile-hidden">
-              <div className="relative w-10 h-10 rounded-full overflow-hidden ring-2 ring-slate-200 dark:ring-slate-700">
-                <Image
-                  src="/logo.jpeg"
-                  alt="Logo"
-                  fill
-                  sizes="40px"
-                  className="object-cover"
-                  priority
-                />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold">مرحباً، {user?.email}</h2>
-                <p className="text-xs text-muted-foreground">نوادي و فنادق ادارة المدفعية</p>
-              </div>
-            </div>
-          </div>
-          {/* Center column — nav arrows (calendar page only) */}
-          <div className="flex justify-center">
-            {isCalendarPage && (
-              <div className="flex items-center gap-2 rounded-full border border-indigo-200/60 dark:border-indigo-700/60 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-md px-2 py-1">
+            {isCalendarPage ? (
+              <div className="flex items-center gap-2 rounded-full border border-indigo-200/60 dark:border-indigo-700/60 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-md px-2 py-1 shrink-0">
                 <Button
                   size="icon"
                   variant="ghost"
@@ -110,7 +103,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                     {dragNights} {dragNights === 1 ? 'ليلة' : 'ليالٍ'}
                   </span>
                 ) : (
-                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 px-1 select-none">التنقل</span>
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 px-1 select-none hidden sm:inline">التنقل</span>
                 )}
                 <Button
                   size="icon"
@@ -122,7 +115,28 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                   <ChevronLeft className="h-5 w-5" />
                 </Button>
               </div>
+            ) : (
+              <div className="flex items-center gap-3 mobile-hidden">
+                <div className="relative w-10 h-10 rounded-full overflow-hidden ring-2 ring-slate-200 dark:ring-slate-700">
+                  <Image
+                    src="/logo.jpeg"
+                    alt="Logo"
+                    fill
+                    sizes="40px"
+                    className="object-cover"
+                    priority
+                  />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold">مرحباً، {user?.email}</h2>
+                  <p className="text-xs text-muted-foreground">نوادي و فنادق ادارة المدفعية</p>
+                </div>
+              </div>
             )}
+          </div>
+          {/* Center column — location filter (calendar page only) */}
+          <div className="flex justify-center min-w-0 overflow-hidden">
+            {isCalendarPage && <CalendarToolbarFilters />}
           </div>
 
           {/* Right column */}
@@ -197,8 +211,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </div>
-        <div className={`flex-1 overflow-y-auto overflow-x-hidden ${!isCalendarPage ? '' : ''}`}>
-          <div className={`${!isCalendarPage ? 'p-3 md:p-6' : ''}`}>
+        <div className={`flex-1 min-h-0 flex flex-col ${isCalendarPage ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'}`}>
+          <div className={`${!isCalendarPage ? 'p-3 md:p-6' : 'flex-1 min-h-0 flex flex-col overflow-hidden'}`}>
             {children}
           </div>
         </div>

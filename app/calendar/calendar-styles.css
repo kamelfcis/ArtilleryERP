@@ -3,11 +3,45 @@
   font-family: inherit;
 }
 
+/* Viewport-locked host: stretch in flex parent; FC scrolls inside */
+.calendar-fc-host {
+  --fc-compact: 0.8;
+  --fc-row-h: calc(80px * var(--fc-compact));
+  --fc-header-h: calc(76px * var(--fc-compact));
+  --fc-event-min-h: calc(70px * var(--fc-compact));
+  --fc-slot-min-w: calc(100px * var(--fc-compact));
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.calendar-fc-host > .fc {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: calc(1rem * var(--fc-compact));
+}
+
+/* Override FC default absolute positioning; flex-fill keeps viewport height */
+.fc .fc-view-harness {
+  position: static !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  cursor: default;
+}
+
+.fc .fc-view-harness-active {
+  height: 100% !important;
+}
+
 .fc-header-toolbar {
-  padding: 1rem 1.5rem;
+  padding: 0.625rem 1rem;
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(99, 102, 241, 0.08) 50%, rgba(147, 51, 234, 0.05) 100%);
   border-radius: 0.75rem !important;
-  margin-bottom: 0.5rem !important;
+  margin-bottom: 0.25rem !important;
   border: 1px solid rgba(59, 130, 246, 0.15);
   backdrop-filter: blur(10px);
 }
@@ -125,7 +159,7 @@
 }
 
 .fc-timeline-header-row th {
-  height: 76px !important;
+  height: var(--fc-header-h) !important;
   vertical-align: middle !important;
   position: relative;
 }
@@ -151,7 +185,7 @@
 
 .fc-timeline-slot {
   border: 2px solid #60a5fa !important;
-  min-width: 100px !important;
+  min-width: var(--fc-slot-min-w) !important;
 }
 
 .fc-timeline-slot-cushion {
@@ -211,7 +245,7 @@
 
 .fc-datagrid-header .fc-datagrid-cell-frame {
   background: transparent !important;
-  height: 76px !important;
+  height: var(--fc-header-h) !important;
 }
 
 .fc-datagrid-header .fc-datagrid-cell-cushion {
@@ -251,7 +285,7 @@
 
 .fc-datagrid-body .fc-datagrid-cell-frame {
   padding: 0 !important;
-  height: 80px !important;
+  height: var(--fc-row-h) !important;
   display: flex !important;
   align-items: center !important;
   overflow: visible !important;
@@ -279,7 +313,7 @@
 .fc-timeline-lane {
   border-bottom: 2px solid #60a5fa !important;
   background: rgba(255, 255, 255, 0.95) !important;
-  height: 80px !important;
+  height: var(--fc-row-h) !important;
 }
 
 .fc-timeline-lane:nth-child(even) {
@@ -291,7 +325,7 @@
 }
 
 .fc-timeline-lane-frame {
-  height: 80px !important;
+  height: var(--fc-row-h) !important;
 }
 
 /* Today column highlight in lanes */
@@ -401,7 +435,7 @@
 
 .fc-timeline-event {
   border-radius: 0.5rem !important;
-  min-height: 70px !important;
+  min-height: var(--fc-event-min-h) !important;
 }
 
 /* ========== CUSTOM MULTI-LINE EVENT CONTENT ========== */
@@ -516,7 +550,7 @@
 /* Time Grid */
 .fc-timegrid-slot {
   border: 2px solid #60a5fa !important;
-  height: 2.5rem !important;
+  height: calc(2.5rem * var(--fc-compact)) !important;
 }
 
 .fc-timegrid-slot-label-cushion {
@@ -643,11 +677,6 @@
 .fc-scroller-liquid-absolute,
 .fc-scroller {
   scroll-behavior: auto !important; /* Disable smooth scroll for drag responsiveness */
-}
-
-/* Cursor hint for right-click drag */
-.fc-view-harness {
-  cursor: default;
 }
 
 .fc-timeline-body:active,
@@ -781,4 +810,3 @@
   text-shadow: 0 1px 0 rgba(255,255,255,0.4) !important;
   letter-spacing: 0.5px;
 }
-

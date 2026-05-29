@@ -2,6 +2,24 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { Unit } from '@/lib/types/database'
 
+/** Minimal payload for toolbar type chips — type + location only. */
+export function useUnitTypesByLocation() {
+  return useQuery({
+    queryKey: ['units-types-map'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('units')
+        .select('type, location_id')
+        .eq('is_active', true)
+
+      if (error) throw error
+      return (data ?? []) as Array<{ type: string; location_id: string }>
+    },
+    staleTime: 120_000,
+    gcTime: 600_000,
+  })
+}
+
 export function useUnits(filters?: {
   locationId?: string
   type?: string
@@ -53,6 +71,8 @@ export function useUnits(filters?: {
       // accepts it — callers can rely on the fields listed in the selectClause.
       return data as unknown as Unit[]
     },
+    staleTime: filters?.onlyCalendarFields ? 60_000 : 30_000,
+    gcTime: 300_000,
   })
 }
 

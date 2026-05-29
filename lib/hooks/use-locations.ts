@@ -15,6 +15,8 @@ export function useLocations() {
       if (error) throw error
       return data as Location[]
     },
+    staleTime: 300_000,
+    gcTime: 600_000,
   })
 }
 

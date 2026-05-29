@@ -25,13 +25,16 @@ function normalizeDigits(q: string): string {
   })
 }
 
-export function useGuests(search?: string) {
+export function useGuests(search?: string, options?: { enabled?: boolean }) {
   const trimmed = search?.trim() || ''
   const normalized = trimmed ? sanitizeIlike(normalizeDigits(trimmed)) : ''
 
   return useQuery({
     // Key on the normalized search so equivalent inputs share a cache slot.
     queryKey: ['guests', normalized],
+    enabled: options?.enabled !== false,
+    staleTime: 60_000,
+    gcTime: 300_000,
     queryFn: async () => {
       let query = supabase
         .from('guests')

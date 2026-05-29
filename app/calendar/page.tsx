@@ -1,9 +1,10 @@
 'use client'
 
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react'
+import dynamic from 'next/dynamic'
 import { motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import FullCalendar from '@fullcalendar/react'
+import type FullCalendar from '@fullcalendar/react'
 import { useCalendarReservations, fetchCalendarWindow, calendarWindowKey, useCreateReservation, useUpdateReservation, useDeleteReservation } from '@/lib/hooks/use-reservations'
 import type { CalendarEvent as CalendarEventRow, CalendarWindowArgs } from '@/lib/types/calendar'
 import { useOfflineMutation, useIsOnline } from '@/lib/offline/use-offline-mutation'
@@ -17,54 +18,53 @@ import { useCurrentStaff, useStaffList } from '@/lib/hooks/use-staff'
 import { useAuth } from '@/contexts/AuthContext'
 import { useReservationsRealtime } from '@/lib/hooks/use-realtime'
 import { useGuests, useCreateGuest } from '@/lib/hooks/use-guests'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/use-toast'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Label } from '@/components/ui/label'
-import { Reservation } from '@/lib/types/database'
 import { useCreateBookingNotification } from '@/lib/hooks/use-booking-notifications'
-import { RefreshCw, RotateCcw, Search, UserPlus, Users, Home, Phone, Mail, User, Trash2, AlertTriangle, Calendar, CalendarDays, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minimize2, Building2, Hotel, Mountain, Layers, Building, Bed, DoorOpen, Crown, Trees, Split, Castle, Sparkles, Menu, Check, Filter, ArrowLeftRight, FileText } from 'lucide-react'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet'
+import { ArrowLeftRight } from 'lucide-react'
 import { useQueryClient, useQuery, useMutation, keepPreviousData } from '@tanstack/react-query'
 import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
 import { supabase } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
-import { useSidebar } from '@/contexts/SidebarContext'
+import { useCalendarFilters } from '@/contexts/CalendarFilterContext'
 import '@/app/calendar/calendar-styles.css'
-import { DeleteReservationDialog } from '@/components/calendar/dialogs/DeleteReservationDialog'
-import { RoomBlockDialog } from '@/components/calendar/dialogs/RoomBlockDialog'
-import { ConfirmChangeDialog } from '@/components/calendar/dialogs/ConfirmChangeDialog'
-import { ChangeUnitDialog } from '@/components/calendar/dialogs/ChangeUnitDialog'
-import { CreateReservationDialog } from '@/components/calendar/dialogs/CreateReservationDialog'
 import { CalendarFilterSheet } from '@/components/calendar/CalendarFilterSheet'
 import FullCalendarWidget from '@/components/calendar/FullCalendarWidget'
-import {
-  getStatusColor,
-  getUnitTypeIcon,
-} from '@/lib/utils/calendar-helpers'
+import { getStatusColor } from '@/lib/utils/calendar-helpers'
+
+const CreateReservationDialog = dynamic(
+  () => import('@/components/calendar/dialogs/CreateReservationDialog').then(m => ({ default: m.CreateReservationDialog })),
+  { ssr: false }
+)
+const ConfirmChangeDialog = dynamic(
+  () => import('@/components/calendar/dialogs/ConfirmChangeDialog').then(m => ({ default: m.ConfirmChangeDialog })),
+  { ssr: false }
+)
+const ChangeUnitDialog = dynamic(
+  () => import('@/components/calendar/dialogs/ChangeUnitDialog').then(m => ({ default: m.ChangeUnitDialog })),
+  { ssr: false }
+)
+const DeleteReservationDialog = dynamic(
+  () => import('@/components/calendar/dialogs/DeleteReservationDialog').then(m => ({ default: m.DeleteReservationDialog })),
+  { ssr: false }
+)
+const RoomBlockDialog = dynamic(
+  () => import('@/components/calendar/dialogs/RoomBlockDialog').then(m => ({ default: m.RoomBlockDialog })),
+  { ssr: false }
+)
 
 export default function CalendarPage() {
   const calendarRef = useRef<FullCalendar>(null)
-  const [headerExpanded, setHeaderExpanded] = useState(true)
   const router = useRouter()
   const queryClient = useQueryClient()
-  const { toggle: toggleSidebar, collapsed: sidebarCollapsed } = useSidebar()
-  const [selectedLocation, setSelectedLocationState] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('calendar-selected-location') || 'all'
-    }
-    return 'all'
-  })
-  const setSelectedLocation = (value: string) => {
-    setSelectedLocationState(value)
-    localStorage.setItem('calendar-selected-location', value)
-  }
+  const [loadTooltipData, setLoadTooltipData] = useState(false)
+  const {
+    selectedLocation,
+    setSelectedLocation,
+    selectedTypes,
+    setSelectedTypes,
+    setHeaderExpanded,
+  } = useCalendarFilters()
   // Helper to get today's date as YYYY-MM-DD string
   const getTodayString = () => {
     const d = new Date()
@@ -110,22 +110,7 @@ export default function CalendarPage() {
     setRangeEnd(fmt(end))
   }
 
-  const [selectedTypes, setSelectedTypesState] = useState<string[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('calendar-selected-types')
-      if (saved) {
-        try { return JSON.parse(saved) } catch { return [] }
-      }
-    }
-    return []
-  })
-  const setSelectedTypes = (value: string[] | ((prev: string[]) => string[])) => {
-    setSelectedTypesState(prev => {
-      const next = typeof value === 'function' ? value(prev) : value
-      localStorage.setItem('calendar-selected-types', JSON.stringify(next))
-      return next
-    })
-  }
+
   const [selectedUnit, setSelectedUnit] = useState<string>('all')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [currentView, setCurrentView] = useState<'timeline' | 'day' | 'week' | 'month' | 'resourceTimeline'>('resourceTimeline')
@@ -180,8 +165,18 @@ export default function CalendarPage() {
   // Check if user is Staff-only (not admin/manager)
   const { hasRole, user, elevatedOps } = useAuth()
   const { data: currentStaff, isLoading: currentStaffLoading } = useCurrentStaff()
-  const { data: allStaff } = useStaffList()
+  const { data: allStaff } = useStaffList(undefined, { enabled: loadTooltipData })
   const isStaffOnly = hasRole('Staff') && !hasRole('SuperAdmin') && !hasRole('BranchManager')
+
+  useEffect(() => {
+    const schedule = () => setLoadTooltipData(true)
+    if (typeof requestIdleCallback !== 'undefined') {
+      const id = requestIdleCallback(schedule, { timeout: 2500 })
+      return () => cancelIdleCallback(id)
+    }
+    const timer = setTimeout(schedule, 1500)
+    return () => clearTimeout(timer)
+  }, [])
   
   const { data: authUsersForCreator } = useQuery({
     queryKey: ['auth-users-for-calendar'],
@@ -191,7 +186,8 @@ export default function CalendarPage() {
       const { users } = await res.json()
       return users as Array<{ id: string; email?: string }>
     },
-    enabled: true,
+    enabled: loadTooltipData,
+    staleTime: 300_000,
   })
 
   // created_by_user_id is now inlined on every CalendarEventRow from vw_calendar_events.
@@ -227,12 +223,14 @@ export default function CalendarPage() {
     onlyCalendarFields: true,
   })
   
-  // Filter units client-side by selected types
+  // Filter units client-side by selected types (O(n) with Set lookup)
+  const selectedTypesSet = useMemo(() => new Set(selectedTypes), [selectedTypes])
+
   const units = useMemo(() => {
     if (!allLocationUnits) return undefined
-    if (selectedTypes.length === 0) return allLocationUnits
-    return allLocationUnits.filter(u => selectedTypes.includes(u.type))
-  }, [allLocationUnits, selectedTypes])
+    if (selectedTypesSet.size === 0) return allLocationUnits
+    return allLocationUnits.filter(u => selectedTypesSet.has(u.type))
+  }, [allLocationUnits, selectedTypesSet])
 
   // Compute available unit types from all units at this location
   const availableUnitTypes = useMemo(() => {
@@ -276,7 +274,7 @@ export default function CalendarPage() {
     queryClient.prefetchQuery({ queryKey: calendarWindowKey(next), queryFn: () => fetchCalendarWindow(next), staleTime: 60_000 })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeStart, rangeEnd, effectiveLocationId, selectedStatus])
-  const { data: guests } = useGuests()
+  const { data: guests } = useGuests(undefined, { enabled: guestDialogOpen })
   const createReservation = useCreateReservation()
   const createBookingNotif = useCreateBookingNotification()
   const createGuest = useCreateGuest()
@@ -356,15 +354,22 @@ export default function CalendarPage() {
   })
 
   // Fetch room blocks — scoped to the visible date range for efficiency.
-  const { data: roomBlocks, isLoading: roomBlocksLoading } = useQuery({
+  const { data: roomBlocks } = useQuery({
     queryKey: ['room-blocks', rangeStart, rangeEnd],
     placeholderData: keepPreviousData,
     staleTime: 60_000,
+    gcTime: 300_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('room_blocks')
         .select(`
-          *,
+          id,
+          name,
+          name_ar,
+          reason,
+          reason_ar,
+          start_date,
+          end_date,
           units:room_block_units (
             unit:units (
               id,
@@ -407,19 +412,15 @@ export default function CalendarPage() {
       return (a.unit_number || '').localeCompare(b.unit_number || '', undefined, { numeric: true })
     })
     
-    return sorted.map(unit => {
-      const Icon = getUnitTypeIcon(unit.type)
-      return {
-        id: unit.id,
-        title: `${unit.unit_number} - ${unit.name_ar || unit.name || ''}`,
-        orderno: (unit as any).orderno ?? 999999,
-        extendedProps: {
-          unit,
-          icon: Icon,
-          type: unit.type,
-        },
-      }
-    })
+    return sorted.map(unit => ({
+      id: unit.id,
+      title: `${unit.unit_number} - ${unit.name_ar || unit.name || ''}`,
+      orderno: (unit as any).orderno ?? 999999,
+      extendedProps: {
+        unit,
+        type: unit.type,
+      },
+    }))
   }, [units, selectedUnit])
 
       // Filter events to only show reservations for filtered units.
@@ -434,15 +435,8 @@ export default function CalendarPage() {
             const unitNumber = reservation.unit_number || ''
             const guestName = `${reservation.guest_first_name_ar || reservation.guest_first_name || ''} ${reservation.guest_last_name_ar || reservation.guest_last_name || ''}`.trim() || ''
             const guestPhone = reservation.guest_phone || ''
-            const createdAt = reservation.created_at
-              ? new Date(reservation.created_at).toLocaleString('ar-EG', {
-                  day: '2-digit', month: '2-digit', year: 'numeric',
-                  hour: '2-digit', minute: '2-digit', hour12: true,
-                })
-              : ''
-            const eventTitle = currentView === 'resourceTimeline'
-              ? [guestName, guestPhone ? `📞 ${guestPhone}` : '', createdAt ? `🕐 ${createdAt}` : ''].filter(Boolean).join(' | ')
-              : [unitNumber ? `${unitNumber} - ${guestName}` : guestName, guestPhone ? `📞 ${guestPhone}` : '', createdAt ? `🕐 ${createdAt}` : ''].filter(Boolean).join(' | ')
+            // FullCalendar eventContent renders rich HTML; keep title minimal to avoid duplicate locale work.
+            const eventTitle = guestName || unitNumber || reservation.id.substring(0, 8)
 
             return {
               id: reservation.id,
@@ -461,51 +455,41 @@ export default function CalendarPage() {
               },
             }
           })
-      }, [reservations, filteredUnitIds, currentView])
+      }, [reservations, filteredUnitIds])
 
       // Create events for room blocks with black color
       const roomBlockEvents = useMemo(() => {
         if (!roomBlocks) return []
 
-        return roomBlocks
-          .flatMap((block: any) => {
-            // Get unit IDs from this block
-            const blockUnitIds = block.units?.map((u: any) => u.unit?.id).filter(Boolean) || []
-            
-            // Only show blocks that have units matching our filter
-            const hasMatchingUnits = blockUnitIds.some((unitId: string) => filteredUnitIds.has(unitId))
-            if (!hasMatchingUnits) return []
+        return roomBlocks.flatMap((block: any) => {
+          const blockUnitIds = block.units?.map((u: any) => u.unit?.id).filter(Boolean) || []
+          if (!blockUnitIds.some((unitId: string) => filteredUnitIds.has(unitId))) return []
 
-            // Create one event per unit in the block
-            return blockUnitIds
-              .filter((unitId: string) => filteredUnitIds.has(unitId))
-              .map((unitId: string) => {
-                const unit = block.units.find((u: any) => u.unit?.id === unitId)?.unit
-                const unitNumber = unit?.unit_number || ''
-                // For resource timeline, show only block name (unit is already in resource column)
-                const eventTitle = currentView === 'resourceTimeline' 
-                  ? `🚫 ${block.name_ar || block.name}`
-                  : (unitNumber ? `🚫 ${unitNumber} - ${block.name_ar || block.name}` : `🚫 ${block.name_ar || block.name}`)
+          return blockUnitIds
+            .filter((unitId: string) => filteredUnitIds.has(unitId))
+            .map((unitId: string) => {
+              const unit = block.units.find((u: any) => u.unit?.id === unitId)?.unit
+              const blockLabel = block.name_ar || block.name || ''
 
-                return {
-                  id: `block-${block.id}-${unitId}`,
-                  title: eventTitle,
-                  start: block.start_date,
-                  end: block.end_date,
-                  resourceId: unitId, // Link event to resource (unit)
-                  backgroundColor: '#000000', // Black color
-                  borderColor: '#000000',
-                  textColor: '#ffffff', // White text for visibility
-                  classNames: ['room-block'],
-                  extendedProps: {
-                    roomBlock: block,
-                    unitId: unitId,
-                    unitNumber: unitNumber,
-                  },
-                }
-              })
-          })
-      }, [roomBlocks, filteredUnitIds, currentView])
+              return {
+                id: `block-${block.id}-${unitId}`,
+                title: `🚫 ${blockLabel}`,
+                start: block.start_date,
+                end: block.end_date,
+                resourceId: unitId,
+                backgroundColor: '#000000',
+                borderColor: '#000000',
+                textColor: '#ffffff',
+                classNames: ['room-block'],
+                extendedProps: {
+                  roomBlock: block,
+                  unitId,
+                  unitNumber: unit?.unit_number || '',
+                },
+              }
+            })
+        })
+      }, [roomBlocks, filteredUnitIds])
 
       // Maintenance events - full-range blocking events for units in maintenance
       const maintenanceEvents = useMemo(() => {
@@ -536,27 +520,31 @@ export default function CalendarPage() {
         return [...reservationEvents, ...roomBlockEvents, ...maintenanceEvents]
       }, [reservationEvents, roomBlockEvents, maintenanceEvents])
 
-  // Auto-update unit statuses when calendar page is opened — only when
-  // we actually have internet. Otherwise skip and retry on reconnect.
+  // Defer status sync so it does not compete with the initial calendar load.
   useEffect(() => {
     const run = () => {
       if (typeof navigator !== 'undefined' && !navigator.onLine) return
-      updateUnitStatuses()
+      updateUnitStatuses({ silent: true })
     }
-    run()
+    const timer = setTimeout(run, 5000)
     const onOnline = () => run()
     window.addEventListener('online', onOnline)
-    return () => window.removeEventListener('online', onOnline)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('online', onOnline)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Run only once when component mounts
+  }, [])
 
   // Function to update unit statuses
-  async function updateUnitStatuses() {
+  async function updateUnitStatuses(options?: { silent?: boolean }) {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      toast({
-        title: 'غير متصل',
-        description: 'سيتم التحديث عند عودة الاتصال',
-      })
+      if (!options?.silent) {
+        toast({
+          title: 'غير متصل',
+          description: 'سيتم التحديث عند عودة الاتصال',
+        })
+      }
       return
     }
     try {
@@ -572,23 +560,25 @@ export default function CalendarPage() {
       const result = await response.json()
       
       queryClient.invalidateQueries({ queryKey: ['units'] })
-      queryClient.invalidateQueries({ queryKey: ['reservations'] })
       
-      toast({
-        title: 'نجح',
-        description: result.message || 'تم تحديث حالات الوحدات بنجاح',
-      })
+      if (!options?.silent) {
+        toast({
+          title: 'نجح',
+          description: result.message || 'تم تحديث حالات الوحدات بنجاح',
+        })
+      }
     } catch (error: any) {
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        // Silent — we're offline; user will see this on reconnect.
         return
       }
-      console.error('Error updating unit statuses:', error)
-      toast({
-        title: 'خطأ',
-        description: error.message || 'فشل في تحديث حالات الوحدات',
-        variant: 'destructive',
-      })
+      if (!options?.silent) {
+        console.error('Error updating unit statuses:', error)
+        toast({
+          title: 'خطأ',
+          description: error.message || 'فشل في تحديث حالات الوحدات',
+          variant: 'destructive',
+        })
+      }
     } finally {
       setIsUpdatingStatuses(false)
     }
@@ -1148,82 +1138,28 @@ export default function CalendarPage() {
   const staffProfileLoading =
     isStaffOnly && Boolean(user?.id) && currentStaffLoading
 
+  // Progressive load: show calendar once core data exists; room blocks load in background.
   const calendarDataLoading =
-    unitsLoading ||
-    reservationsLoading ||
-    roomBlocksLoading ||
-    staffProfileLoading
+    staffProfileLoading ||
+    (unitsLoading && allLocationUnits === undefined) ||
+    (reservationsLoading && reservations === undefined)
 
-  if (calendarDataLoading) {
-    return (
-      <div className="h-full flex flex-col bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30 dark:from-slate-950 dark:via-blue-950/20 dark:to-purple-950/20 min-h-0">
-        <div className="flex-1 overflow-auto px-2 pb-2 pt-2 min-h-0">
-          <div
-            className="h-full min-h-[600px] rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-gradient-to-br from-white via-blue-50/30 to-purple-50/30 dark:from-slate-900 dark:via-blue-950/20 dark:to-purple-950/20 shadow-xl backdrop-blur-xl flex flex-col overflow-hidden"
-            aria-busy
-            aria-label="جاري تحميل التقويم"
-          >
-            <div className="flex-shrink-0 flex items-center justify-between gap-3 px-3 py-2.5 border-b border-slate-200/60 dark:border-slate-700/60 bg-white/40 dark:bg-slate-900/40">
-              <div className="flex items-center gap-2 min-w-0">
-                <Skeleton className="h-9 w-9 rounded-xl flex-shrink-0" />
-                <div className="space-y-1.5 min-w-0">
-                  <Skeleton className="h-5 w-36 max-w-full" />
-                  <Skeleton className="h-3 w-52 max-w-full hidden sm:block" />
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <Skeleton className="h-9 w-20 rounded-lg hidden sm:block" />
-                <Skeleton className="h-9 w-24 rounded-lg" />
-                <Skeleton className="h-9 w-9 rounded-lg" />
-              </div>
-            </div>
-
-            <div className="flex-1 min-h-0 flex">
-              <div className="w-[200px] sm:w-[260px] md:w-[280px] flex-shrink-0 border-e border-slate-200/60 dark:border-slate-700/60 bg-slate-50/50 dark:bg-slate-900/50 p-2 sm:p-3 space-y-2 overflow-hidden">
-                <Skeleton className="h-5 w-16 mx-auto rounded-md" />
-                {Array.from({ length: 12 }).map((_, i) => (
-                  <Skeleton key={i} className="h-11 w-full rounded-lg" />
-                ))}
-              </div>
-
-              <div className="flex-1 min-w-0 flex flex-col p-2 sm:p-3 gap-2 overflow-hidden">
-                <div className="flex gap-1 sm:gap-1.5 overflow-hidden pb-1">
-                  {Array.from({ length: 16 }).map((_, i) => (
-                    <Skeleton
-                      key={i}
-                      className="h-12 sm:h-14 flex-1 min-w-[56px] sm:min-w-[72px] rounded-md"
-                    />
-                  ))}
-                </div>
-                <div className="flex-1 flex flex-col gap-1.5 min-h-0 overflow-hidden">
-                  {Array.from({ length: 8 }).map((_, row) => (
-                    <div key={row} className="flex gap-1 sm:gap-1.5 flex-1 min-h-[44px]">
-                      {Array.from({ length: 16 }).map((_, col) => (
-                        <Skeleton
-                          key={col}
-                          className="flex-1 min-w-[56px] sm:min-w-[72px] rounded-sm opacity-50"
-                        />
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  const calendarDataReady = !calendarDataLoading
 
   return (
-    <div className="h-full flex flex-col bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30 dark:from-slate-950 dark:via-blue-950/20 dark:to-purple-950/20 min-h-0">
+    <div className="h-full flex flex-col min-h-0 overflow-hidden bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30 dark:from-slate-950 dark:via-blue-950/20 dark:to-purple-950/20">
       {/* Offline banner — appears when offline or when pending outbox entries exist */}
-      <OfflineBanner onSyncRequest={handleManualSync} syncing={isSyncing} />
+      <div className="shrink-0">
+        <OfflineBanner onSyncRequest={handleManualSync} syncing={isSyncing} />
+      </div>
       {/* Conflict resolution sheet — opens automatically when sync conflicts are detected */}
       <ConflictResolutionSheet
         open={conflictSheetOpen}
         onOpenChange={setConflictSheetOpen}
       />
+
+      {calendarDataReady && (
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       {/* Floating Direction Toggle Button */}
       <motion.div
         className="fixed bottom-24 right-6 z-50 no-print"
@@ -1278,7 +1214,8 @@ export default function CalendarPage() {
         calendarRef={calendarRef}
       />
 
-      {/* Full Calendar Widget */}
+      {/* Full Calendar Widget — sole flex child that grows */}
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       <FullCalendarWidget
         ref={calendarRef}
         resources={resources}
@@ -1303,7 +1240,7 @@ export default function CalendarPage() {
         setChangeUnitDialogOpen={setChangeUnitDialogOpen}
         setHeaderExpanded={setHeaderExpanded}
       />
-
+      </div>
 
       {/* Guest Selection Dialog */}
       <CreateReservationDialog
@@ -1362,6 +1299,8 @@ export default function CalendarPage() {
         onDelete={() => { if (blockToDelete?.id) deleteRoomBlock.mutate(blockToDelete.id) }}
         isPending={deleteRoomBlock.isPending}
       />
+        </div>
+      )}
     </div>
   )
 }

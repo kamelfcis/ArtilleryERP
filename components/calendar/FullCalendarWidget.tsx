@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
 import FullCalendar from '@fullcalendar/react'
 import resourceTimelinePlugin from '@fullcalendar/resource-timeline'
@@ -11,6 +11,13 @@ import arLocale from '@fullcalendar/core/locales/ar'
 import type { CalendarEvent as CalendarEventRow } from '@/lib/types/calendar'
 import type { UserRole } from '@/lib/types/database'
 import { getUnitTypeIconData, getShakkaRoomIconGradient } from '@/lib/utils/calendar-helpers'
+import { useOptionalCalendarFilters } from '@/contexts/CalendarFilterContext'
+
+const CALENDAR_PLUGINS = [dayGridPlugin, timeGridPlugin, interactionPlugin, resourceTimelinePlugin]
+
+const RESOURCE_AREA_HEADER = (
+  <div className="text-center w-full font-bold text-2xl">الوحدة</div>
+)
 
 interface Props {
   resources: any[]
@@ -59,9 +66,14 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
   setChangeUnitDialogOpen,
   setHeaderExpanded,
 }, ref) {
+  const hostRef = useRef<HTMLDivElement>(null)
   const calendarContainerRef = useRef<HTMLDivElement>(null)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const lastScrollTopRef = useRef(0)
+  const [fcHeight, setFcHeight] = useState(() =>
+    typeof window !== 'undefined' ? Math.floor(window.innerHeight * 0.75) : 600
+  )
+  const calendarFilters = useOptionalCalendarFilters()
+  const headerExpanded = calendarFilters?.headerExpanded ?? true
 
   const saveScrollPosition = () => {
     const container = calendarContainerRef.current
@@ -119,13 +131,47 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
     return () => clearTimeout(timer)
   }, [resources.length, rangeStart, rangeEnd, ref])
 
-  // Auto-collapse header on scroll down, expand on scroll up
-  useEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
+  const isResourceTimeline = currentView === 'resourceTimeline' || currentView === 'timeline'
 
-    const handleScroll = () => {
-      const currentScrollTop = el.scrollTop
+  // Measure flex-stretched host; FC height = inner clientHeight (not content-sized)
+  useEffect(() => {
+    const host = hostRef.current
+    const card = calendarContainerRef.current
+    if (!host || !card) return
+
+    const measure = () => {
+      const h = Math.floor(host.clientHeight)
+      if (h > 0) setFcHeight(h)
+    }
+
+    const ro = new ResizeObserver(() => measure())
+    ro.observe(card)
+    ro.observe(host)
+
+    measure()
+    const raf = requestAnimationFrame(measure)
+    const afterHeader = window.setTimeout(measure, 320)
+
+    return () => {
+      ro.disconnect()
+      cancelAnimationFrame(raf)
+      window.clearTimeout(afterHeader)
+    }
+  }, [headerExpanded, resources.length, currentView])
+
+  useEffect(() => {
+    const api = (ref as React.RefObject<FullCalendar>)?.current?.getApi()
+    if (api && fcHeight > 0) api.updateSize()
+  }, [fcHeight, ref, resources.length, currentView])
+
+  // Auto-collapse dashboard header on inner FC vertical scroll
+  useEffect(() => {
+    const container = calendarContainerRef.current
+    if (!container) return
+
+    const handleScroll = (e: Event) => {
+      const target = e.target as HTMLElement
+      const currentScrollTop = target.scrollTop
       const delta = currentScrollTop - lastScrollTopRef.current
 
       if (delta > 30) {
@@ -137,9 +183,52 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
       }
     }
 
-    el.addEventListener('scroll', handleScroll, { passive: true })
-    return () => el.removeEventListener('scroll', handleScroll)
-  }, [setHeaderExpanded])
+    const bound: Element[] = []
+
+    const attach = () => {
+      container.querySelectorAll('.fc-scroller-liquid-absolute, .fc-scroller').forEach((el) => {
+        if (bound.includes(el)) return
+        el.addEventListener('scroll', handleScroll, { passive: true })
+        bound.push(el)
+      })
+    }
+
+    attach()
+    const timer = window.setTimeout(attach, 400)
+
+    return () => {
+      window.clearTimeout(timer)
+      bound.forEach((el) => el.removeEventListener('scroll', handleScroll))
+    }
+  }, [setHeaderExpanded, fcHeight, resources.length])
+
+  const calendarViews = useMemo(
+    () => ({
+      resourceTimelineCustom: {
+        type: 'resourceTimeline',
+        visibleRange: { start: rangeStart, end: rangeEnd },
+        slotDuration: { days: 1 },
+        slotLabelInterval: { days: 1 },
+        scrollTime: '00:00:00',
+      },
+    }),
+    [rangeStart, rangeEnd]
+  )
+
+  const handleSelectAllow = useCallback((selectInfo: any) => {
+    const ms = selectInfo.end.getTime() - selectInfo.start.getTime()
+    const nights = Math.max(0, Math.round(ms / 86400000))
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('calendar:drag-nights', { detail: { nights } }))
+    }
+    return true
+  }, [])
+
+  const handleUnselect = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('calendar:drag-nights', { detail: { nights: 0 } }))
+    }
+  }, [])
 
   const handleEventClickWithScroll = (info: any) => {
     saveScrollPosition()
@@ -148,21 +237,22 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
 
   return (
     <motion.div
-      ref={scrollContainerRef}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.25 }}
-      className="flex-1 overflow-auto px-2 pb-2 min-h-0"
+      initial={false}
+      className="flex-1 min-h-0 h-full overflow-hidden flex flex-col px-1 pb-1 pt-0.5"
+      style={{ flex: '1 1 0%' }}
     >
       <div
         ref={calendarContainerRef}
-        className="h-full min-h-[600px] bg-gradient-to-br from-white via-blue-50/30 to-purple-50/30 dark:from-slate-900 dark:via-blue-950/20 dark:to-purple-950/20 shadow-xl overflow-hidden backdrop-blur-xl relative rounded-xl"
+        className="flex flex-col flex-1 min-h-0 h-full overflow-hidden bg-gradient-to-br from-white via-blue-50/30 to-purple-50/30 dark:from-slate-900 dark:via-blue-950/20 dark:to-purple-950/20 shadow-lg backdrop-blur-xl relative rounded-lg"
       >
-        <div className="p-2 relative z-10">
+        <div
+          ref={hostRef}
+          className="calendar-fc-host flex-1 min-h-0 overflow-hidden relative z-10 p-1"
+        >
           <FullCalendar
             key="main-calendar"
             ref={ref}
-            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, resourceTimelinePlugin]}
+            plugins={CALENDAR_PLUGINS}
             initialView={currentView === 'resourceTimeline' ? 'resourceTimelineCustom' :
                        currentView === 'month' ? 'dayGridMonth' :
                        currentView === 'day' ? 'timeGridDay' :
@@ -182,24 +272,11 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
             eventResourceEditable={true}
             selectable={true}
             selectMirror={true}
-            selectAllow={(selectInfo) => {
-              const ms = selectInfo.end.getTime() - selectInfo.start.getTime()
-              const nights = Math.max(0, Math.round(ms / 86400000))
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('calendar:drag-nights', { detail: { nights } }))
-              }
-              return true
-            }}
-            unselect={() => {
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('calendar:drag-nights', { detail: { nights: 0 } }))
-              }
-            }}
+            selectAllow={handleSelectAllow}
+            unselect={handleUnselect}
             dayMaxEvents={true}
-            resourceAreaWidth="240px"
-            resourceAreaHeaderContent={
-              <div className="text-center w-full font-bold text-3xl">الوحدة</div>
-            }
+            resourceAreaWidth="192px"
+            resourceAreaHeaderContent={RESOURCE_AREA_HEADER}
             resourceOrder="orderno,title"
             slotMinTime="00:00:00"
             slotMaxTime="24:00:00"
@@ -210,19 +287,8 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
               day: 'numeric',
               month: 'short',
             }}
-            views={{
-              resourceTimelineCustom: {
-                type: 'resourceTimeline',
-                visibleRange: {
-                  start: rangeStart,
-                  end: rangeEnd,
-                },
-                slotDuration: { days: 1 },
-                slotLabelInterval: { days: 1 },
-                scrollTime: '00:00:00',
-              },
-            }}
-            slotMinWidth={80}
+            views={calendarViews}
+            slotMinWidth={64}
             slotLabelContent={(arg) => {
               const date = arg.date
               if (!date) return { html: '' }
@@ -235,9 +301,9 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
               return {
                 html: `
                   <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2; padding: 2px 0; gap: 1px;">
-                    <span style="font-size: 12px; font-weight: 600; color: ${isToday ? '#78350f' : '#64748b'}; letter-spacing: 0.02em;">${dayName}</span>
-                    <span style="font-size: 20px; font-weight: 900; color: ${isToday ? '#92400e' : isFirstOfMonth ? '#1d4ed8' : '#1e293b'};">${dayNum}</span>
-                    <span style="font-size: 12px; font-weight: 700; color: ${isToday ? '#a16207' : isFirstOfMonth ? '#3b82f6' : '#94a3b8'};">${monthName}</span>
+                    <span style="font-size: 10px; font-weight: 600; color: ${isToday ? '#78350f' : '#64748b'}; letter-spacing: 0.02em;">${dayName}</span>
+                    <span style="font-size: 16px; font-weight: 900; color: ${isToday ? '#92400e' : isFirstOfMonth ? '#1d4ed8' : '#1e293b'};">${dayNum}</span>
+                    <span style="font-size: 10px; font-weight: 700; color: ${isToday ? '#a16207' : isFirstOfMonth ? '#3b82f6' : '#94a3b8'};">${monthName}</span>
                   </div>
                 `
               }
@@ -271,11 +337,11 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
                     display: inline-flex;
                     align-items: center;
                     gap: 3px;
-                    font-size: 10px;
+                    font-size: 8px;
                     font-weight: 700;
                     color: #92400e;
                     background: linear-gradient(135deg, #fde68a 0%, #fbbf24 100%);
-                    padding: 2px 8px;
+                    padding: 2px 6px;
                     border-radius: 9999px;
                     border: 1px solid #f59e0b;
                     white-space: nowrap;
@@ -284,23 +350,23 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
 
               return {
                 html: `
-                  <div style="display: flex; align-items: center; gap: 0.5rem; padding: 8px 4px; flex-wrap: wrap;">
+                  <div style="display: flex; align-items: center; gap: 0.4rem; padding: 6px 3px; flex-wrap: wrap;">
                     <span style="
                       display: inline-flex;
                       align-items: center;
                       justify-content: center;
                       flex-shrink: 0;
-                      width: 48px;
-                      height: 48px;
-                      border-radius: 10px;
+                      width: 38px;
+                      height: 38px;
+                      border-radius: 8px;
                       background: ${isMaintenance ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : iconGradient};
                       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
                     ">
-                      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         ${iconData.path}
                       </svg>
                     </span>
-                    <span style="font-weight: 600; color: ${isMaintenance ? '#92400e' : 'rgba(59, 130, 246, 0.9)'}; white-space: nowrap; font-size: 20px;">${arg.resource.title}</span>
+                    <span style="font-weight: 600; color: ${isMaintenance ? '#92400e' : 'rgba(59, 130, 246, 0.9)'}; white-space: nowrap; font-size: 16px;">${arg.resource.title}</span>
                     ${maintenanceBadge}
                   </div>
                 `
@@ -666,9 +732,8 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
             }}
             eventDrop={onEventDrop}
             eventResize={onEventResize}
-            height="700px"
-            contentHeight="auto"
-            expandRows={false}
+            height={fcHeight}
+            expandRows={isResourceTimeline}
             stickyFooterScrollbar={true}
             eventClassNames="border-l-4 shadow-md cursor-pointer font-semibold"
             dayHeaderClassNames="font-bold text-slate-700 dark:text-slate-300 bg-gradient-to-r from-blue-50/50 via-indigo-50/30 to-purple-50/30 dark:from-blue-950/20 dark:via-indigo-950/20 dark:to-purple-950/20 border-b-2 border-blue-200/50 dark:border-blue-800/50"

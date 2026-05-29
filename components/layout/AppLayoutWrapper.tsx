@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation'
 import { DashboardLayout } from './DashboardLayout'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { SidebarProvider } from '@/contexts/SidebarContext'
+import { CalendarFilterProvider } from '@/contexts/CalendarFilterContext'
 
 export function AppLayoutWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -15,11 +16,19 @@ export function AppLayoutWrapper({ children }: { children: React.ReactNode }) {
   }
   
   // Show DashboardLayout with Sidebar for all other pages
+  const layout = (
+    <SidebarProvider initialCollapsed={isCalendarPage}>
+      <DashboardLayout>{children}</DashboardLayout>
+    </SidebarProvider>
+  )
+
   return (
     <RoleGuard allowedRoles={['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff']}>
-      <SidebarProvider initialCollapsed={isCalendarPage}>
-        <DashboardLayout>{children}</DashboardLayout>
-      </SidebarProvider>
+      {isCalendarPage ? (
+        <CalendarFilterProvider>{layout}</CalendarFilterProvider>
+      ) : (
+        layout
+      )}
     </RoleGuard>
   )
 }

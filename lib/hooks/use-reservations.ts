@@ -316,6 +316,7 @@ export function useCalendarReservations(a: CalendarWindowArgs) {
     queryFn: () => fetchCalendarWindow(a),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
+    gcTime: 300_000,
   })
 }
 
