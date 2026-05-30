@@ -30,6 +30,7 @@ import {
   useMarkNotificationRead,
   useMarkAllNotificationsRead,
 } from '@/lib/hooks/use-booking-notifications'
+import { useRocketUserId } from '@/lib/hooks/use-rocket-user-id'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface LegacyNotification {
@@ -53,32 +54,46 @@ export function NotificationCenter() {
   const { data: unreadBookingCount } = useUnreadNotificationCount()
   const markRead = useMarkNotificationRead()
   const markAllRead = useMarkAllNotificationsRead()
+  const { data: rocketUserId, isSuccess: rocketUserResolved } = useRocketUserId()
+
+  const legacyQueryScope = restrictedBranchManager
+    ? 'all'
+    : `rocket-${rocketUserId ?? 'none'}`
 
   const { data: legacyNotifications } = useQuery({
-    queryKey: ['legacy-notifications'],
+    queryKey: ['legacy-notifications', legacyQueryScope],
     queryFn: async () => {
       const tomorrow = new Date()
       tomorrow.setDate(tomorrow.getDate() + 1)
+      const today = new Date().toISOString().split('T')[0]
+
+      const reservationSelect =
+        'id, reservation_number, check_in_date, check_out_date, created_by, guest:guests(*), unit:units(*)'
 
       const { data: upcomingCheckIns } = await supabase
         .from('reservations')
-        .select('*, guest:guests(*), unit:units(*)')
+        .select(reservationSelect)
         .eq('status', 'confirmed')
-        .gte('check_in_date', new Date().toISOString().split('T')[0])
+        .gte('check_in_date', today)
         .lte('check_in_date', tomorrow.toISOString().split('T')[0])
         .limit(10)
 
       const { data: upcomingCheckOuts } = await supabase
         .from('reservations')
-        .select('*, guest:guests(*), unit:units(*)')
+        .select(reservationSelect)
         .eq('status', 'checked_in')
-        .gte('check_out_date', new Date().toISOString().split('T')[0])
+        .gte('check_out_date', today)
         .lte('check_out_date', tomorrow.toISOString().split('T')[0])
         .limit(10)
 
+      const filterByRocket = (rows: { created_by?: string }[] | null) => {
+        if (restrictedBranchManager || !rocketUserId) return rows ?? []
+        return (rows ?? []).filter((r) => r.created_by === rocketUserId)
+      }
+
       const list: LegacyNotification[] = []
 
-      upcomingCheckIns?.forEach((r) => {
+      filterByRocket(upcomingCheckIns).forEach((r: any) => {
         list.push({
           id: `checkin-${r.id}`,
           type: 'checkin',
@@ -90,7 +105,7 @@ export function NotificationCenter() {
         })
       })
 
-      upcomingCheckOuts?.forEach((r) => {
+      filterByRocket(upcomingCheckOuts).forEach((r: any) => {
         list.push({
           id: `checkout-${r.id}`,
           type: 'checkout',
@@ -107,6 +122,7 @@ export function NotificationCenter() {
       )
     },
     refetchInterval: 60000,
+    enabled: restrictedBranchManager || rocketUserResolved,
   })
 
   const totalUnread = (unreadBookingCount ?? 0) + (legacyNotifications?.filter(n => !n.read).length ?? 0)

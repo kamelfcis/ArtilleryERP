@@ -9,6 +9,8 @@ import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
 import { useAuth } from '@/contexts/AuthContext'
 import { useUpdateReservation } from '@/lib/hooks/use-reservations'
 import { useMarkNotificationRead, useCreateBookingNotification } from '@/lib/hooks/use-booking-notifications'
+import { useRocketUserId } from '@/lib/hooks/use-rocket-user-id'
+import { shouldShowBookingNotification } from '@/lib/utils/booking-notification-filters'
 import { formatDateShort, formatCurrency } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/use-toast'
@@ -69,6 +71,7 @@ export function InAppNotificationBanner() {
   const { user, hasRole, elevatedOps } = useAuth()
   const restrictedBranchManager =
     hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
+  const { data: rocketUserId } = useRocketUserId()
   const updateReservation = useUpdateReservation()
   const markRead = useMarkNotificationRead()
   const createNotification = useCreateBookingNotification()
@@ -176,10 +179,15 @@ export function InAppNotificationBanner() {
   const handleNewNotification = useCallback(async (notif: NotificationPayload) => {
     if (processedIdsRef.current.has(notif.id)) return
 
-    // Restricted BranchManagers only see notifications targeted at them
-    if (restrictedBranchManager && notif.notify_user_id !== user?.id) return
-    // Staff/admins skip BM-only reverse notifications
-    if (!restrictedBranchManager && notif.notify_user_id) return
+    if (
+      !shouldShowBookingNotification(notif, {
+        restrictedBranchManager,
+        viewerId: user?.id,
+        rocketUserId: rocketUserId ?? null,
+      })
+    ) {
+      return
+    }
 
     processedIdsRef.current.add(notif.id)
 
@@ -239,7 +247,7 @@ export function InAppNotificationBanner() {
     }
 
     setTimeout(() => dismiss(notif.id), AUTO_DISMISS_MS)
-  }, [playSound, showBrowserNotification, queryClient, dismiss, restrictedBranchManager, user?.id])
+  }, [playSound, showBrowserNotification, queryClient, dismiss, restrictedBranchManager, user?.id, rocketUserId])
 
   // Realtime subscription for instant notifications — only when online
   useEffect(() => {
@@ -280,7 +288,7 @@ export function InAppNotificationBanner() {
       window.removeEventListener('online', handleOnline)
       if (activeChannel) supabase.removeChannel(activeChannel as RealtimeChannel)
     }
-  }, [handleNewNotification])
+  }, [handleNewNotification, restrictedBranchManager, rocketUserId, user?.id])
 
   // Polling fallback: check for new unread notifications every 15 seconds.
   // Skips entirely when the browser is offline to avoid console error spam.
@@ -289,14 +297,23 @@ export function InAppNotificationBanner() {
 
     const poll = async () => {
       if (typeof navigator !== 'undefined' && !navigator.onLine) return
+      if (!restrictedBranchManager && !rocketUserId) return
       try {
-        const { data } = await supabase
+        let query = supabase
           .from('booking_notifications')
           .select('id, reservation_id, created_by, message, created_at, notify_user_id')
           .eq('is_read', false)
           .gt('created_at', lastCheckedRef.current)
           .order('created_at', { ascending: true })
           .limit(5)
+
+        if (restrictedBranchManager && user?.id) {
+          query = query.eq('notify_user_id', user.id)
+        } else if (rocketUserId) {
+          query = query.eq('created_by', rocketUserId).is('notify_user_id', null)
+        }
+
+        const { data } = await query
 
         if (data && data.length > 0) {
           lastCheckedRef.current = data[data.length - 1].created_at
@@ -309,7 +326,7 @@ export function InAppNotificationBanner() {
 
     const interval = setInterval(poll, 15000)
     return () => clearInterval(interval)
-  }, [handleNewNotification])
+  }, [handleNewNotification, restrictedBranchManager, rocketUserId, user?.id])
 
   return (
     <div className="fixed top-4 left-4 z-[9999] flex flex-col gap-3 max-w-md w-full pointer-events-none" dir="rtl">

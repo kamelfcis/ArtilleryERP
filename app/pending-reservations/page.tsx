@@ -54,6 +54,7 @@ import {
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
+import { isRocketHotelEmail } from '@/lib/constants/rocket-hotel'
 
 interface PendingReservation {
   id: string
@@ -92,8 +93,6 @@ interface PendingReservation {
   }
 }
 
-const ROCKET_HOTEL_EMAIL = 'rocket@hotel.com'
-
 /** When set (e.g. Vercel), rocket user sees only these location UUIDs; otherwise name heuristics apply. */
 const ROCKET_MANAGED_LOCATION_IDS: string[] | null = (() => {
   const raw = process.env.NEXT_PUBLIC_ROCKET_MANAGED_LOCATION_IDS
@@ -101,10 +100,6 @@ const ROCKET_MANAGED_LOCATION_IDS: string[] | null = (() => {
   const ids = raw.split(',').map((s) => s.trim()).filter(Boolean)
   return ids.length > 0 ? ids : null
 })()
-
-function isRocketHotelUser(email: string | undefined) {
-  return (email || '').trim().toLowerCase() === ROCKET_HOTEL_EMAIL
-}
 
 /** Rocket Beach + قرية الندي — fallback when NEXT_PUBLIC_ROCKET_MANAGED_LOCATION_IDS is unset. */
 function isRocketManagedLocation(loc: { name: string; name_ar: string }) {
@@ -151,7 +146,7 @@ export default function PendingReservationsPage() {
 
   const locationOptions = useMemo(() => {
     let list = [...(allLocations || [])]
-    if (isRocketHotelUser(user?.email)) {
+    if (isRocketHotelEmail(user?.email)) {
       const rocketIds = ROCKET_MANAGED_LOCATION_IDS
       if (rocketIds) {
         list = list.filter((l) => rocketIds.includes(l.id))
@@ -193,7 +188,7 @@ export default function PendingReservationsPage() {
   ])
 
   const rocketLocationIds = useMemo(() => {
-    if (!isRocketHotelUser(user?.email)) return null as string[] | null
+    if (!isRocketHotelEmail(user?.email)) return null as string[] | null
     return locationOptions.map((l) => l.id)
   }, [user?.email, locationOptions])
 
@@ -236,7 +231,7 @@ export default function PendingReservationsPage() {
     rocketLocationIds?.join(',') ?? '',
   ] as const
 
-  const rocketUserForQuery = isRocketHotelUser(user?.email)
+  const rocketUserForQuery = isRocketHotelEmail(user?.email)
 
   const { data: pendingPageResult, isLoading } = useQuery({
     queryKey: pendingQueryKey,
@@ -252,7 +247,7 @@ export default function PendingReservationsPage() {
 
       let allowedUnitIds: string[] | null = null
 
-      const rocketUser = isRocketHotelUser(user?.email)
+      const rocketUser = isRocketHotelEmail(user?.email)
       if (rocketUser) {
         if (!rocketLocationIds?.length) return { rows: [], total: 0 }
         const { data: ru, error: ruErr } = await supabase

@@ -1,5 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { useAuth } from '@/contexts/AuthContext'
+import { useRocketUserId } from '@/lib/hooks/use-rocket-user-id'
 
 export interface BookingNotification {
   id: string
@@ -21,11 +23,45 @@ export interface BookingNotification {
   }
 }
 
+function useNotificationViewerContext() {
+  const { user, hasRole, elevatedOps } = useAuth()
+  const restrictedBranchManager =
+    hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
+  const { data: rocketUserId } = useRocketUserId()
+
+  const queryScope = restrictedBranchManager
+    ? `bm-${user?.id ?? 'none'}`
+    : `approver-${rocketUserId ?? 'none'}`
+
+  return {
+    user,
+    restrictedBranchManager,
+    rocketUserId: rocketUserId ?? null,
+    queryScope,
+  }
+}
+
+function applyBookingNotificationFilters<T extends { eq: (col: string, val: string) => T; is: (col: string, val: null) => T }>(
+  query: T,
+  ctx: ReturnType<typeof useNotificationViewerContext>
+): T {
+  if (ctx.restrictedBranchManager) {
+    if (!ctx.user?.id) return query
+    return query.eq('notify_user_id', ctx.user.id)
+  }
+  if (!ctx.rocketUserId) return query
+  return query.eq('created_by', ctx.rocketUserId).is('notify_user_id', null)
+}
+
 export function useBookingNotifications() {
+  const ctx = useNotificationViewerContext()
+
   return useQuery({
-    queryKey: ['booking-notifications'],
+    queryKey: ['booking-notifications', ctx.queryScope],
     queryFn: async () => {
-      const { data, error } = await supabase
+      if (!ctx.restrictedBranchManager && !ctx.rocketUserId) return []
+
+      let query = supabase
         .from('booking_notifications')
         .select(`
           *,
@@ -38,27 +74,41 @@ export function useBookingNotifications() {
         .order('created_at', { ascending: false })
         .limit(50)
 
+      query = applyBookingNotificationFilters(query, ctx)
+
+      const { data, error } = await query
       if (error) throw error
       return data as BookingNotification[]
     },
     staleTime: 0,
     refetchOnMount: 'always',
+    enabled:
+      ctx.restrictedBranchManager ? !!ctx.user?.id : ctx.rocketUserId !== null,
   })
 }
 
 export function useUnreadNotificationCount() {
+  const ctx = useNotificationViewerContext()
+
   return useQuery({
-    queryKey: ['booking-notifications-count'],
+    queryKey: ['booking-notifications-count', ctx.queryScope],
     queryFn: async () => {
-      const { count, error } = await supabase
+      if (!ctx.restrictedBranchManager && !ctx.rocketUserId) return 0
+
+      let query = supabase
         .from('booking_notifications')
         .select('*', { count: 'exact', head: true })
         .eq('is_read', false)
 
+      query = applyBookingNotificationFilters(query, ctx)
+
+      const { count, error } = await query
       if (error) throw error
       return count ?? 0
     },
     refetchInterval: 30000,
+    enabled:
+      ctx.restrictedBranchManager ? !!ctx.user?.id : ctx.rocketUserId !== null,
   })
 }
 
@@ -81,12 +131,20 @@ export function useMarkNotificationRead() {
 
 export function useMarkAllNotificationsRead() {
   const queryClient = useQueryClient()
+  const ctx = useNotificationViewerContext()
+
   return useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
+      if (!ctx.restrictedBranchManager && !ctx.rocketUserId) return
+
+      let query = supabase
         .from('booking_notifications')
         .update({ is_read: true })
         .eq('is_read', false)
+
+      query = applyBookingNotificationFilters(query, ctx)
+
+      const { error } = await query
       if (error) throw error
     },
     onSuccess: () => {
