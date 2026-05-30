@@ -15,7 +15,6 @@ import { toast } from '@/components/ui/use-toast'
 import { Menu, ImageDown, ClipboardCopy, Printer, ChevronLeft, ChevronRight } from 'lucide-react'
 import Image from 'next/image'
 import { CalendarToolbarFilters } from '@/components/calendar/CalendarToolbarFilters'
-import { useOptionalCalendarFilters } from '@/contexts/CalendarFilterContext'
 import { cn } from '@/lib/utils'
 
 async function grabScreen(): Promise<Blob> {
@@ -41,8 +40,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
   const pathname = usePathname()
   const isCalendarPage = pathname === '/calendar'
-  const calendarFilters = useOptionalCalendarFilters()
-  const headerExpanded = calendarFilters?.headerExpanded ?? true
   const { collapsed, setCollapsed, toggle } = useSidebar()
   const [dragNights, setDragNights] = useState(0)
 
@@ -67,11 +64,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       <main className="flex-1 min-h-0 overflow-hidden relative flex flex-col">
         <div
           className={cn(
-            'sticky top-0 z-10 bg-background border-b shrink-0 transition-[max-height,padding,opacity,border-color] duration-300 ease-out overflow-hidden',
+            'sticky top-0 z-10 bg-background border-b shrink-0',
             isCalendarPage
               ? 'grid grid-cols-[auto_1fr_auto] items-center gap-1.5 md:gap-3 px-3 py-1.5 md:px-4 md:py-2'
-              : 'grid grid-cols-3 items-center px-3 py-2 md:p-4',
-            isCalendarPage && !headerExpanded && 'max-h-0 !py-0 opacity-0 border-b-transparent pointer-events-none'
+              : 'grid grid-cols-3 items-center px-3 py-2 md:p-4'
           )}
         >
           <div className="flex items-center gap-2 md:gap-3 min-w-0 justify-start">

@@ -9,8 +9,6 @@ interface CalendarFilterContextValue {
   setSelectedTypes: (value: string[] | ((prev: string[]) => string[])) => void
   toggleUnitType: (type: string, locationId?: string) => void
   clearUnitTypes: () => void
-  headerExpanded: boolean
-  setHeaderExpanded: (value: boolean) => void
 }
 
 const CalendarFilterContext = createContext<CalendarFilterContextValue | null>(null)
@@ -34,7 +32,6 @@ function readStoredTypes(): string[] {
 export function CalendarFilterProvider({ children }: { children: React.ReactNode }) {
   const [selectedLocation, setSelectedLocationState] = useState(readStoredLocation)
   const [selectedTypes, setSelectedTypesState] = useState<string[]>(readStoredTypes)
-  const [headerExpanded, setHeaderExpanded] = useState(true)
 
   const setSelectedLocation = useCallback((value: string) => {
     setSelectedLocationState(value)
@@ -77,10 +74,8 @@ export function CalendarFilterProvider({ children }: { children: React.ReactNode
       setSelectedTypes,
       toggleUnitType,
       clearUnitTypes,
-      headerExpanded,
-      setHeaderExpanded,
     }),
-    [selectedLocation, setSelectedLocation, selectedTypes, setSelectedTypes, toggleUnitType, clearUnitTypes, headerExpanded]
+    [selectedLocation, setSelectedLocation, selectedTypes, setSelectedTypes, toggleUnitType, clearUnitTypes]
   )
 
   return (

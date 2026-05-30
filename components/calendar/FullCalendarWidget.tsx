@@ -11,7 +11,6 @@ import arLocale from '@fullcalendar/core/locales/ar'
 import type { CalendarEvent as CalendarEventRow } from '@/lib/types/calendar'
 import type { UserRole } from '@/lib/types/database'
 import { getUnitTypeIconData, getShakkaRoomIconGradient } from '@/lib/utils/calendar-helpers'
-import { useOptionalCalendarFilters } from '@/contexts/CalendarFilterContext'
 
 const CALENDAR_PLUGINS = [dayGridPlugin, timeGridPlugin, interactionPlugin, resourceTimelinePlugin]
 
@@ -40,7 +39,6 @@ interface Props {
   setBlockDeleteDialogOpen: (open: boolean) => void
   setChangeUnitReservation: (r: CalendarEventRow | null) => void
   setChangeUnitDialogOpen: (open: boolean) => void
-  setHeaderExpanded: (v: boolean) => void
 }
 
 const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(function FullCalendarWidget({
@@ -64,16 +62,12 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
   setBlockDeleteDialogOpen,
   setChangeUnitReservation,
   setChangeUnitDialogOpen,
-  setHeaderExpanded,
 }, ref) {
   const hostRef = useRef<HTMLDivElement>(null)
   const calendarContainerRef = useRef<HTMLDivElement>(null)
-  const lastScrollTopRef = useRef(0)
   const [fcHeight, setFcHeight] = useState(() =>
     typeof window !== 'undefined' ? Math.floor(window.innerHeight * 0.75) : 600
   )
-  const calendarFilters = useOptionalCalendarFilters()
-  const headerExpanded = calendarFilters?.headerExpanded ?? true
 
   const saveScrollPosition = () => {
     const container = calendarContainerRef.current
@@ -150,57 +144,17 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
 
     measure()
     const raf = requestAnimationFrame(measure)
-    const afterHeader = window.setTimeout(measure, 320)
 
     return () => {
       ro.disconnect()
       cancelAnimationFrame(raf)
-      window.clearTimeout(afterHeader)
     }
-  }, [headerExpanded, resources.length, currentView])
+  }, [resources.length, currentView])
 
   useEffect(() => {
     const api = (ref as React.RefObject<FullCalendar>)?.current?.getApi()
     if (api && fcHeight > 0) api.updateSize()
   }, [fcHeight, ref, resources.length, currentView])
-
-  // Auto-collapse dashboard header on inner FC vertical scroll
-  useEffect(() => {
-    const container = calendarContainerRef.current
-    if (!container) return
-
-    const handleScroll = (e: Event) => {
-      const target = e.target as HTMLElement
-      const currentScrollTop = target.scrollTop
-      const delta = currentScrollTop - lastScrollTopRef.current
-
-      if (delta > 30) {
-        setHeaderExpanded(false)
-        lastScrollTopRef.current = currentScrollTop
-      } else if (delta < -30) {
-        setHeaderExpanded(true)
-        lastScrollTopRef.current = currentScrollTop
-      }
-    }
-
-    const bound: Element[] = []
-
-    const attach = () => {
-      container.querySelectorAll('.fc-scroller-liquid-absolute, .fc-scroller').forEach((el) => {
-        if (bound.includes(el)) return
-        el.addEventListener('scroll', handleScroll, { passive: true })
-        bound.push(el)
-      })
-    }
-
-    attach()
-    const timer = window.setTimeout(attach, 400)
-
-    return () => {
-      window.clearTimeout(timer)
-      bound.forEach((el) => el.removeEventListener('scroll', handleScroll))
-    }
-  }, [setHeaderExpanded, fcHeight, resources.length])
 
   const calendarViews = useMemo(
     () => ({

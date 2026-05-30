@@ -63,7 +63,6 @@ export default function CalendarPage() {
     setSelectedLocation,
     selectedTypes,
     setSelectedTypes,
-    setHeaderExpanded,
   } = useCalendarFilters()
   // Helper to get today's date as YYYY-MM-DD string
   const getTodayString = () => {
@@ -1238,7 +1237,6 @@ export default function CalendarPage() {
         setBlockDeleteDialogOpen={setBlockDeleteDialogOpen}
         setChangeUnitReservation={setChangeUnitReservation}
         setChangeUnitDialogOpen={setChangeUnitDialogOpen}
-        setHeaderExpanded={setHeaderExpanded}
       />
       </div>
 
