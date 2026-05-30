@@ -1,50 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
-
-// This is a server-side API route for admin operations
-// Make sure to set SUPABASE_SERVICE_ROLE_KEY in your environment variables
+import {
+  createAdminClient,
+  handleSupabaseRouteError,
+  safeSupabaseCall,
+  SupabaseUnavailableError,
+  validateSupabaseAdminConfig,
+} from '@/lib/supabase/admin-server'
 
 /** Resolve logged-in user from Bearer JWT (browser) or Supabase auth cookies (SSR). */
 async function getVerifiedAuthUser(request: NextRequest): Promise<{ id: string } | null> {
   const bearer = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')?.trim()
-  const admin = getAdminClient()
+  const admin = createAdminClient()
+
   if (bearer) {
     const {
       data: { user },
       error,
-    } = await admin.auth.getUser(bearer)
+    } = await safeSupabaseCall(() => admin.auth.getUser(bearer))
     if (error || !user) return null
     return { id: user.id }
   }
+
   try {
     const cookieStore = cookies()
     const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore })
     const {
       data: { session },
-    } = await supabaseAuth.auth.getSession()
+    } = await safeSupabaseCall(() => supabaseAuth.auth.getSession())
     if (!session?.user) return null
     return { id: session.user.id }
-  } catch {
+  } catch (error) {
+    if (error instanceof SupabaseUnavailableError) throw error
     return null
   }
 }
 
-function getAdminClient() {
-  return createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim(),
-    (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim(),
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
-}
-
 export async function POST(request: NextRequest) {
+  const configError = validateSupabaseAdminConfig()
+  if (configError) return configError
+
   try {
     const { email, password, role } = await request.json()
 
@@ -55,14 +51,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabaseAdmin = getAdminClient()
+    const supabaseAdmin = createAdminClient()
 
-    // Create user
-    const { data: userData, error: userError } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-    })
+    const { data: userData, error: userError } = await safeSupabaseCall(() =>
+      supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+      })
+    )
 
     if (userError) {
       return NextResponse.json(
@@ -71,21 +68,24 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Assign role if provided
     if (role && userData.user) {
-      const { data: roleData } = await supabaseAdmin
-        .from('roles')
-        .select('id')
-        .eq('name', role)
-        .single()
+      const { data: roleData } = await safeSupabaseCall(() =>
+        supabaseAdmin
+          .from('roles')
+          .select('id')
+          .eq('name', role)
+          .single()
+      )
 
       if (roleData) {
-        await supabaseAdmin
-          .from('user_roles')
-          .insert({
-            user_id: userData.user.id,
-            role_id: roleData.id,
-          })
+        await safeSupabaseCall(() =>
+          supabaseAdmin
+            .from('user_roles')
+            .insert({
+              user_id: userData.user!.id,
+              role_id: roleData.id,
+            })
+        )
       }
     }
 
@@ -93,28 +93,30 @@ export async function POST(request: NextRequest) {
       success: true,
       user: userData.user,
     })
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || 'حدث خطأ أثناء إنشاء المستخدم' },
-      { status: 500 }
-    )
+  } catch (error: unknown) {
+    return handleSupabaseRouteError(error, 'حدث خطأ أثناء إنشاء المستخدم')
   }
 }
 
 export async function GET(request: NextRequest) {
+  const configError = validateSupabaseAdminConfig()
+  if (configError) return configError
+
   try {
     const authed = await getVerifiedAuthUser(request)
     if (!authed) {
       return NextResponse.json({ error: 'غير مصرح' }, { status: 401 })
     }
 
-    const supabaseAdmin = getAdminClient()
+    const supabaseAdmin = createAdminClient()
 
-    const allUsers: any[] = []
+    const allUsers: Array<{ id: string; email?: string }> = []
     let page = 1
     const perPage = 1000
     while (true) {
-      const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage })
+      const { data, error } = await safeSupabaseCall(() =>
+        supabaseAdmin.auth.admin.listUsers({ page, perPage })
+      )
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 })
       }
@@ -124,15 +126,15 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({ users: allUsers })
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || 'حدث خطأ أثناء جلب المستخدمين' },
-      { status: 500 }
-    )
+  } catch (error: unknown) {
+    return handleSupabaseRouteError(error, 'حدث خطأ أثناء جلب المستخدمين')
   }
 }
 
 export async function PUT(request: NextRequest) {
+  const configError = validateSupabaseAdminConfig()
+  if (configError) return configError
+
   try {
     const { userId, email, password } = await request.json()
 
@@ -143,13 +145,15 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    const supabaseAdmin = getAdminClient()
+    const supabaseAdmin = createAdminClient()
 
-    const updateData: any = {}
+    const updateData: { email?: string; password?: string } = {}
     if (email) updateData.email = email
     if (password) updateData.password = password
 
-    const { data, error } = await supabaseAdmin.auth.admin.updateUserById(userId, updateData)
+    const { data, error } = await safeSupabaseCall(() =>
+      supabaseAdmin.auth.admin.updateUserById(userId, updateData)
+    )
 
     if (error) {
       return NextResponse.json(
@@ -162,15 +166,15 @@ export async function PUT(request: NextRequest) {
       success: true,
       user: data.user,
     })
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || 'حدث خطأ أثناء تحديث المستخدم' },
-      { status: 500 }
-    )
+  } catch (error: unknown) {
+    return handleSupabaseRouteError(error, 'حدث خطأ أثناء تحديث المستخدم')
   }
 }
 
 export async function DELETE(request: NextRequest) {
+  const configError = validateSupabaseAdminConfig()
+  if (configError) return configError
+
   try {
     const { userId } = await request.json()
 
@@ -181,22 +185,25 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    const supabaseAdmin = getAdminClient()
+    const supabaseAdmin = createAdminClient()
 
-    // Delete staff records first
-    await supabaseAdmin
-      .from('staff')
-      .delete()
-      .eq('user_id', userId)
+    await safeSupabaseCall(() =>
+      supabaseAdmin
+        .from('staff')
+        .delete()
+        .eq('user_id', userId)
+    )
 
-    // Delete user roles
-    await supabaseAdmin
-      .from('user_roles')
-      .delete()
-      .eq('user_id', userId)
+    await safeSupabaseCall(() =>
+      supabaseAdmin
+        .from('user_roles')
+        .delete()
+        .eq('user_id', userId)
+    )
 
-    // Delete user from auth
-    const { error } = await supabaseAdmin.auth.admin.deleteUser(userId)
+    const { error } = await safeSupabaseCall(() =>
+      supabaseAdmin.auth.admin.deleteUser(userId)
+    )
 
     if (error) {
       return NextResponse.json(
@@ -209,10 +216,7 @@ export async function DELETE(request: NextRequest) {
       success: true,
       message: 'تم حذف المستخدم بنجاح',
     })
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || 'حدث خطأ أثناء حذف المستخدم' },
-      { status: 500 }
-    )
+  } catch (error: unknown) {
+    return handleSupabaseRouteError(error, 'حدث خطأ أثناء حذف المستخدم')
   }
 }

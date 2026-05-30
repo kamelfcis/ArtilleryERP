@@ -604,6 +604,7 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
                 })
                 observer.observe(arg.el.parentNode || document.body, { childList: true })
               } else if (arg.event.extendedProps.roomBlock) {
+                arg.el.style.pointerEvents = 'none'
                 const block = arg.event.extendedProps.roomBlock
                 const blockName = block.name_ar || block.name || ''
                 const startDate = block.start_date ? new Date(block.start_date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''

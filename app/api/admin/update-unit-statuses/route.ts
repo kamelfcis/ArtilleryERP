@@ -1,24 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import {
+  createAdminClient,
+  handleSupabaseRouteError,
+  safeSupabaseCall,
+  validateSupabaseAdminConfig,
+} from '@/lib/supabase/admin-server'
 
-// This API route calls the update_all_unit_statuses() function
-// Make sure to set SUPABASE_SERVICE_ROLE_KEY in your environment variables
+export async function POST(_request: NextRequest) {
+  const configError = validateSupabaseAdminConfig()
+  if (configError) return configError
 
-export async function POST(request: NextRequest) {
   try {
-    const supabaseAdmin = createClient(
-      (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim(),
-      (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim(),
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      }
-    )
+    const supabaseAdmin = createAdminClient()
 
-    // Call the update_all_unit_statuses() function
-    const { data, error } = await supabaseAdmin.rpc('update_all_unit_statuses')
+    const { error } = await safeSupabaseCall(() =>
+      supabaseAdmin.rpc('update_all_unit_statuses')
+    )
 
     if (error) {
       return NextResponse.json(
@@ -27,22 +24,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
-      message: 'تم تحديث حالات الوحدات بنجاح'
+      message: 'تم تحديث حالات الوحدات بنجاح',
     })
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || 'حدث خطأ أثناء تحديث حالات الوحدات' },
-      { status: 500 }
-    )
+  } catch (error: unknown) {
+    return handleSupabaseRouteError(error, 'حدث خطأ أثناء تحديث حالات الوحدات')
   }
 }
-
-
-
-
-
-
-
-

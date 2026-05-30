@@ -31,6 +31,11 @@ import '@/app/calendar/calendar-styles.css'
 import { CalendarFilterSheet } from '@/components/calendar/CalendarFilterSheet'
 import FullCalendarWidget from '@/components/calendar/FullCalendarWidget'
 import { getStatusColor } from '@/lib/utils/calendar-helpers'
+import {
+  getRoomBlockConflicts,
+  getRoomBlockConflictsForUnits,
+  type CalendarRoomBlock,
+} from '@/lib/utils/room-block-overlap'
 
 const CreateReservationDialog = dynamic(
   () => import('@/components/calendar/dialogs/CreateReservationDialog').then(m => ({ default: m.CreateReservationDialog })),
@@ -52,6 +57,27 @@ const RoomBlockDialog = dynamic(
   () => import('@/components/calendar/dialogs/RoomBlockDialog').then(m => ({ default: m.RoomBlockDialog })),
   { ssr: false }
 )
+const OverrideRoomBlockDialog = dynamic(
+  () =>
+    import('@/components/calendar/dialogs/OverrideRoomBlockDialog').then(m => ({
+      default: m.OverrideRoomBlockDialog,
+    })),
+  { ssr: false }
+)
+
+type PendingBlockOverride =
+  | {
+      kind: 'create'
+      guestId: string
+      unitIds: string[]
+      notes: string
+      checkIn: string
+      checkOut: string
+      conflicts: CalendarRoomBlock[]
+    }
+  | { kind: 'drop'; conflicts: CalendarRoomBlock[] }
+  | { kind: 'resize'; conflicts: CalendarRoomBlock[] }
+  | { kind: 'changeUnit'; newUnitId: string; conflicts: CalendarRoomBlock[] }
 
 export default function CalendarPage() {
   const calendarRef = useRef<FullCalendar>(null)
@@ -118,6 +144,8 @@ export default function CalendarPage() {
   const [reservationToDelete, setReservationToDelete] = useState<CalendarEventRow | null>(null)
   const [blockDeleteDialogOpen, setBlockDeleteDialogOpen] = useState(false)
   const [blockToDelete, setBlockToDelete] = useState<any>(null)
+  const [blockOverrideOpen, setBlockOverrideOpen] = useState(false)
+  const [pendingBlockOverride, setPendingBlockOverride] = useState<PendingBlockOverride | null>(null)
   const [isUpdatingStatuses, setIsUpdatingStatuses] = useState(false)
 
   const [pendingEventChange, setPendingEventChange] = useState<{
@@ -180,13 +208,18 @@ export default function CalendarPage() {
   const { data: authUsersForCreator } = useQuery({
     queryKey: ['auth-users-for-calendar'],
     queryFn: async () => {
-      const res = await fetchWithSupabaseAuth('/api/admin/users')
-      if (!res.ok) return []
-      const { users } = await res.json()
-      return users as Array<{ id: string; email?: string }>
+      try {
+        const res = await fetchWithSupabaseAuth('/api/admin/users')
+        if (!res.ok) return []
+        const { users } = await res.json()
+        return users as Array<{ id: string; email?: string }>
+      } catch {
+        return []
+      }
     },
     enabled: loadTooltipData,
     staleTime: 300_000,
+    retry: false,
   })
 
   // created_by_user_id is now inlined on every CalendarEventRow from vw_calendar_events.
@@ -476,6 +509,9 @@ export default function CalendarPage() {
                 start: block.start_date,
                 end: block.end_date,
                 resourceId: unitId,
+                display: 'background' as const,
+                editable: false,
+                overlap: false,
                 backgroundColor: '#000000',
                 borderColor: '#000000',
                 textColor: '#ffffff',
@@ -516,7 +552,7 @@ export default function CalendarPage() {
 
       // Combine reservation, room block, and maintenance events
       const events = useMemo(() => {
-        return [...reservationEvents, ...roomBlockEvents, ...maintenanceEvents]
+        return [...roomBlockEvents, ...reservationEvents, ...maintenanceEvents]
       }, [reservationEvents, roomBlockEvents, maintenanceEvents])
 
   // Defer status sync so it does not compete with the initial calendar load.
@@ -553,6 +589,9 @@ export default function CalendarPage() {
       })
 
       if (!response.ok) {
+        if (options?.silent || response.status === 503) {
+          return
+        }
         throw new Error('فشل في تحديث الحالات')
       }
 
@@ -566,15 +605,15 @@ export default function CalendarPage() {
           description: result.message || 'تم تحديث حالات الوحدات بنجاح',
         })
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         return
       }
       if (!options?.silent) {
-        console.error('Error updating unit statuses:', error)
+        const message = error instanceof Error ? error.message : 'فشل في تحديث حالات الوحدات'
         toast({
           title: 'خطأ',
-          description: error.message || 'فشل في تحديث حالات الوحدات',
+          description: message,
           variant: 'destructive',
         })
       }
@@ -726,6 +765,37 @@ export default function CalendarPage() {
       return
     }
 
+    const uniqueUnitIds = Array.from(new Set(unitIds))
+    const conflicts = getRoomBlockConflictsForUnits(
+      uniqueUnitIds,
+      checkIn,
+      checkOut,
+      roomBlocks as CalendarRoomBlock[] | undefined
+    )
+    if (conflicts.length > 0) {
+      setPendingBlockOverride({
+        kind: 'create',
+        guestId,
+        unitIds: uniqueUnitIds,
+        notes,
+        checkIn,
+        checkOut,
+        conflicts,
+      })
+      setBlockOverrideOpen(true)
+      return
+    }
+
+    await executeCreateReservation(guestId, uniqueUnitIds, notes, checkIn, checkOut)
+  }
+
+  async function executeCreateReservation(
+    guestId: string,
+    unitIds: string[],
+    notes: string,
+    checkIn: string,
+    checkOut: string
+  ) {
     // Close selection dialog immediately — optimistic update will paint the calendar
     setGuestDialogOpen(false)
     setPendingReservation(null)
@@ -738,7 +808,7 @@ export default function CalendarPage() {
 
     const { calculateReservationPrice } = await import('@/lib/utils/pricing')
     const unitMap = new Map((units || []).map(u => [u.id, u]))
-    const uniqueUnitIds = Array.from(new Set(unitIds))
+    const uniqueUnitIds = unitIds
     const isOnline = typeof navigator === 'undefined' || navigator.onLine
     const isRestrictedBM =
       hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
@@ -901,135 +971,190 @@ export default function CalendarPage() {
     setPendingEventChange({ type: 'resize', info: resizeInfo, description, reservationId: reservation.id, newStartDate, newEndDate })
   }, [])
 
-  async function confirmEventChange() {
-    if (!pendingEventChange) return
-    const { type, info, reservationId, newStartDate, newEndDate, newUnitId } = pendingEventChange
+  async function applyDropEventChange() {
+    if (!pendingEventChange || pendingEventChange.type !== 'drop') return
+    const { info, reservationId, newStartDate, newEndDate, newUnitId } = pendingEventChange
+    const reservation = info.event.extendedProps.reservation as CalendarEventRow
+    const unitChanged = newUnitId && newUnitId !== reservation.unit_id
 
-    if (type === 'drop') {
-      const reservation = info.event.extendedProps.reservation as CalendarEventRow
-      const unitChanged = newUnitId && newUnitId !== reservation.unit_id
+    try {
+      if (unitChanged && newUnitId) {
+        const { data: conflictingReservations, error: checkError } = await supabase
+          .from('reservations')
+          .select('id')
+          .eq('unit_id', newUnitId)
+          .neq('id', reservationId)
+          .neq('status', 'cancelled')
+          .neq('status', 'no_show')
+          .or(`and(check_in_date.lt.${newEndDate},check_out_date.gt.${newStartDate})`)
 
-      try {
-        // Check if the unit changed (dragged to a different resource)
-        if (unitChanged && newUnitId) {
-          // Check availability for the new unit
-          const { data: conflictingReservations, error: checkError } = await supabase
-            .from('reservations')
-            .select('id')
-            .eq('unit_id', newUnitId)
-            .neq('id', reservationId)
-            .neq('status', 'cancelled')
-            .neq('status', 'no_show')
-            .or(`and(check_in_date.lt.${newEndDate},check_out_date.gt.${newStartDate})`)
+        if (checkError) throw checkError
 
-          if (checkError) throw checkError
-
-          if (conflictingReservations && conflictingReservations.length > 0) {
-            toast({
-              title: 'الوحدة غير متاحة',
-              description: 'يوجد حجز آخر في هذه الوحدة خلال الفترة المحددة',
-              variant: 'destructive',
-            })
-            info.revert()
-            setPendingEventChange(null)
-            return
-          }
-
-          // Check for room blocks
-          const { data: conflictingBlocks, error: blockError } = await supabase
-            .from('room_block_units')
-            .select(`
-              room_block:room_blocks!inner (
-                start_date,
-                end_date
-              )
-            `)
-            .eq('unit_id', newUnitId)
-
-          if (blockError) throw blockError
-
-          const hasBlockConflict = conflictingBlocks?.some((block: any) => {
-            const blockStart = new Date(block.room_block.start_date)
-            const blockEnd = new Date(block.room_block.end_date)
-            const resStart = new Date(newStartDate!)
-            const resEnd = new Date(newEndDate!)
-            return resStart < blockEnd && resEnd > blockStart
-          })
-
-          if (hasBlockConflict) {
-            toast({
-              title: 'الوحدة محجوبة',
-              description: 'هذه الوحدة محجوبة خلال الفترة المحددة',
-              variant: 'destructive',
-            })
-            info.revert()
-            setPendingEventChange(null)
-            return
-          }
-        }
-
-        // Update the reservation with captured dates and possibly new unit
-        if (!isOnline) {
-          await offlineMutation.update({
-            id: reservationId,
-            check_in_date: newStartDate,
-            check_out_date: newEndDate,
-            ...(unitChanged ? { unit_id: newUnitId } : {}),
-          })
-          const newUnit = unitChanged ? units?.find(u => u.id === newUnitId) : null
-          toast({ title: 'محفوظ للمزامنة', description: unitChanged ? `سيُنقل الحجز إلى ${newUnit?.unit_number || newUnitId} عند الاتصال` : 'سيُحدَّث الحجز عند الاتصال.' })
-        } else {
-          await updateReservation.mutateAsync({
-            id: reservationId,
-            check_in_date: newStartDate,
-            check_out_date: newEndDate,
-            ...(unitChanged ? { unit_id: newUnitId } : {}),
-          })
-          const newUnit = unitChanged ? units?.find(u => u.id === newUnitId) : null
+        if (conflictingReservations && conflictingReservations.length > 0) {
           toast({
-            title: 'نجح',
-            description: unitChanged
-              ? `تم نقل الحجز إلى ${newUnit?.unit_number || newUnitId} وتحديث التواريخ`
-              : 'تم تحديث الحجز بنجاح',
+            title: 'الوحدة غير متاحة',
+            description: 'يوجد حجز آخر في هذه الوحدة خلال الفترة المحددة',
+            variant: 'destructive',
           })
+          info.revert()
+          setPendingEventChange(null)
+          return
         }
-      } catch (error) {
-        console.error('Error updating reservation:', error)
-        toast({
-          title: 'خطأ',
-          description: 'فشل في تحديث الحجز',
-          variant: 'destructive',
-        })
-        info.revert()
       }
-    } else if (type === 'resize') {
-      try {
-        // Use captured dates — update both check_in and check_out to handle resize from either side
-        if (!isOnline) {
-          await offlineMutation.update({ id: reservationId, check_in_date: newStartDate, check_out_date: newEndDate })
-          toast({ title: 'محفوظ للمزامنة', description: 'سيُحدَّث الحجز عند استعادة الاتصال.' })
-        } else {
-          await updateReservation.mutateAsync({
-            id: reservationId,
-            check_in_date: newStartDate,
-            check_out_date: newEndDate,
-          })
-          toast({
-            title: 'نجح',
-            description: 'تم تحديث الحجز بنجاح',
-          })
-        }
-      } catch (error) {
-        toast({
-          title: 'خطأ',
-          description: 'فشل في تحديث الحجز',
-          variant: 'destructive',
+
+      if (!isOnline) {
+        await offlineMutation.update({
+          id: reservationId,
+          check_in_date: newStartDate,
+          check_out_date: newEndDate,
+          ...(unitChanged ? { unit_id: newUnitId } : {}),
         })
-        info.revert()
+        const newUnit = unitChanged ? units?.find(u => u.id === newUnitId) : null
+        toast({
+          title: 'محفوظ للمزامنة',
+          description: unitChanged
+            ? `سيُنقل الحجز إلى ${newUnit?.unit_number || newUnitId} عند الاتصال`
+            : 'سيُحدَّث الحجز عند الاتصال.',
+        })
+      } else {
+        await updateReservation.mutateAsync({
+          id: reservationId,
+          check_in_date: newStartDate,
+          check_out_date: newEndDate,
+          ...(unitChanged ? { unit_id: newUnitId } : {}),
+        })
+        const newUnit = unitChanged ? units?.find(u => u.id === newUnitId) : null
+        toast({
+          title: 'نجح',
+          description: unitChanged
+            ? `تم نقل الحجز إلى ${newUnit?.unit_number || newUnitId} وتحديث التواريخ`
+            : 'تم تحديث الحجز بنجاح',
+        })
       }
+    } catch (error) {
+      console.error('Error updating reservation:', error)
+      toast({
+        title: 'خطأ',
+        description: 'فشل في تحديث الحجز',
+        variant: 'destructive',
+      })
+      info.revert()
     }
 
     setPendingEventChange(null)
+  }
+
+  async function applyResizeEventChange() {
+    if (!pendingEventChange || pendingEventChange.type !== 'resize') return
+    const { info, reservationId, newStartDate, newEndDate } = pendingEventChange
+
+    try {
+      if (!isOnline) {
+        await offlineMutation.update({
+          id: reservationId,
+          check_in_date: newStartDate,
+          check_out_date: newEndDate,
+        })
+        toast({ title: 'محفوظ للمزامنة', description: 'سيُحدَّث الحجز عند استعادة الاتصال.' })
+      } else {
+        await updateReservation.mutateAsync({
+          id: reservationId,
+          check_in_date: newStartDate,
+          check_out_date: newEndDate,
+        })
+        toast({
+          title: 'نجح',
+          description: 'تم تحديث الحجز بنجاح',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'خطأ',
+        description: 'فشل في تحديث الحجز',
+        variant: 'destructive',
+      })
+      info.revert()
+    }
+
+    setPendingEventChange(null)
+  }
+
+  async function confirmEventChange() {
+    if (!pendingEventChange) return
+    const { type, info, newStartDate, newEndDate, newUnitId } = pendingEventChange
+
+    if (type === 'drop') {
+      const reservation = info.event.extendedProps.reservation as CalendarEventRow
+      const targetUnitId = newUnitId || reservation.unit_id
+      const conflicts = getRoomBlockConflicts(
+        targetUnitId,
+        newStartDate!,
+        newEndDate!,
+        roomBlocks as CalendarRoomBlock[] | undefined
+      )
+      if (conflicts.length > 0) {
+        setPendingBlockOverride({ kind: 'drop', conflicts })
+        setBlockOverrideOpen(true)
+        return
+      }
+      await applyDropEventChange()
+    } else if (type === 'resize') {
+      const reservation = info.event.extendedProps.reservation as CalendarEventRow
+      const conflicts = getRoomBlockConflicts(
+        reservation.unit_id,
+        newStartDate!,
+        newEndDate!,
+        roomBlocks as CalendarRoomBlock[] | undefined
+      )
+      if (conflicts.length > 0) {
+        setPendingBlockOverride({ kind: 'resize', conflicts })
+        setBlockOverrideOpen(true)
+        return
+      }
+      await applyResizeEventChange()
+    }
+  }
+
+  async function handleBlockOverrideConfirm() {
+    const override = pendingBlockOverride
+    if (!override) return
+    setBlockOverrideOpen(false)
+    setPendingBlockOverride(null)
+
+    if (override.kind === 'create') {
+      await executeCreateReservation(
+        override.guestId,
+        override.unitIds,
+        override.notes,
+        override.checkIn,
+        override.checkOut
+      )
+      return
+    }
+
+    if (override.kind === 'changeUnit') {
+      await executeChangeUnit(override.newUnitId)
+      return
+    }
+
+    if (override.kind === 'drop') {
+      await applyDropEventChange()
+      return
+    }
+
+    if (override.kind === 'resize') {
+      await applyResizeEventChange()
+    }
+  }
+
+  function handleBlockOverrideCancel() {
+    const override = pendingBlockOverride
+    setBlockOverrideOpen(false)
+    setPendingBlockOverride(null)
+
+    if (override?.kind === 'drop' || override?.kind === 'resize') {
+      cancelEventChange()
+    }
   }
 
   function cancelEventChange() {
@@ -1046,7 +1171,6 @@ export default function CalendarPage() {
     const newUnit = units?.find(u => u.id === newUnitId)
 
     try {
-      // Check if the target unit is in maintenance
       if (newUnit?.status === 'maintenance') {
         toast({
           title: 'خطأ',
@@ -1056,7 +1180,30 @@ export default function CalendarPage() {
         return
       }
 
-      // Check for conflicting reservations
+      const conflicts = getRoomBlockConflicts(
+        newUnitId,
+        res.check_in_date,
+        res.check_out_date,
+        roomBlocks as CalendarRoomBlock[] | undefined
+      )
+      if (conflicts.length > 0) {
+        setPendingBlockOverride({ kind: 'changeUnit', newUnitId, conflicts })
+        setBlockOverrideOpen(true)
+        return
+      }
+
+      await executeChangeUnit(newUnitId)
+    } finally {
+      setChangingUnit(false)
+    }
+  }
+
+  async function executeChangeUnit(newUnitId: string) {
+    if (!changeUnitReservation) return
+    const res = changeUnitReservation
+    const newUnit = units?.find(u => u.id === newUnitId)
+
+    try {
       const { data: conflictingReservations, error: checkError } = await supabase
         .from('reservations')
         .select('id')
@@ -1077,37 +1224,6 @@ export default function CalendarPage() {
         return
       }
 
-      // Check for room block conflicts
-      const { data: conflictingBlocks, error: blockError } = await supabase
-        .from('room_block_units')
-        .select(`
-          room_block:room_blocks!inner (
-            start_date,
-            end_date
-          )
-        `)
-        .eq('unit_id', newUnitId)
-
-      if (blockError) throw blockError
-
-      const hasBlockConflict = conflictingBlocks?.some((block: any) => {
-        const blockStart = new Date(block.room_block.start_date)
-        const blockEnd = new Date(block.room_block.end_date)
-        const resStart = new Date(res.check_in_date)
-        const resEnd = new Date(res.check_out_date)
-        return resStart < blockEnd && resEnd > blockStart
-      })
-
-      if (hasBlockConflict) {
-        toast({
-          title: 'الوحدة محجوبة',
-          description: 'هذه الوحدة محجوبة خلال الفترة المحددة',
-          variant: 'destructive',
-        })
-        return
-      }
-
-      // All clear — update the reservation
       await updateReservation.mutateAsync({
         id: res.id,
         unit_id: newUnitId,
@@ -1129,8 +1245,6 @@ export default function CalendarPage() {
         description: error.message || 'فشل في نقل الحجز',
         variant: 'destructive',
       })
-    } finally {
-      setChangingUnit(false)
     }
   }
 
@@ -1296,6 +1410,14 @@ export default function CalendarPage() {
         block={blockToDelete}
         onDelete={() => { if (blockToDelete?.id) deleteRoomBlock.mutate(blockToDelete.id) }}
         isPending={deleteRoomBlock.isPending}
+      />
+
+      <OverrideRoomBlockDialog
+        open={blockOverrideOpen}
+        onOpenChange={setBlockOverrideOpen}
+        conflicts={pendingBlockOverride?.conflicts ?? []}
+        onConfirm={handleBlockOverrideConfirm}
+        onCancel={handleBlockOverrideCancel}
       />
         </div>
       )}

@@ -780,6 +780,29 @@
   box-shadow: 0 4px 8px rgba(16, 185, 129, 0.6) !important;
 }
 
+/* ── Room block (محظور) — background layer; does not block drag-select ── */
+.room-block {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(0, 0, 0, 0.88),
+    rgba(0, 0, 0, 0.88) 6px,
+    rgba(30, 30, 30, 0.88) 6px,
+    rgba(30, 30, 30, 0.88) 12px
+  ) !important;
+  border: 1px solid rgba(0, 0, 0, 0.5) !important;
+  opacity: 0.92 !important;
+  pointer-events: none !important;
+}
+
+.room-block .fc-event-main {
+  opacity: 0.35;
+}
+
+.room-block .fc-event-delete-btn {
+  pointer-events: auto !important;
+  z-index: 60 !important;
+}
+
 /* ── Maintenance block events ── */
 .maintenance-block {
   background: repeating-linear-gradient(
