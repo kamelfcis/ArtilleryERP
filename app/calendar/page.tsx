@@ -479,7 +479,8 @@ export default function CalendarPage() {
             const eventTitle = guestName || unitNumber || reservation.id.substring(0, 8)
             const showAlarm = isUnconfirmedReservationAlarm(
               reservation.status,
-              reservation.created_at
+              reservation.created_at,
+              { locationId: reservation.location_id, locations: locations ?? [] }
             )
 
             return {
@@ -504,7 +505,7 @@ export default function CalendarPage() {
               },
             }
           })
-      }, [reservations, filteredUnitIds])
+      }, [reservations, filteredUnitIds, locations])
 
       // Create events for room blocks with black color
       const roomBlockEvents = useMemo(() => {

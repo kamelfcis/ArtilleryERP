@@ -12,6 +12,10 @@ import {
   useCreateBookingNotification,
 } from '@/lib/hooks/use-booking-notifications'
 import { useAuth } from '@/contexts/AuthContext'
+import {
+  getRocketManagedLocationIdsFromEnv,
+  isRocketManagedLocation,
+} from '@/lib/constants/rocket-locations'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -94,24 +98,6 @@ interface PendingReservation {
   }
 }
 
-/** When set (e.g. Vercel), rocket user sees only these location UUIDs; otherwise name heuristics apply. */
-const ROCKET_MANAGED_LOCATION_IDS: string[] | null = (() => {
-  const raw = process.env.NEXT_PUBLIC_ROCKET_MANAGED_LOCATION_IDS
-  if (!raw?.trim()) return null
-  const ids = raw.split(',').map((s) => s.trim()).filter(Boolean)
-  return ids.length > 0 ? ids : null
-})()
-
-/** Rocket Beach + قرية الندي — fallback when NEXT_PUBLIC_ROCKET_MANAGED_LOCATION_IDS is unset. */
-function isRocketManagedLocation(loc: { name: string; name_ar: string }) {
-  const bundle = `${loc.name} ${loc.name_ar}`.toLowerCase()
-  const ar = loc.name_ar || ''
-  const rocketBeach = bundle.includes('rocket') && bundle.includes('beach')
-  const nadiVillage =
-    ar.includes('ندي') || bundle.includes('nadi') || bundle.includes('nada')
-  return rocketBeach || nadiVillage
-}
-
 const PAGE_SIZE = 15
 
 function sanitizeIlike(q: string): string {
@@ -148,7 +134,7 @@ export default function PendingReservationsPage() {
   const locationOptions = useMemo(() => {
     let list = [...(allLocations || [])]
     if (isRocketHotelEmail(user?.email)) {
-      const rocketIds = ROCKET_MANAGED_LOCATION_IDS
+      const rocketIds = getRocketManagedLocationIdsFromEnv()
       if (rocketIds) {
         list = list.filter((l) => rocketIds.includes(l.id))
       } else {
