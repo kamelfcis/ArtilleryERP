@@ -30,6 +30,7 @@ import { motion } from 'framer-motion'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { calculateReservationPrice } from '@/lib/utils/pricing'
+import { getReservationNights, formatNightsArabic } from '@/lib/utils/reservation-dates'
 
 const GUEST_TYPE_OPTIONS = [
   { value: 'military', label: 'عسكري' },
@@ -337,6 +338,10 @@ export default function ReservationDetailPage() {
 
   const primaryImage = reservation.unit?.images?.find(img => img.is_primary) || reservation.unit?.images?.[0]
   const statusColor = RESERVATION_STATUS_COLORS[reservation.status as keyof typeof RESERVATION_STATUS_COLORS] || 'bg-gray-100 text-gray-800'
+  const nights = getReservationNights(
+    editingDates ? checkInDraft : reservation.check_in_date,
+    editingDates ? checkOutDraft : reservation.check_out_date
+  )
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -486,6 +491,15 @@ export default function ReservationDetailPage() {
               <motion.div
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.45 }}
+                className="flex items-center justify-between p-3 rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-blue-200/50 dark:border-blue-800/50"
+              >
+                <span className="text-muted-foreground font-medium">عدد الليالي:</span>
+                <span className="font-bold text-slate-900 dark:text-slate-100">{formatNightsArabic(nights)}</span>
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.5 }}
                 className="flex items-center justify-between p-3 rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-blue-200/50 dark:border-blue-800/50"
               >
@@ -513,7 +527,7 @@ export default function ReservationDetailPage() {
                 <motion.div
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.6 }}
+                  transition={{ delay: 0.65 }}
                   className="rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-blue-200/50 dark:border-blue-800/50 p-3 space-y-3"
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -563,7 +577,7 @@ export default function ReservationDetailPage() {
                   <motion.div
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.6 }}
+                    transition={{ delay: 0.65 }}
                     className="flex items-center justify-between p-3 rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-blue-200/50 dark:border-blue-800/50"
                   >
                     <span className="text-muted-foreground font-medium">تاريخ الدخول:</span>
@@ -844,7 +858,7 @@ export default function ReservationDetailPage() {
                     <motion.div
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.6 }}
+                      transition={{ delay: 0.65 }}
                       className="p-3 rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-purple-200/50 dark:border-purple-800/50"
                     >
                       <span className="text-muted-foreground font-medium block mb-1">الهاتف:</span>
@@ -1022,7 +1036,7 @@ export default function ReservationDetailPage() {
                 <motion.div
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.6 }}
+                  transition={{ delay: 0.65 }}
                   whileHover={{ scale: 1.02 }}
                   className="relative h-56 w-full rounded-xl overflow-hidden mb-4 border-2 border-green-200/50 dark:border-green-800/50 shadow-lg"
                 >

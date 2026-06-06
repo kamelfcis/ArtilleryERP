@@ -55,6 +55,7 @@ import {
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { isRocketHotelEmail } from '@/lib/constants/rocket-hotel'
+import { getReservationNights } from '@/lib/utils/reservation-dates'
 
 interface PendingReservation {
   id: string
@@ -440,10 +441,6 @@ export default function PendingReservationsPage() {
     return `${g.first_name_ar || g.first_name} ${g.last_name_ar || g.last_name}`.trim()
   }
 
-  function daysBetween(a: string, b: string) {
-    return Math.ceil((new Date(b).getTime() - new Date(a).getTime()) / (1000 * 60 * 60 * 24))
-  }
-
   return (
     <RoleGuard allowedRoles={['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff'] as any}>
       <div className="space-y-6 max-w-7xl mx-auto">
@@ -796,7 +793,7 @@ export default function PendingReservationsPage() {
                             <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                             <span>
                               {formatDateShort(res.check_in_date)} → {formatDateShort(res.check_out_date)}
-                              <span className="text-muted-foreground mr-1">({daysBetween(res.check_in_date, res.check_out_date)} ليلة)</span>
+                              <span className="text-muted-foreground mr-1">({getReservationNights(res.check_in_date, res.check_out_date)} ليلة)</span>
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
@@ -954,7 +951,7 @@ export default function PendingReservationsPage() {
                     </div>
                     <div>
                       <span className="text-muted-foreground">عدد الليالي:</span>
-                      <span className="font-medium mr-2">{daysBetween(selectedReservation.check_in_date, selectedReservation.check_out_date)}</span>
+                      <span className="font-medium mr-2">{getReservationNights(selectedReservation.check_in_date, selectedReservation.check_out_date)}</span>
                     </div>
                     <div>
                       <span className="text-muted-foreground">البالغين / الأطفال:</span>
