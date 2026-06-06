@@ -331,6 +331,8 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
               if (reservation) {
                 const guestName = `${reservation.guest_first_name_ar || reservation.guest_first_name || ''} ${reservation.guest_last_name_ar || reservation.guest_last_name || ''}`.trim() || reservation.id.substring(0, 8)
                 const phone = reservation.guest_phone || ''
+                const showAlarm = !!arg.event.extendedProps.showAlarm
+                const alarmPrefix = showAlarm ? '⚠ ' : ''
 
                 const checkIn = new Date(reservation.check_in_date)
                 const checkOut = new Date(reservation.check_out_date)
@@ -340,7 +342,7 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
                 return {
                   html: `
                     <div class="cal-event-content ${isSingleDay ? 'single-day-event' : ''}">
-                      <div class="cal-event-name">${guestName}</div>
+                      <div class="cal-event-name">${alarmPrefix}${guestName}</div>
                       ${phone ? `<div class="cal-event-phone">📞 ${phone}</div>` : ''}
                     </div>
                   `
@@ -355,6 +357,18 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
               if (arg.event.extendedProps.isMaintenance) {
                 arg.el.setAttribute('title', 'هذه الوحدة قيد الصيانة')
                 return
+              }
+
+              if (arg.event.extendedProps.showAlarm) {
+                arg.el.setAttribute('title', 'حجز غير مؤكد — مر 3 أيام منذ الإنشاء')
+                const alarmBase =
+                  (typeof arg.event.extendedProps.statusColor === 'string' && arg.event.extendedProps.statusColor) ||
+                  (typeof arg.event.backgroundColor === 'string' && arg.event.backgroundColor) ||
+                  arg.el.style.backgroundColor
+                if (alarmBase) {
+                  arg.el.style.setProperty('--alarm-base', alarmBase)
+                  arg.el.style.setProperty('--alarm-status-bg', alarmBase)
+                }
               }
 
               arg.el.classList.add('group', 'relative')

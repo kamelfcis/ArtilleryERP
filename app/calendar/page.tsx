@@ -31,6 +31,7 @@ import '@/app/calendar/calendar-styles.css'
 import { CalendarFilterSheet } from '@/components/calendar/CalendarFilterSheet'
 import FullCalendarWidget from '@/components/calendar/FullCalendarWidget'
 import { getStatusColor } from '@/lib/utils/calendar-helpers'
+import { isUnconfirmedReservationAlarm } from '@/lib/utils/reservation-alerts'
 import {
   getRoomBlockConflicts,
   getRoomBlockConflictsForUnits,
@@ -124,7 +125,7 @@ export default function CalendarPage() {
   }
 
   // Shift both rangeStart and rangeEnd by `days` (e.g. +1 or -1), keeping the same duration
-  const shiftRange = (days: number) => {
+  const shiftRange = useCallback((days: number) => {
     const start = new Date(rangeStart)
     const end = new Date(rangeEnd)
     start.setDate(start.getDate() + days)
@@ -133,7 +134,14 @@ export default function CalendarPage() {
       `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     setRangeStart(fmt(start))
     setRangeEnd(fmt(end))
-  }
+
+    requestAnimationFrame(() => {
+      const api = calendarRef.current?.getApi()
+      if (api) {
+        api.gotoDate(start)
+      }
+    })
+  }, [rangeStart, rangeEnd])
 
 
   const [selectedUnit, setSelectedUnit] = useState<string>('all')
@@ -469,6 +477,10 @@ export default function CalendarPage() {
             const guestPhone = reservation.guest_phone || ''
             // FullCalendar eventContent renders rich HTML; keep title minimal to avoid duplicate locale work.
             const eventTitle = guestName || unitNumber || reservation.id.substring(0, 8)
+            const showAlarm = isUnconfirmedReservationAlarm(
+              reservation.status,
+              reservation.created_at
+            )
 
             return {
               id: reservation.id,
@@ -478,12 +490,17 @@ export default function CalendarPage() {
               resourceId: reservation.unit_id,
               backgroundColor: statusColor,
               borderColor: statusColor,
-              classNames: [`status-${reservation.status}`],
+              classNames: [
+                `status-${reservation.status}`,
+                ...(showAlarm ? ['reservation-alarm'] : []),
+              ],
               extendedProps: {
                 reservation,
                 status: reservation.status,
+                statusColor,
                 unitNumber,
                 guestPhone,
+                showAlarm,
               },
             }
           })
@@ -643,6 +660,16 @@ export default function CalendarPage() {
     }
   }, [])
 
+  // Navbar / filter sheet week jumps (±7 days)
+  useEffect(() => {
+    const handleNavShift = (e: Event) => {
+      const days = (e as CustomEvent<{ days: number }>).detail?.days
+      if (typeof days === 'number' && days !== 0) shiftRange(days)
+    }
+    window.addEventListener('calendar:nav-shift', handleNavShift)
+    return () => window.removeEventListener('calendar:nav-shift', handleNavShift)
+  }, [shiftRange])
+
   // Keyboard arrow keys: shift calendar range day-by-day
   useEffect(() => {
     const handleArrowKeys = (e: KeyboardEvent) => {
@@ -660,7 +687,7 @@ export default function CalendarPage() {
     }
     document.addEventListener('keydown', handleArrowKeys)
     return () => document.removeEventListener('keydown', handleArrowKeys)
-  }, [rangeStart, rangeEnd])
+  }, [shiftRange])
 
 
   const handleEventClick = useCallback(function handleEventClick(clickInfo: any) {

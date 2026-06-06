@@ -12,10 +12,14 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useSidebar } from '@/contexts/SidebarContext'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/use-toast'
-import { Menu, ImageDown, ClipboardCopy, Printer, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Menu, ImageDown, ClipboardCopy, Printer, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import Image from 'next/image'
 import { CalendarToolbarFilters } from '@/components/calendar/CalendarToolbarFilters'
 import { cn } from '@/lib/utils'
+
+function dispatchCalendarNavShift(days: number) {
+  window.dispatchEvent(new CustomEvent('calendar:nav-shift', { detail: { days } }))
+}
 
 async function grabScreen(): Promise<Blob> {
   const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -84,7 +88,17 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             {/* Mobile hamburger menu */}
             <MobileMenu />
             {isCalendarPage ? (
-              <div className="flex items-center gap-2 rounded-full border border-indigo-200/60 dark:border-indigo-700/60 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-md px-2 py-1 shrink-0">
+              <div className="flex items-center gap-1 sm:gap-1.5 rounded-full border border-indigo-200/60 dark:border-indigo-700/60 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-md px-1.5 sm:px-2 py-1 shrink-0">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => dispatchCalendarNavShift(-7)}
+                  className="h-8 w-8 sm:h-9 sm:w-9 rounded-full bg-gradient-to-br from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white shadow-md hover:shadow-lg transition-all"
+                  title="الأسبوع السابق"
+                >
+                  <ChevronsRight className="h-4 w-4 sm:h-5 sm:w-5" />
+                </Button>
+                <div className="hidden sm:block w-px h-6 bg-indigo-200/70 dark:bg-indigo-700/70 shrink-0" aria-hidden />
                 <Button
                   size="icon"
                   variant="ghost"
@@ -109,6 +123,16 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                   title="اليوم التالي"
                 >
                   <ChevronLeft className="h-5 w-5" />
+                </Button>
+                <div className="hidden sm:block w-px h-6 bg-indigo-200/70 dark:bg-indigo-700/70 shrink-0" aria-hidden />
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => dispatchCalendarNavShift(7)}
+                  className="h-8 w-8 sm:h-9 sm:w-9 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-md hover:shadow-lg transition-all"
+                  title="الأسبوع التالي"
+                >
+                  <ChevronsLeft className="h-4 w-4 sm:h-5 sm:w-5" />
                 </Button>
               </div>
             ) : (

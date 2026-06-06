@@ -371,20 +371,192 @@
   overflow: hidden !important;
 }
 
-.fc-event:hover {
+.fc-event:not(.reservation-alarm):hover {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
   z-index: 10 !important;
   transform: scale(1.01);
 }
 
-/* Disable all FullCalendar animations */
-.fc-event,
-.fc-event-dragging,
-.fc-event-resizing,
-.fc-timeline-event,
-.fc-daygrid-event {
+/* Disable FullCalendar default transitions/animations — exclude alarm events */
+.fc-event:not(.reservation-alarm),
+.fc-event-dragging:not(.reservation-alarm),
+.fc-event-resizing:not(.reservation-alarm),
+.fc-timeline-event:not(.reservation-alarm),
+.fc-daygrid-event:not(.reservation-alarm) {
   transition: none !important;
   animation: none !important;
+}
+
+/* ── Unconfirmed overdue reservation alarm — must sit AFTER animation disable ── */
+/* --alarm-base / --alarm-status-bg set per event in eventDidMount from getStatusColor */
+@keyframes reservation-alarm-pulse {
+  0%, 100% {
+    border-width: 3px !important;
+    border-color: var(--alarm-base, #3b82f6) !important;
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--alarm-base, #3b82f6) 95%, transparent),
+      0 0 16px 6px color-mix(in srgb, var(--alarm-base, #3b82f6) 75%, transparent),
+      0 0 32px 12px color-mix(in srgb, var(--alarm-base, #3b82f6) 45%, transparent),
+      inset 0 0 10px color-mix(in srgb, var(--alarm-base, #3b82f6) 30%, transparent) !important;
+    outline: 2px solid color-mix(in srgb, var(--alarm-base, #3b82f6) 90%, transparent) !important;
+    outline-offset: 2px;
+    filter: brightness(1) saturate(1);
+  }
+  50% {
+    border-width: 6px !important;
+    border-color: color-mix(in srgb, var(--alarm-base, #3b82f6) 65%, white) !important;
+    box-shadow:
+      0 0 0 6px color-mix(in srgb, var(--alarm-base, #3b82f6) 90%, transparent),
+      0 0 32px 16px color-mix(in srgb, var(--alarm-base, #3b82f6) 85%, transparent),
+      0 0 64px 28px color-mix(in srgb, var(--alarm-base, #3b82f6) 55%, transparent),
+      0 0 96px 40px color-mix(in srgb, var(--alarm-base, #3b82f6) 35%, transparent),
+      inset 0 0 36px color-mix(in srgb, var(--alarm-base, #3b82f6) 50%, transparent) !important;
+    outline: 4px solid color-mix(in srgb, var(--alarm-base, #3b82f6) 80%, white) !important;
+    outline-offset: 6px;
+    filter: brightness(1.15) saturate(1.25);
+  }
+}
+
+@keyframes reservation-alarm-bg-flash {
+  0%, 100% {
+    background-color: var(--alarm-status-bg, var(--alarm-base, #3b82f6)) !important;
+  }
+  50% {
+    background-color: color-mix(in srgb, var(--alarm-base, #3b82f6) 55%, white) !important;
+  }
+}
+
+@keyframes reservation-alarm-overlay {
+  0%, 100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@keyframes reservation-alarm-blink {
+  0%, 45% {
+    opacity: 0;
+    transform: scale(1);
+  }
+  50%, 95% {
+    opacity: 0.85;
+    transform: scale(1.02);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+.fc-event.reservation-alarm,
+.fc-timeline-event.reservation-alarm,
+.fc-daygrid-event.reservation-alarm {
+  position: relative !important;
+  z-index: 25 !important;
+  overflow: visible !important;
+  border-width: 3px !important;
+  border-style: solid !important;
+  border-color: var(--alarm-base, #3b82f6) !important;
+  animation:
+    reservation-alarm-pulse 0.8s ease-in-out infinite,
+    reservation-alarm-bg-flash 0.8s ease-in-out infinite !important;
+}
+
+.fc-event.reservation-alarm::before,
+.fc-timeline-event.reservation-alarm::before,
+.fc-daygrid-event.reservation-alarm::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, white 55%, transparent) 0%,
+    color-mix(in srgb, var(--alarm-base, #3b82f6) 75%, transparent) 35%,
+    color-mix(in srgb, var(--alarm-base, #3b82f6) 70%, white) 65%,
+    color-mix(in srgb, white 45%, transparent) 100%
+  );
+  animation: reservation-alarm-blink 0.8s steps(2, end) infinite;
+  pointer-events: none;
+  z-index: 2;
+  mix-blend-mode: screen;
+}
+
+.fc-event.reservation-alarm::after,
+.fc-timeline-event.reservation-alarm::after,
+.fc-daygrid-event.reservation-alarm::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--alarm-base, #3b82f6) 65%, transparent) 0%,
+    color-mix(in srgb, var(--alarm-base, #3b82f6) 55%, white) 50%,
+    color-mix(in srgb, var(--alarm-base, #3b82f6) 60%, black) 100%
+  );
+  animation: reservation-alarm-overlay 0.8s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.fc-event.reservation-alarm .fc-event-main,
+.fc-timeline-event.reservation-alarm .fc-event-main,
+.fc-daygrid-event.reservation-alarm .fc-event-main,
+.fc-event.reservation-alarm .cal-event-content,
+.fc-timeline-event.reservation-alarm .cal-event-content,
+.fc-daygrid-event.reservation-alarm .cal-event-content {
+  position: relative;
+  z-index: 3;
+}
+
+.fc-event.reservation-alarm:hover,
+.fc-timeline-event.reservation-alarm:hover,
+.fc-daygrid-event.reservation-alarm:hover {
+  z-index: 30 !important;
+  transform: scale(1.02);
+  animation:
+    reservation-alarm-pulse 0.8s ease-in-out infinite,
+    reservation-alarm-bg-flash 0.8s ease-in-out infinite !important;
+}
+
+.fc-timeline-event-harness:has(.reservation-alarm) {
+  overflow: visible !important;
+  z-index: 25 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-event.reservation-alarm,
+  .fc-timeline-event.reservation-alarm,
+  .fc-daygrid-event.reservation-alarm {
+    animation: none !important;
+    filter: none !important;
+    border-width: 5px !important;
+    box-shadow:
+      0 0 0 4px var(--alarm-base, #3b82f6),
+      0 0 20px 8px color-mix(in srgb, var(--alarm-base, #3b82f6) 85%, transparent),
+      inset 0 0 20px color-mix(in srgb, var(--alarm-base, #3b82f6) 45%, transparent) !important;
+    border-color: var(--alarm-base, #3b82f6) !important;
+    outline: 4px solid color-mix(in srgb, var(--alarm-base, #3b82f6) 75%, white) !important;
+    outline-offset: 3px;
+    background-color: color-mix(in srgb, var(--alarm-base, #3b82f6) 40%, var(--alarm-status-bg, var(--alarm-base, #3b82f6))) !important;
+  }
+
+  .fc-event.reservation-alarm::before,
+  .fc-timeline-event.reservation-alarm::before,
+  .fc-daygrid-event.reservation-alarm::before {
+    animation: none !important;
+    opacity: 0;
+  }
+
+  .fc-event.reservation-alarm::after,
+  .fc-timeline-event.reservation-alarm::after,
+  .fc-daygrid-event.reservation-alarm::after {
+    animation: none !important;
+    opacity: 0.65;
+  }
 }
 
 .fc-event-mirror {

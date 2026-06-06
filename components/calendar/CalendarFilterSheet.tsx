@@ -3,7 +3,7 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 import FullCalendar from '@fullcalendar/react'
-import { Filter, Calendar, Building2, Home, RefreshCw, Sparkles, Check, CalendarDays, ChevronLeft, ChevronRight, RotateCcw, Bed, Crown, Trees, Layers, Castle } from 'lucide-react'
+import { Filter, Calendar, Building2, Home, RefreshCw, Sparkles, Check, CalendarDays, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, RotateCcw, Bed, Crown, Trees, Layers, Castle } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
@@ -309,6 +309,27 @@ export function CalendarFilterSheet({
                   title="اليوم التالي"
                 >
                   <ChevronLeft className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => shiftRange(-7)}
+                  className="h-9 w-9 rounded-full bg-gradient-to-br from-teal-100 to-emerald-100 hover:from-teal-200 hover:to-emerald-200 dark:from-teal-900/40 dark:to-emerald-900/40 dark:hover:from-teal-800/60 dark:hover:to-emerald-800/60 text-teal-700 dark:text-teal-400 shadow-sm"
+                  title="الأسبوع السابق"
+                >
+                  <ChevronsRight className="h-4 w-4" />
+                </Button>
+                <span className="text-xs font-bold text-slate-500 flex-1 text-center">التنقل أسبوع</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => shiftRange(7)}
+                  className="h-9 w-9 rounded-full bg-gradient-to-br from-amber-100 to-orange-100 hover:from-amber-200 hover:to-orange-200 dark:from-amber-900/40 dark:to-orange-900/40 dark:hover:from-amber-800/60 dark:hover:to-orange-800/60 text-amber-700 dark:text-amber-400 shadow-sm"
+                  title="الأسبوع التالي"
+                >
+                  <ChevronsLeft className="h-4 w-4" />
                 </Button>
               </div>
               <div className="flex items-center gap-2">

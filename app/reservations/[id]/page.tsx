@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/components/ui/use-toast'
 import { formatDateShort, formatCurrency } from '@/lib/utils'
 import { RESERVATION_STATUSES, RESERVATION_STATUS_COLORS } from '@/lib/constants'
-import { ArrowRight, Paperclip, Link as LinkIcon, Utensils, Calendar, User, Home, DollarSign, FileText, Pencil, Save, X, Shield, Heart, Search, UserPlus } from 'lucide-react'
+import { ArrowRight, Paperclip, Link as LinkIcon, Utensils, Calendar, User, Home, DollarSign, FileText, Pencil, Save, X, Shield, Heart, Search, UserPlus, Moon } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -492,10 +492,13 @@ export default function ReservationDetailPage() {
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.45 }}
-                className="flex items-center justify-between p-3 rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-blue-200/50 dark:border-blue-800/50"
+                className="flex items-center justify-between p-3.5 rounded-lg bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50/80 dark:from-amber-950/50 dark:via-orange-950/40 dark:to-amber-950/30 backdrop-blur-sm border-2 border-amber-400/70 dark:border-amber-500/50 ring-2 ring-amber-400/30 shadow-md shadow-amber-500/10"
               >
-                <span className="text-muted-foreground font-medium">عدد الليالي:</span>
-                <span className="font-bold text-slate-900 dark:text-slate-100">{formatNightsArabic(nights)}</span>
+                <span className="flex items-center gap-2 text-amber-800/90 dark:text-amber-200/90 font-semibold">
+                  <Moon className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                  عدد الليالي:
+                </span>
+                <span className="font-bold text-xl bg-gradient-to-r from-amber-600 to-orange-600 dark:from-amber-400 dark:to-orange-400 bg-clip-text text-transparent">{formatNightsArabic(nights)}</span>
               </motion.div>
               <motion.div
                 initial={{ opacity: 0, x: -10 }}
