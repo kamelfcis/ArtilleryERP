@@ -136,6 +136,12 @@ const settingsItems = [
     roles: ['SuperAdmin'],
   },
   {
+    title: 'إحصائيات المستخدمين',
+    href: '/users/statistics',
+    icon: BarChart3,
+    roles: ['SuperAdmin'],
+  },
+  {
     title: 'الإعدادات',
     href: '/settings',
     icon: Settings,

@@ -227,6 +227,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error('فشل في إنشاء الجلسة')
     }
 
+    const { data: account } = await supabase
+      .from('user_accounts')
+      .select('is_active')
+      .eq('user_id', data.user.id)
+      .maybeSingle()
+
+    if (account && account.is_active === false) {
+      await supabase.auth.signOut()
+      throw new Error('تم تعطيل حسابك. يرجى التواصل مع مدير النظام.')
+    }
+
     // Store in cache immediately
     setCachedSession(data.session, data.user, [], false)
     setSession(data.session)

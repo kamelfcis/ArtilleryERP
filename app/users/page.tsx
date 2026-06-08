@@ -12,7 +12,9 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { toast } from '@/components/ui/use-toast'
+import { useAuth } from '@/contexts/AuthContext'
 import {
   Plus,
   Edit,
@@ -45,6 +47,7 @@ interface UserWithRoles {
   email: string
   created_at?: string
   last_sign_in_at?: string
+  is_active: boolean
   roles: Array<{ role: { name: string } }>
 }
 
@@ -74,6 +77,7 @@ const ROLE_CONFIG: Record<string, { color: string; icon: any; gradient: string }
 export default function UsersPage() {
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<string>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [dialogOpen, setDialogOpen] = useState(false)
   const queryClient = useQueryClient()
 
@@ -105,6 +109,7 @@ export default function UsersPage() {
           email: authUser.email || 'N/A',
           created_at: authUser.created_at,
           last_sign_in_at: authUser.last_sign_in_at,
+          is_active: authUser.is_active ?? true,
           roles: userRolesForUser,
         }
       })
@@ -117,18 +122,23 @@ export default function UsersPage() {
     return users?.filter(u => {
       const matchesSearch = u.email.toLowerCase().includes(search.toLowerCase())
       const matchesRole = roleFilter === 'all' || u.roles.some((r: any) => r.role.name === roleFilter)
-      return matchesSearch && matchesRole
+      const matchesStatus =
+        statusFilter === 'all' ||
+        (statusFilter === 'active' && u.is_active) ||
+        (statusFilter === 'inactive' && !u.is_active)
+      return matchesSearch && matchesRole && matchesStatus
     })
-  }, [users, search, roleFilter])
+  }, [users, search, roleFilter, statusFilter])
 
   const stats = useMemo(() => {
-    if (!users) return { total: 0, admins: 0, managers: 0, staff: 0, noRole: 0 }
+    if (!users) return { total: 0, admins: 0, managers: 0, staff: 0, noRole: 0, loginDisabled: 0 }
     return {
       total: users.length,
       admins: users.filter(u => u.roles.some((r: any) => r.role.name === 'SuperAdmin')).length,
       managers: users.filter(u => u.roles.some((r: any) => r.role.name === 'BranchManager')).length,
       staff: users.filter(u => u.roles.some((r: any) => ['Receptionist', 'Staff'].includes(r.role.name))).length,
       noRole: users.filter(u => u.roles.length === 0).length,
+      loginDisabled: users.filter(u => !u.is_active).length,
     }
   }, [users])
 
@@ -213,7 +223,7 @@ export default function UsersPage() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="grid grid-cols-2 md:grid-cols-5 gap-4"
+            className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4"
           >
             {[
               { label: 'إجمالي المستخدمين', value: stats.total, icon: Users, color: 'from-blue-500 to-indigo-500', bgColor: 'from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20' },
@@ -221,6 +231,7 @@ export default function UsersPage() {
               { label: 'مديرين فروع', value: stats.managers, icon: ShieldCheck, color: 'from-violet-500 to-purple-500', bgColor: 'from-violet-50 to-purple-50 dark:from-violet-950/20 dark:to-purple-950/20' },
               { label: 'موظفين', value: stats.staff, icon: Shield, color: 'from-emerald-500 to-teal-500', bgColor: 'from-emerald-50 to-teal-50 dark:from-emerald-950/20 dark:to-teal-950/20' },
               { label: 'بدون دور', value: stats.noRole, icon: ShieldAlert, color: 'from-amber-500 to-orange-500', bgColor: 'from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20' },
+              { label: 'دخول معطل', value: stats.loginDisabled, icon: Lock, color: 'from-slate-500 to-slate-600', bgColor: 'from-slate-50 to-slate-100 dark:from-slate-950/20 dark:to-slate-900/20' },
             ].map((stat, index) => {
               const StatIcon = stat.icon
               return (
@@ -279,6 +290,27 @@ export default function UsersPage() {
                         <X className="h-4 w-4 text-slate-400 hover:text-slate-600" />
                       </button>
                     )}
+                  </div>
+                  <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/70">
+                    {([
+                      { value: 'all', label: 'الكل' },
+                      { value: 'active', label: 'نشط' },
+                      { value: 'inactive', label: 'معطل' },
+                    ] as const).map(({ value, label }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setStatusFilter(value)}
+                        className={cn(
+                          'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                          statusFilter === value
+                            ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
                   <Select value={roleFilter} onValueChange={setRoleFilter}>
                     <SelectTrigger className="w-full sm:w-48 h-12 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-2 hover:border-blue-400 rounded-xl transition-all">
@@ -379,11 +411,16 @@ export default function UsersPage() {
 // ─── User Card ────────────────────────────────────────────────────────────────
 
 function UserCard({ user }: { user: UserWithRoles }) {
+  const { user: currentUser } = useAuth()
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [roleDialogOpen, setRoleDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [lockDialogOpen, setLockDialogOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isTogglingLogin, setIsTogglingLogin] = useState(false)
   const queryClient = useQueryClient()
+
+  const isSelf = currentUser?.id === user.id
 
   const primaryRole = user.roles[0]?.role?.name || null
   const roleConfig = primaryRole ? ROLE_CONFIG[primaryRole] : null
@@ -402,10 +439,46 @@ function UserCard({ user }: { user: UserWithRoles }) {
     ? new Date(user.last_sign_in_at).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
     : 'لم يسجل دخول بعد'
 
+  async function handleLoginToggle(isActive: boolean) {
+    try {
+      setIsTogglingLogin(true)
+      const response = await fetchWithSupabaseAuth('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, isActive }),
+      })
+
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error)
+
+      toast({
+        title: isActive ? 'تم تفعيل تسجيل الدخول' : 'تم تعطيل تسجيل الدخول',
+      })
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      setLockDialogOpen(false)
+    } catch (error: any) {
+      toast({
+        title: 'خطأ',
+        description: error.message || 'فشل في تحديث حالة تسجيل الدخول',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsTogglingLogin(false)
+    }
+  }
+
+  function handleSwitchChange(checked: boolean) {
+    if (!checked) {
+      setLockDialogOpen(true)
+      return
+    }
+    handleLoginToggle(true)
+  }
+
   async function handleDelete() {
     try {
       setIsDeleting(true)
-      const response = await fetch('/api/admin/users', {
+      const response = await fetchWithSupabaseAuth('/api/admin/users', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id }),
@@ -415,15 +488,15 @@ function UserCard({ user }: { user: UserWithRoles }) {
       if (!response.ok) throw new Error(result.error)
 
       toast({
-        title: '✅ تم الحذف',
-        description: 'تم حذف المستخدم بنجاح',
+        title: '✅ تم التعطيل',
+        description: 'تم تعطيل المستخدم بنجاح',
       })
       queryClient.invalidateQueries({ queryKey: ['users'] })
       setDeleteDialogOpen(false)
     } catch (error: any) {
       toast({
         title: 'خطأ',
-        description: error.message || 'فشل في حذف المستخدم',
+        description: error.message || 'فشل في تعطيل المستخدم',
         variant: 'destructive',
       })
     } finally {
@@ -433,7 +506,12 @@ function UserCard({ user }: { user: UserWithRoles }) {
 
   return (
     <>
-      <Card className="relative overflow-hidden border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl hover:shadow-2xl transition-all duration-300 group">
+      <Card className={cn(
+        'relative overflow-hidden border-0 shadow-lg backdrop-blur-xl hover:shadow-2xl transition-all duration-300 group',
+        user.is_active
+          ? 'bg-white/80 dark:bg-slate-900/80'
+          : 'bg-slate-100/80 dark:bg-slate-900/50 opacity-80'
+      )}>
         {/* Shimmer effect */}
         <motion.div
           className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent"
@@ -472,6 +550,12 @@ function UserCard({ user }: { user: UserWithRoles }) {
 
               {/* Roles */}
               <div className="flex flex-wrap gap-1.5 mt-2">
+                {!user.is_active && (
+                  <Badge variant="outline" className="text-[10px] font-bold gap-1 px-2 py-0.5 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-300 dark:border-slate-600">
+                    <Lock className="h-3 w-3" />
+                    دخول معطل
+                  </Badge>
+                )}
                 {user.roles.length > 0 ? (
                   user.roles.map((ur: any, index: number) => {
                     const config = ROLE_CONFIG[ur.role.name]
@@ -514,8 +598,26 @@ function UserCard({ user }: { user: UserWithRoles }) {
             </div>
           </div>
 
+          {/* Login toggle */}
+          <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2">
+              <Label htmlFor={`login-${user.id}`} className="text-xs font-medium text-slate-600 dark:text-slate-400 cursor-pointer">
+                تفعيل الدخول
+              </Label>
+              {!user.is_active && (
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">معطل</Badge>
+              )}
+            </div>
+            <Switch
+              id={`login-${user.id}`}
+              checked={user.is_active}
+              onCheckedChange={handleSwitchChange}
+              disabled={isSelf || isTogglingLogin}
+            />
+          </div>
+
           {/* Actions */}
-          <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
             {/* Edit User */}
             <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
               <DialogTrigger asChild>
@@ -593,12 +695,12 @@ function UserCard({ user }: { user: UserWithRoles }) {
                 <DialogHeader>
                   <DialogTitle className="text-xl font-bold text-red-600 flex items-center gap-2">
                     <AlertTriangle className="h-5 w-5" />
-                    تأكيد حذف المستخدم
+                    تأكيد تعطيل المستخدم
                   </DialogTitle>
                   <DialogDescription className="text-sm text-slate-500 pt-2">
-                    هل أنت متأكد من حذف المستخدم <strong className="text-slate-700 dark:text-slate-300">{user.email}</strong>؟
+                    هل أنت متأكد من تعطيل المستخدم <strong className="text-slate-700 dark:text-slate-300">{user.email}</strong>؟
                     <br />
-                    <span className="text-red-500">هذا الإجراء لا يمكن التراجع عنه.</span>
+                    سيفقد المستخدم صلاحية الدخول، بينما تبقى الحجوزات والسجل التاريخي كما هي.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 mt-2">
@@ -638,12 +740,12 @@ function UserCard({ user }: { user: UserWithRoles }) {
                       {isDeleting ? (
                         <>
                           <Loader2 className="h-4 w-4 animate-spin" />
-                          جاري الحذف...
+                          جاري التعطيل...
                         </>
                       ) : (
                         <>
                           <Trash2 className="h-4 w-4" />
-                          حذف المستخدم
+                          تعطيل المستخدم
                         </>
                       )}
                     </Button>
@@ -654,6 +756,50 @@ function UserCard({ user }: { user: UserWithRoles }) {
           </div>
         </CardContent>
       </Card>
+
+      {/* Login lock confirm dialog */}
+      <Dialog open={lockDialogOpen} onOpenChange={setLockDialogOpen}>
+        <DialogContent className="sm:max-w-md border-0 shadow-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-amber-600 flex items-center gap-2">
+              <Lock className="h-5 w-5" />
+              تعطيل تسجيل الدخول
+            </DialogTitle>
+            <DialogDescription className="text-sm text-slate-500 pt-2">
+              سيتم منع المستخدم من تسجيل الدخول مع الإبقاء على صلاحياته.
+              <br />
+              <strong className="text-slate-700 dark:text-slate-300">{user.email}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setLockDialogOpen(false)}
+              className="rounded-xl"
+              disabled={isTogglingLogin}
+            >
+              إلغاء
+            </Button>
+            <Button
+              onClick={() => handleLoginToggle(false)}
+              disabled={isTogglingLogin}
+              className="rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 gap-2"
+            >
+              {isTogglingLogin ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  جاري التعطيل...
+                </>
+              ) : (
+                <>
+                  <Lock className="h-4 w-4" />
+                  تعطيل الدخول
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
@@ -673,7 +819,7 @@ function UserForm({ onSuccess }: { onSuccess?: () => void }) {
     setIsSubmitting(true)
 
     try {
-      const response = await fetch('/api/admin/users', {
+      const response = await fetchWithSupabaseAuth('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, role: role || undefined }),
@@ -831,7 +977,7 @@ function EditUserForm({
         return
       }
 
-      const response = await fetch('/api/admin/users', {
+      const response = await fetchWithSupabaseAuth('/api/admin/users', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
