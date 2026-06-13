@@ -58,6 +58,16 @@ const nextConfig = {
         protocol: 'https',
         hostname: '**.supabase.co',
       },
+      // Cloudflare R2 public bucket CDN URL
+      {
+        protocol: 'https',
+        hostname: 'pub-3a43c37f13d5488b851347e503222e01.r2.dev',
+      },
+      // Custom R2 CDN domain — uncomment and set your hostname, e.g. cdn.artilleryerp.com
+      // {
+      //   protocol: 'https',
+      //   hostname: 'cdn.artilleryerp.com',
+      // },
       {
         protocol: 'https',
         hostname: 'images.unsplash.com',
