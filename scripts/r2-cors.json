@@ -1,0 +1,13 @@
+[
+  {
+    "AllowedOrigins": [
+      "https://artilleryerp.vercel.app",
+      "http://localhost:3000",
+      "http://localhost:4000"
+    ],
+    "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
