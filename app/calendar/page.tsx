@@ -828,7 +828,20 @@ export default function CalendarPage() {
     setGuestDialogOpen(false)
     setPendingReservation(null)
 
-    const selectedGuest = guests?.find(g => g.id === guestId)
+    // The guest may have been found via a search query in GuestSelectionDialog
+    // (cached under ['guests', '<search>']) rather than the parent's base list
+    // (['guests', ''], limited to 100). Scan all cached guest query results so
+    // a guest located through search is always found.
+    let selectedGuest = guests?.find(g => g.id === guestId)
+    if (!selectedGuest) {
+      const allGuestData = queryClient.getQueriesData<Array<{ id: string } & Record<string, unknown>>>({ queryKey: ['guests'] })
+      for (const [, data] of allGuestData) {
+        if (Array.isArray(data)) {
+          const found = data.find(g => g.id === guestId)
+          if (found) { selectedGuest = found as typeof selectedGuest; break }
+        }
+      }
+    }
     if (!selectedGuest) {
       toast({ title: 'خطأ', description: 'الضيف غير موجود', variant: 'destructive' })
       return

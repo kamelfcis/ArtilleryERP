@@ -134,11 +134,18 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
           // Persist every "data" query whose key root we know is safe.
           // Only successful queries are written to IDB so failed/pending
           // queries can't hydrate back into a rejected state.
-          shouldDehydrateQuery: (query) =>
-            Array.isArray(query.queryKey) &&
-            typeof query.queryKey[0] === 'string' &&
-            PERSISTED_QUERY_KEYS.has(query.queryKey[0] as string) &&
-            query.state.status === 'success',
+          shouldDehydrateQuery: (query) => {
+            if (!Array.isArray(query.queryKey)) return false
+            if (typeof query.queryKey[0] !== 'string') return false
+            if (!PERSISTED_QUERY_KEYS.has(query.queryKey[0] as string)) return false
+            if (query.state.status !== 'success') return false
+            // Don't persist search-specific guests queries (key[1] is the search
+            // term).  They'd restore from IDB without a queryFn and cause a
+            // "Missing queryFn" error when React Query tries to refetch them.
+            // Only the base list query (['guests', '']) is worth caching offline.
+            if (query.queryKey[0] === 'guests' && query.queryKey[1] !== '') return false
+            return true
+          },
         },
       }}
     >
