@@ -21,7 +21,6 @@ import {
   getRocketManagedLocationIdsFromEnv,
   isRocketManagedLocation,
 } from '@/lib/constants/rocket-locations'
-import { isViewerUser } from '@/lib/constants/viewer-user'
 import { useReservationsRealtime } from '@/lib/hooks/use-realtime'
 import { useGuests, useCreateGuest } from '@/lib/hooks/use-guests'
 import type { Guest } from '@/lib/types/database'
@@ -1296,8 +1295,6 @@ export default function CalendarPage() {
         id: res.id,
         unit_id: newUnitId,
       })
-
-      queryClient.invalidateQueries({ queryKey: ['reservations'] })
 
       toast({
         title: 'نجح',

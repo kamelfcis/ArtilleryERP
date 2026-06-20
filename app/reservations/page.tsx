@@ -1,11 +1,10 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { useReservations, useDeleteReservation } from '@/lib/hooks/use-reservations'
+import { useReservationsPaginated, fetchReservations, useDeleteReservation } from '@/lib/hooks/use-reservations'
 import { useLocations } from '@/lib/hooks/use-locations'
 import { useCurrentStaff } from '@/lib/hooks/use-staff'
 import { useAuth } from '@/contexts/AuthContext'
-import { useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -75,6 +74,7 @@ function guestDisplayName(guest?: Reservation['guest']) {
 
 export default function ReservationsPage() {
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [locationIds, setLocationIds] = useState<string[]>([])
   const [unitTypeFilter, setUnitTypeFilter] = useState<string>('all')
@@ -85,8 +85,13 @@ export default function ReservationsPage() {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage, setItemsPerPage] = useState(10)
+  const [itemsPerPage, setItemsPerPage] = useState(50)
   const [isExporting, setIsExporting] = useState(false)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [search])
 
   const { user, hasRole, elevatedOps } = useAuth()
   const { data: currentStaff } = useCurrentStaff()
@@ -138,66 +143,47 @@ export default function ReservationsPage() {
     return locationIds.length > 0 ? locationIds : undefined
   }, [isStaffOnly, currentStaff?.location_id, isRocketUser, rocketManagedLocationIds, locationIds])
 
-  const { data: reservations, isLoading } = useReservations({
+  const listFilters = useMemo(() => ({
     locationIds: effectiveLocationIds,
     status: statusFilter !== 'all' ? statusFilter as ReservationStatus : undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
-    fetchAll: true,
-  })
+    search: debouncedSearch || undefined,
+    unitType: unitTypeFilter !== 'all' ? unitTypeFilter : undefined,
+    source: sourceFilter !== 'all' ? sourceFilter : undefined,
+    page: currentPage,
+    pageSize: itemsPerPage,
+  }), [
+    effectiveLocationIds,
+    statusFilter,
+    dateFrom,
+    dateTo,
+    debouncedSearch,
+    unitTypeFilter,
+    sourceFilter,
+    currentPage,
+    itemsPerPage,
+  ])
+
+  const { data: pageData, isLoading, isFetching } = useReservationsPaginated(listFilters)
   const deleteReservation = useDeleteReservation()
-  const queryClient = useQueryClient()
 
-  useEffect(() => {
-    queryClient.invalidateQueries({ queryKey: ['reservations'] })
-    queryClient.refetchQueries({ queryKey: ['reservations'] })
-  }, [queryClient])
-
-  const filteredReservations = useMemo(() => {
-    if (!reservations) return []
-
-    return reservations.filter(r => {
-      const guestName = guestDisplayName(r.guest)
-      const matchesSearch = !search ||
-        r.reservation_number.toLowerCase().includes(search.toLowerCase()) ||
-        guestName.toLowerCase().includes(search.toLowerCase()) ||
-        r.guest?.first_name?.toLowerCase().includes(search.toLowerCase()) ||
-        r.guest?.last_name?.toLowerCase().includes(search.toLowerCase()) ||
-        r.guest?.first_name_ar?.toLowerCase().includes(search.toLowerCase()) ||
-        r.guest?.last_name_ar?.toLowerCase().includes(search.toLowerCase()) ||
-        r.guest?.phone?.includes(search) ||
-        r.guest?.email?.toLowerCase().includes(search.toLowerCase())
-
-      const matchesLocation = isStaffOnly ||
-        (isRocketUser
-          ? r.unit?.location_id != null &&
-            rocketManagedLocationIds?.includes(r.unit.location_id) &&
-            (locationIds.length === 0 || locationIds.includes(r.unit.location_id))
-          : locationIds.length === 0 ||
-            (r.unit?.location_id != null && locationIds.includes(r.unit.location_id)))
-      const matchesUnitType = unitTypeFilter === 'all' || r.unit?.type === unitTypeFilter
-      const matchesSource = sourceFilter === 'all' || r.source === sourceFilter
-
-      return matchesSearch && matchesLocation && matchesUnitType && matchesSource
-    })
-  }, [reservations, search, locationIds, unitTypeFilter, sourceFilter, isStaffOnly, isRocketUser, rocketManagedLocationIds])
+  const reservations = pageData?.rows ?? []
+  const totalCount = pageData?.totalCount ?? 0
+  const statusCounts = pageData?.statusCounts ?? { confirmed: 0, pending: 0 }
 
   const stats = useMemo(() => ({
-    total: reservations?.length ?? 0,
-    filtered: filteredReservations.length,
-    confirmed: filteredReservations.filter(r => r.status === 'confirmed').length,
-    pending: filteredReservations.filter(r => r.status === 'pending').length,
-  }), [reservations, filteredReservations])
+    total: totalCount,
+    filtered: totalCount,
+    confirmed: statusCounts.confirmed,
+    pending: statusCounts.pending,
+  }), [totalCount, statusCounts])
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [search, statusFilter, locationIds, unitTypeFilter, dateFrom, dateTo, sourceFilter])
+  }, [search, statusFilter, locationIds, unitTypeFilter, dateFrom, dateTo, sourceFilter, itemsPerPage])
 
-  const totalPages = Math.max(1, Math.ceil(filteredReservations.length / itemsPerPage))
-  const paginatedReservations = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage
-    return filteredReservations.slice(start, start + itemsPerPage)
-  }, [filteredReservations, currentPage, itemsPerPage])
+  const totalPages = Math.max(1, Math.ceil(totalCount / itemsPerPage))
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -219,14 +205,16 @@ export default function ReservationsPage() {
   async function handleExportExcel() {
     setIsExporting(true)
     try {
-      if (filteredReservations.length === 0) {
+      const { status: _omit, page: _p, pageSize: _ps, ...exportFilters } = listFilters
+      const allRows = await fetchReservations({ ...exportFilters, fetchAll: true })
+      if (allRows.length === 0) {
         toast({ title: 'تنبيه', description: 'لا توجد حجوزات للتصدير' })
         return
       }
-      exportReservationsFiltered(filteredReservations, dateFrom || undefined, dateTo || undefined)
+      exportReservationsFiltered(allRows, dateFrom || undefined, dateTo || undefined)
       toast({
         title: 'نجح',
-        description: `تم تصدير ${filteredReservations.length} حجز`,
+        description: `تم تصدير ${allRows.length} حجز`,
       })
     } catch (error: any) {
       toast({
@@ -271,10 +259,10 @@ export default function ReservationsPage() {
     unitTypeFilter !== 'all' || dateFrom || dateTo || sourceFilter !== 'all'
 
   function toggleSelectAll() {
-    if (selectedIds.length === filteredReservations.length) {
+    if (selectedIds.length === reservations.length) {
       setSelectedIds([])
     } else {
-      setSelectedIds(filteredReservations.map(r => r.id))
+      setSelectedIds(reservations.map(r => r.id))
     }
   }
 
@@ -313,7 +301,7 @@ export default function ReservationsPage() {
             <Button
               variant="outline"
               onClick={handleExportExcel}
-              disabled={isExporting || filteredReservations.length === 0}
+              disabled={isExporting || totalCount === 0}
               className="relative overflow-hidden border-2 hover:border-emerald-400 transition-all"
             >
               {isExporting ? (
@@ -595,10 +583,10 @@ export default function ReservationsPage() {
             <CardHeader className="relative">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <CardTitle>
-                  النتائج ({filteredReservations.length.toLocaleString('ar-EG')})
+                  النتائج ({totalCount.toLocaleString('ar-EG')})
                 </CardTitle>
                 <div className="flex items-center gap-2">
-                  {filteredReservations.length > 0 && !isViewerMode && (
+                  {totalCount > 0 && !isViewerMode && (
                     <>
                       <Button
                         variant="outline"
@@ -615,7 +603,7 @@ export default function ReservationsPage() {
                         تصدير Excel
                       </Button>
                       <Button variant="ghost" size="sm" onClick={toggleSelectAll}>
-                        {selectedIds.length === filteredReservations.length ? (
+                        {selectedIds.length === reservations.length && reservations.length > 0 ? (
                           <>
                             <CheckSquare className="mr-2 h-4 w-4" />
                             إلغاء تحديد الكل
@@ -654,7 +642,7 @@ export default function ReservationsPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {paginatedReservations.map((reservation) => {
+                      {reservations.map((reservation) => {
                         const isSelected = selectedIds.includes(reservation.id)
                         const name = guestDisplayName(reservation.guest) || '—'
                         return (
@@ -754,7 +742,7 @@ export default function ReservationsPage() {
                       })}
                     </TableBody>
                   </Table>
-                  {filteredReservations.length === 0 && (
+                  {totalCount === 0 && !isLoading && (
                     <div className="text-center py-12 text-muted-foreground">
                       <ClipboardList className="h-12 w-12 mx-auto mb-3 opacity-40" />
                       <p className="text-lg font-semibold">لا توجد حجوزات</p>
@@ -764,7 +752,7 @@ export default function ReservationsPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {paginatedReservations.map((reservation, index) => {
+                  {reservations.map((reservation, index) => {
                     const isSelected = selectedIds.includes(reservation.id)
                     const name = guestDisplayName(reservation.guest) || '—'
                     return (
@@ -863,7 +851,7 @@ export default function ReservationsPage() {
                       </motion.div>
                     )
                   })}
-                  {filteredReservations.length === 0 && (
+                  {totalCount === 0 && !isLoading && (
                     <div className="col-span-full text-center py-12 text-muted-foreground">
                       <ClipboardList className="h-12 w-12 mx-auto mb-3 opacity-40" />
                       <p className="text-lg font-semibold">لا توجد حجوزات</p>
@@ -874,10 +862,11 @@ export default function ReservationsPage() {
               )}
             </CardContent>
 
-            {filteredReservations.length > 0 && (
+            {totalCount > 0 && (
               <div className="relative border-t px-6 py-4 flex items-center justify-between flex-wrap gap-4">
                 <div className="text-sm text-muted-foreground">
-                  عرض {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, filteredReservations.length)} من {filteredReservations.length.toLocaleString('ar-EG')} حجز
+                  عرض {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, totalCount)} من {totalCount.toLocaleString('ar-EG')} حجز
+                  {isFetching && !isLoading ? ' · جاري التحديث...' : ''}
                 </div>
 
                 <div className="flex items-center gap-1">

@@ -75,7 +75,7 @@ export function useUnits(filters?: {
       // accepts it — callers can rely on the fields listed in the selectClause.
       return data as unknown as Unit[]
     },
-    staleTime: filters?.onlyCalendarFields ? 60_000 : 30_000,
+    staleTime: 300_000,
     gcTime: 300_000,
   })
 }
@@ -121,7 +121,6 @@ export function useCreateUnit() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['units'] })
-      queryClient.refetchQueries({ queryKey: ['units'] })
     },
   })
 }
@@ -144,8 +143,6 @@ export function useUpdateUnit() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['units'] })
       queryClient.invalidateQueries({ queryKey: ['unit', data.id] })
-      queryClient.refetchQueries({ queryKey: ['units'] })
-      queryClient.refetchQueries({ queryKey: ['unit', data.id] })
     },
   })
 }

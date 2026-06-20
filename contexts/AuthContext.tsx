@@ -243,8 +243,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSession(data.session)
     setUser(data.user)
 
-    // Fetch roles in parallel (don't wait)
-    fetchUserRoles(data.user.id).catch(console.error)
+    // Fetch roles before redirect so RoleGuard sees Viewer immediately
+    await fetchUserRoles(data.user.id)
 
     return { session: data.session, user: data.user }
   }, [])

@@ -46,8 +46,92 @@ type ReservationFilters = {
   overlapStart?: string
   /** Overlap-window end (YYYY-MM-DD). */
   overlapEnd?: string
-  /** Paginate through all PostgREST pages (for the full reservations list). */
+  /** Paginate through all PostgREST pages (for export / bulk actions). */
   fetchAll?: boolean
+  /** 1-based page index for server-side list pagination. */
+  page?: number
+  /** Rows per page when `page` is set (default 50). */
+  pageSize?: number
+  /** Text search across reservation number and guest fields. */
+  search?: string
+  unitType?: string
+  source?: string
+}
+
+export type ReservationPaginatedResult = {
+  rows: Reservation[]
+  totalCount: number
+  statusCounts: { confirmed: number; pending: number }
+}
+
+const RESERVATIONS_STALE_MS = 30_000
+
+async function resolveUnitIdsForLocations(
+  locationFilterIds: string[] | undefined
+): Promise<string[] | undefined> {
+  if (!locationFilterIds?.length) return undefined
+
+  const { data: units, error: unitsError } = await supabase
+    .from('units')
+    .select('id')
+    .in('location_id', locationFilterIds)
+    .eq('is_active', true)
+
+  if (unitsError) throw unitsError
+  const unitIds = units?.map(u => u.id) || []
+  return unitIds.length > 0 ? unitIds : []
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyReservationFilters(
+  query: any,
+  filters: ReservationFilters | undefined,
+  unitIds: string[] | undefined
+): any {
+  let q = query
+  if (unitIds !== undefined) {
+    if (unitIds.length === 0) return q
+    q = q.in('unit_id', unitIds)
+  }
+  if (filters?.status) {
+    q = q.eq('status', filters.status)
+  }
+  if (filters?.dateFrom) {
+    q = q.gte('check_in_date', filters.dateFrom)
+  }
+  if (filters?.dateTo) {
+    q = q.lte('check_out_date', filters.dateTo)
+  }
+  if (filters?.overlapEnd) {
+    q = q.lte('check_in_date', filters.overlapEnd)
+  }
+  if (filters?.overlapStart) {
+    q = q.gte('check_out_date', filters.overlapStart)
+  }
+  if (filters?.source && filters.source !== 'all') {
+    q = q.eq('source', filters.source)
+  }
+  if (filters?.unitType && filters.unitType !== 'all') {
+    q = q.filter('unit.type', 'eq', filters.unitType)
+  }
+  if (filters?.search?.trim()) {
+    const term = filters.search.trim().replace(/[%_,]/g, '')
+    if (term) {
+      const pattern = `%${term}%`
+      q = q.or(
+        [
+          `reservation_number.ilike.${pattern}`,
+          `guest.first_name.ilike.${pattern}`,
+          `guest.last_name.ilike.${pattern}`,
+          `guest.first_name_ar.ilike.${pattern}`,
+          `guest.last_name_ar.ilike.${pattern}`,
+          `guest.phone.ilike.${pattern}`,
+          `guest.email.ilike.${pattern}`,
+        ].join(',')
+      )
+    }
+  }
+  return q
 }
 
 export async function fetchReservations(filters?: ReservationFilters): Promise<Reservation[]> {
@@ -58,46 +142,9 @@ export async function fetchReservations(filters?: ReservationFilters): Promise<R
         ? [filters.locationId]
         : undefined
 
-  let unitIds: string[] | undefined
-  if (locationFilterIds?.length) {
-    const { data: units, error: unitsError } = await supabase
-      .from('units')
-      .select('id')
-      .in('location_id', locationFilterIds)
-      .eq('is_active', true)
-
-    if (unitsError) throw unitsError
-    unitIds = units?.map(u => u.id) || []
-
-    if (unitIds.length === 0) {
-      return []
-    }
-  }
-
-  const applyFilters = <T extends { in: Function; eq: Function; gte: Function; lte: Function }>(
-    query: T
-  ) => {
-    let q = query
-    if (unitIds && unitIds.length > 0) {
-      q = q.in('unit_id', unitIds)
-    }
-    if (filters?.status) {
-      q = q.eq('status', filters.status)
-    }
-    if (filters?.dateFrom) {
-      q = q.gte('check_in_date', filters.dateFrom)
-    }
-    if (filters?.dateTo) {
-      q = q.lte('check_out_date', filters.dateTo)
-    }
-    // Overlap semantics: keep any reservation whose stay intersects the window.
-    if (filters?.overlapEnd) {
-      q = q.lte('check_in_date', filters.overlapEnd)
-    }
-    if (filters?.overlapStart) {
-      q = q.gte('check_out_date', filters.overlapStart)
-    }
-    return q
+  const unitIds = await resolveUnitIdsForLocations(locationFilterIds)
+  if (unitIds !== undefined && unitIds.length === 0) {
+    return []
   }
 
   if (filters?.fetchAll) {
@@ -105,11 +152,13 @@ export async function fetchReservations(filters?: ReservationFilters): Promise<R
     let offset = 0
 
     while (true) {
-      let query = applyFilters(
+      const query = applyReservationFilters(
         supabase
           .from('reservations')
           .select(RESERVATION_LIST_SELECT)
-          .order('check_in_date', { ascending: true })
+          .order('check_in_date', { ascending: true }),
+        filters,
+        unitIds
       )
       const { data, error } = await query.range(
         offset,
@@ -126,11 +175,13 @@ export async function fetchReservations(filters?: ReservationFilters): Promise<R
     return all
   }
 
-  let query = applyFilters(
+  let query = applyReservationFilters(
     supabase
       .from('reservations')
       .select(RESERVATION_LIST_SELECT)
-      .order('check_in_date', { ascending: true })
+      .order('check_in_date', { ascending: true }),
+    filters,
+    unitIds
   )
   const { data, error } = await query.range(0, POSTGREST_PAGE_SIZE - 1)
 
@@ -138,10 +189,83 @@ export async function fetchReservations(filters?: ReservationFilters): Promise<R
   return (data ?? []) as Reservation[]
 }
 
+/** Server-paginated reservations list with lightweight status counts. */
+export async function fetchReservationsPaginated(
+  filters: ReservationFilters & { page: number; pageSize: number }
+): Promise<ReservationPaginatedResult> {
+  const locationFilterIds =
+    filters.locationIds && filters.locationIds.length > 0
+      ? filters.locationIds
+      : filters.locationId
+        ? [filters.locationId]
+        : undefined
+
+  const unitIds = await resolveUnitIdsForLocations(locationFilterIds)
+  if (unitIds !== undefined && unitIds.length === 0) {
+    return { rows: [], totalCount: 0, statusCounts: { confirmed: 0, pending: 0 } }
+  }
+
+  const page = Math.max(1, filters.page)
+  const pageSize = Math.max(1, filters.pageSize)
+  const from = (page - 1) * pageSize
+  const to = from + pageSize - 1
+
+  const baseListQuery = () =>
+    applyReservationFilters(
+      supabase
+        .from('reservations')
+        .select(RESERVATION_LIST_SELECT, { count: 'exact' })
+        .order('check_in_date', { ascending: false }),
+      filters,
+      unitIds
+    )
+
+  const countQuery = (status: ReservationStatus) => {
+    const { status: _omit, ...rest } = filters
+    return applyReservationFilters(
+      supabase.from('reservations').select('*', { count: 'exact', head: true }),
+      { ...rest, status },
+      unitIds
+    )
+  }
+
+  const [listResult, confirmedResult, pendingResult] = await Promise.all([
+    baseListQuery().range(from, to),
+    countQuery('confirmed'),
+    countQuery('pending'),
+  ])
+
+  if (listResult.error) throw listResult.error
+  if (confirmedResult.error) throw confirmedResult.error
+  if (pendingResult.error) throw pendingResult.error
+
+  return {
+    rows: (listResult.data ?? []) as Reservation[],
+    totalCount: listResult.count ?? 0,
+    statusCounts: {
+      confirmed: confirmedResult.count ?? 0,
+      pending: pendingResult.count ?? 0,
+    },
+  }
+}
+
 export function useReservations(filters?: ReservationFilters) {
   return useQuery({
     queryKey: ['reservations', filters],
     queryFn: () => fetchReservations(filters),
+    staleTime: RESERVATIONS_STALE_MS,
+    enabled: !filters?.page,
+  })
+}
+
+export function useReservationsPaginated(
+  filters: ReservationFilters & { page: number; pageSize: number }
+) {
+  return useQuery({
+    queryKey: ['reservations-paginated', filters],
+    queryFn: () => fetchReservationsPaginated(filters),
+    placeholderData: keepPreviousData,
+    staleTime: RESERVATIONS_STALE_MS,
   })
 }
 
@@ -211,6 +335,7 @@ export function useCreateReservation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
+      queryClient.invalidateQueries({ queryKey: ['reservations-paginated'] })
       queryClient.invalidateQueries({ queryKey: ['calendar-window'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
     },
@@ -304,6 +429,7 @@ export function useUpdateReservation() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
+      queryClient.invalidateQueries({ queryKey: ['reservations-paginated'] })
       queryClient.invalidateQueries({ queryKey: ['reservation', data.id] })
       queryClient.invalidateQueries({ queryKey: ['calendar-window'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
@@ -327,6 +453,7 @@ export function useDeleteReservation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
+      queryClient.invalidateQueries({ queryKey: ['reservations-paginated'] })
       queryClient.invalidateQueries({ queryKey: ['calendar-window'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
     },
