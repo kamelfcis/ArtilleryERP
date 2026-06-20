@@ -22,9 +22,7 @@ import { useCurrentStaff } from '@/lib/hooks/use-staff'
 import { useAuth } from '@/contexts/AuthContext'
 import { isRocketScopedUser } from '@/lib/constants/rocket-hotel'
 import {
-  getRocketManagedLocationIdsFromEnv,
-  isKingTutLocation,
-  isRocketManagedLocation,
+  getUserVisibleLocations,
 } from '@/lib/constants/rocket-locations'
 import { useCalendarFilters } from '@/contexts/CalendarFilterContext'
 
@@ -155,24 +153,12 @@ export function CalendarToolbarFilters() {
     return map
   }, [unitTypesRows])
 
-  const rocketManagedLocationIds = useMemo(() => {
-    if (!isRocketScoped || !locations) return null as string[] | null
-    const rocketIds = getRocketManagedLocationIdsFromEnv()
-    if (rocketIds) return rocketIds.filter((id) => locations.some((l) => l.id === id))
-    return locations.filter(isRocketManagedLocation).map((l) => l.id)
-  }, [isRocketScoped, locations])
-
   const visibleLocations = useMemo(() => {
-    if (isStaffOnly && currentStaff?.location_id) {
-      return locations?.filter(l => l.id === currentStaff.location_id) ?? []
-    }
-    let list = locations ?? []
-    list = list.filter((l) => !isKingTutLocation(l))
-    if (isRocketScoped && rocketManagedLocationIds?.length) {
-      list = list.filter((l) => rocketManagedLocationIds.includes(l.id))
-    }
-    return list
-  }, [locations, isStaffOnly, currentStaff?.location_id, isRocketScoped, rocketManagedLocationIds])
+    return getUserVisibleLocations(locations ?? [], {
+      isRocketScoped,
+      staffLocationId: isStaffOnly ? currentStaff?.location_id : undefined,
+    })
+  }, [locations, isStaffOnly, currentStaff?.location_id, isRocketScoped])
 
   const staffLocationId = isStaffOnly ? currentStaff?.location_id : undefined
 

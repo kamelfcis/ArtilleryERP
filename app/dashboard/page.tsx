@@ -12,7 +12,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { isRocketScopedUser } from '@/lib/constants/rocket-hotel'
 import {
   getRocketManagedLocationIdsFromEnv,
-  isKingTutLocation,
+  getUserVisibleLocations,
   isRocketManagedLocation,
 } from '@/lib/constants/rocket-locations'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -56,12 +56,11 @@ export default function DashboardPage() {
 
   const visibleLocations = useMemo(() => {
     if (!locations) return []
-    let list = locations.filter((l) => !isKingTutLocation(l))
-    if (isRocketScoped && rocketManagedLocationIds?.length) {
-      list = list.filter((l) => rocketManagedLocationIds.includes(l.id))
-    }
-    return list
-  }, [locations, isRocketScoped, rocketManagedLocationIds])
+    return getUserVisibleLocations(locations, {
+      isRocketScoped,
+      staffLocationId: isStaffOnly ? currentStaff?.location_id : undefined,
+    })
+  }, [locations, isRocketScoped, isStaffOnly, currentStaff?.location_id])
 
   const statsFilters = useMemo((): DashboardStatsFilters | undefined => {
     if (isStaffOnly && currentStaff?.location_id) {

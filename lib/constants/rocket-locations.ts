@@ -40,3 +40,27 @@ export function isAlarmEligibleLocation(
   if (!loc) return false
   return isRocketManagedLocation(loc)
 }
+
+type LocationLike = { id: string; name: string; name_ar: string }
+
+/** Location pickers: Staff → assigned site; rocket users → Nadi + Rocket Beach only; everyone else → all. */
+export function getUserVisibleLocations(
+  locations: LocationLike[],
+  options: {
+    isRocketScoped: boolean
+    staffLocationId?: string | null
+  }
+): LocationLike[] {
+  if (options.staffLocationId) {
+    return locations.filter((l) => l.id === options.staffLocationId)
+  }
+  if (!options.isRocketScoped) {
+    return locations
+  }
+  const rocketIds = getRocketManagedLocationIdsFromEnv()
+  const withoutKingTut = locations.filter((l) => !isKingTutLocation(l))
+  if (rocketIds) {
+    return withoutKingTut.filter((l) => rocketIds.includes(l.id))
+  }
+  return withoutKingTut.filter(isRocketManagedLocation)
+}
