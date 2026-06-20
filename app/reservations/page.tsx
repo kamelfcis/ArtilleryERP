@@ -44,6 +44,11 @@ import { BulkActions } from '@/components/reservations/BulkActions'
 import { LocationMultiSelect } from '@/components/filters/LocationMultiSelect'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Badge } from '@/components/ui/badge'
+import { isRocketHotelEmail } from '@/lib/constants/rocket-hotel'
+import {
+  getRocketManagedLocationIdsFromEnv,
+  isRocketManagedLocation,
+} from '@/lib/constants/rocket-locations'
 
 type ViewMode = 'table' | 'cards'
 
@@ -83,15 +88,54 @@ export default function ReservationsPage() {
   const [itemsPerPage, setItemsPerPage] = useState(10)
   const [isExporting, setIsExporting] = useState(false)
 
-  const { hasRole, elevatedOps } = useAuth()
+  const { user, hasRole, elevatedOps } = useAuth()
   const { data: currentStaff } = useCurrentStaff()
   const isStaffOnly = hasRole('Staff') && !hasRole('SuperAdmin') && !hasRole('BranchManager')
   const restrictedBranchManager =
     hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
+  const isRocketUser = isRocketHotelEmail(user?.email)
+  const { data: locations } = useLocations()
 
-  const effectiveLocationIds = isStaffOnly && currentStaff?.location_id
-    ? [currentStaff.location_id]
-    : locationIds.length > 0 ? locationIds : undefined
+  const locationOptions = useMemo(() => {
+    let list = [...(locations || [])]
+    if (isRocketUser) {
+      const rocketIds = getRocketManagedLocationIdsFromEnv()
+      if (rocketIds) {
+        list = list.filter((l) => rocketIds.includes(l.id))
+      } else {
+        list = list.filter(isRocketManagedLocation)
+      }
+    }
+    return list.sort((a, b) =>
+      (a.name_ar || a.name || '').localeCompare(b.name_ar || b.name || '', 'ar')
+    )
+  }, [locations, isRocketUser])
+
+  const rocketManagedLocationIds = useMemo(() => {
+    if (!isRocketUser) return null as string[] | null
+    return locationOptions.map((l) => l.id)
+  }, [isRocketUser, locationOptions])
+
+  useEffect(() => {
+    if (!isRocketUser || locationIds.length === 0) return
+    const valid = locationIds.filter((id) => locationOptions.some((l) => l.id === id))
+    if (valid.length !== locationIds.length) {
+      setLocationIds(valid)
+    }
+  }, [isRocketUser, locationIds, locationOptions])
+
+  const effectiveLocationIds = useMemo(() => {
+    if (isStaffOnly && currentStaff?.location_id) {
+      return [currentStaff.location_id]
+    }
+    if (isRocketUser && rocketManagedLocationIds?.length) {
+      if (locationIds.length === 0) {
+        return rocketManagedLocationIds
+      }
+      return locationIds.filter((id) => rocketManagedLocationIds.includes(id))
+    }
+    return locationIds.length > 0 ? locationIds : undefined
+  }, [isStaffOnly, currentStaff?.location_id, isRocketUser, rocketManagedLocationIds, locationIds])
 
   const { data: reservations, isLoading } = useReservations({
     locationIds: effectiveLocationIds,
@@ -100,7 +144,6 @@ export default function ReservationsPage() {
     dateTo: dateTo || undefined,
     fetchAll: true,
   })
-  const { data: locations } = useLocations()
   const deleteReservation = useDeleteReservation()
   const queryClient = useQueryClient()
 
@@ -125,14 +168,18 @@ export default function ReservationsPage() {
         r.guest?.email?.toLowerCase().includes(search.toLowerCase())
 
       const matchesLocation = isStaffOnly ||
-        locationIds.length === 0 ||
-        (r.unit?.location_id != null && locationIds.includes(r.unit.location_id))
+        (isRocketUser
+          ? r.unit?.location_id != null &&
+            rocketManagedLocationIds?.includes(r.unit.location_id) &&
+            (locationIds.length === 0 || locationIds.includes(r.unit.location_id))
+          : locationIds.length === 0 ||
+            (r.unit?.location_id != null && locationIds.includes(r.unit.location_id)))
       const matchesUnitType = unitTypeFilter === 'all' || r.unit?.type === unitTypeFilter
       const matchesSource = sourceFilter === 'all' || r.source === sourceFilter
 
       return matchesSearch && matchesLocation && matchesUnitType && matchesSource
     })
-  }, [reservations, search, locationIds, unitTypeFilter, sourceFilter, isStaffOnly])
+  }, [reservations, search, locationIds, unitTypeFilter, sourceFilter, isStaffOnly, isRocketUser, rocketManagedLocationIds])
 
   const stats = useMemo(() => ({
     total: reservations?.length ?? 0,
@@ -253,6 +300,11 @@ export default function ReservationsPage() {
                 الحجوزات
               </h1>
               <p className="text-muted-foreground mt-1">إدارة جميع الحجوزات</p>
+              {isRocketUser && (
+                <Badge variant="secondary" className="mt-2 text-xs font-normal">
+                  مواقع روكيت فقط
+                </Badge>
+              )}
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -452,7 +504,7 @@ export default function ReservationsPage() {
                         <Label>الموقع</Label>
                         {!isStaffOnly ? (
                           <LocationMultiSelect
-                            locations={locations ?? []}
+                            locations={locationOptions}
                             selectedIds={locationIds}
                             onChange={setLocationIds}
                           />
