@@ -29,20 +29,65 @@ export function exportToCSV(data: any[], filename: string) {
   document.body.removeChild(link)
 }
 
+const reservationStatusLabels: Record<string, string> = {
+  pending: 'قيد الانتظار',
+  confirmed: 'مؤكد',
+  checked_in: 'تم تسجيل الدخول',
+  checked_out: 'تم تسجيل الخروج',
+  cancelled: 'ملغي',
+  no_show: 'لم يحضر',
+}
+
+const reservationSourceLabels: Record<string, string> = {
+  online: 'أونلاين',
+  phone: 'هاتف',
+  walk_in: 'حضوري',
+  email: 'بريد إلكتروني',
+}
+
+function reservationGuestName(guest?: {
+  first_name?: string
+  last_name?: string
+  first_name_ar?: string
+  last_name_ar?: string
+}) {
+  if (!guest) return ''
+  return `${guest.first_name_ar || guest.first_name || ''} ${guest.last_name_ar || guest.last_name || ''}`.trim()
+}
+
 export function exportReservationsToCSV(reservations: any[]) {
+  exportReservationsFiltered(reservations)
+}
+
+/** CSV with UTF-8 BOM — opens correctly in Excel with Arabic text. */
+export function exportReservationsFiltered(
+  reservations: any[],
+  dateFrom?: string,
+  dateTo?: string
+) {
+  if (reservations.length === 0) return
+
   const csvData = reservations.map(r => ({
     'رقم الحجز': r.reservation_number,
-    'الضيف': `${r.guest?.first_name_ar || r.guest?.first_name} ${r.guest?.last_name_ar || r.guest?.last_name}`,
-    'الوحدة': r.unit?.unit_number || '',
+    'اسم الضيف': reservationGuestName(r.guest),
+    'الهاتف': r.guest?.phone || '',
     'تاريخ الدخول': r.check_in_date,
     'تاريخ الخروج': r.check_out_date,
-    'الحالة': r.status,
+    'الحالة': reservationStatusLabels[r.status] || r.status,
+    'الموقع': r.unit?.location?.name_ar || r.unit?.location?.name || '',
+    'الوحدة': [r.unit?.unit_number, r.unit?.name_ar || r.unit?.name].filter(Boolean).join(' - '),
     'المبلغ الإجمالي': r.total_amount,
-    'المبلغ المدفوع': r.paid_amount,
+    'المصدر': reservationSourceLabels[r.source] || r.source,
     'تاريخ الإنشاء': r.created_at,
   }))
 
-  exportToCSV(csvData, `reservations-${new Date().toISOString().split('T')[0]}`)
+  const today = new Date().toISOString().split('T')[0]
+  const filename =
+    dateFrom || dateTo
+      ? `حجوزات_${dateFrom || 'بداية'}_${dateTo || 'نهاية'}`
+      : `حجوزات_${today}`
+
+  exportToCSV(csvData, filename)
 }
 
 export function exportGuestsToCSV(guests: any[]) {
