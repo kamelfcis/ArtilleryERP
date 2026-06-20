@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { toast } from '@/components/ui/use-toast'
 import { Eye, EyeOff, Mail, Lock, Building2, Shield, Users, Calendar, ArrowLeft, MapPin } from 'lucide-react'
 import Image from 'next/image'
-import { motion, AnimatePresence } from 'framer-motion'
+import { isSoldierRocketViewerEmail, VIEWER_HOME_PATH } from '@/lib/constants/viewer-user'
 
 const locations = [
   {
@@ -59,7 +59,10 @@ export default function LoginPage() {
   // Redirect if already logged in
   useEffect(() => {
     if (!loading && user) {
-      router.replace('/modules')
+      const destination = isSoldierRocketViewerEmail(user.email)
+        ? VIEWER_HOME_PATH
+        : '/modules'
+      router.replace(destination)
     }
   }, [user, loading, router])
 
@@ -78,7 +81,10 @@ export default function LoginPage() {
         description: 'تم تسجيل الدخول بنجاح',
       })
 
-      router.push('/modules')
+      const destination = isSoldierRocketViewerEmail(email.trim())
+        ? VIEWER_HOME_PATH
+        : '/modules'
+      router.push(destination)
     } catch (error: any) {
       setIsLoading(false)
       

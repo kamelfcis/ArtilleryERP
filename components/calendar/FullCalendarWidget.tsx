@@ -28,6 +28,7 @@ interface Props {
   pendingIds: Set<string>
   hasRole: (role: UserRole) => boolean
   elevatedOps: boolean
+  readOnly?: boolean
   staffByUserId: Map<string, string>
   onDateSelect: (info: any) => void
   onEventClick: (info: any) => void
@@ -51,6 +52,7 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
   pendingIds,
   hasRole,
   elevatedOps,
+  readOnly = false,
   staffByUserId,
   onDateSelect,
   onEventClick,
@@ -222,9 +224,9 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
             locale={arLocale}
             resources={resources}
             events={events}
-            editable={true}
-            eventResourceEditable={true}
-            selectable={true}
+            editable={!readOnly}
+            eventResourceEditable={!readOnly}
+            selectable={!readOnly}
             selectMirror={true}
             selectAllow={handleSelectAllow}
             unselect={handleUnselect}
@@ -377,10 +379,11 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
               const isRestrictedBM =
                 hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
               const canDelete =
-                hasRole('SuperAdmin' as any) ||
+                !readOnly &&
+                (hasRole('SuperAdmin' as any) ||
                 hasRole('Receptionist' as any) ||
                 elevatedOps ||
-                (hasRole('BranchManager' as any) && !isRestrictedBM)
+                (hasRole('BranchManager' as any) && !isRestrictedBM))
               if (canDelete && !arg.el.querySelector('.fc-event-delete-btn')) {
                 const deleteBtn = document.createElement('button')
                 deleteBtn.innerHTML = '🗑️'
@@ -426,7 +429,7 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
               }
 
               const isReservationEvent = !!arg.event.extendedProps.reservation && !arg.event.extendedProps.roomBlock
-              if (isReservationEvent && !arg.el.querySelector('.fc-event-change-unit-btn')) {
+              if (!readOnly && isReservationEvent && !arg.el.querySelector('.fc-event-change-unit-btn')) {
                 const changeUnitBtn = document.createElement('button')
                 changeUnitBtn.innerHTML = '🔄'
                 changeUnitBtn.className = 'fc-event-change-unit-btn'

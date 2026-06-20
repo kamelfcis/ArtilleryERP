@@ -184,13 +184,13 @@ const menuItems = [
     title: 'التقويم',
     href: '/calendar',
     icon: Calendar,
-    roles: ['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff'],
+    roles: ['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff', 'Viewer'],
   },
   {
     title: 'الحجوزات',
     href: '/reservations',
     icon: FileText,
-    roles: ['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff'],
+    roles: ['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff', 'Viewer'],
   },
   {
     title: 'طلبات الحجز',

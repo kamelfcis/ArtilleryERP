@@ -44,7 +44,7 @@ import { BulkActions } from '@/components/reservations/BulkActions'
 import { LocationMultiSelect } from '@/components/filters/LocationMultiSelect'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Badge } from '@/components/ui/badge'
-import { isRocketHotelEmail } from '@/lib/constants/rocket-hotel'
+import { isRocketScopedUser } from '@/lib/constants/rocket-hotel'
 import {
   getRocketManagedLocationIdsFromEnv,
   isRocketManagedLocation,
@@ -91,9 +91,10 @@ export default function ReservationsPage() {
   const { user, hasRole, elevatedOps } = useAuth()
   const { data: currentStaff } = useCurrentStaff()
   const isStaffOnly = hasRole('Staff') && !hasRole('SuperAdmin') && !hasRole('BranchManager')
+  const isViewerMode = hasRole('Viewer')
   const restrictedBranchManager =
     hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
-  const isRocketUser = isRocketHotelEmail(user?.email)
+  const isRocketUser = isRocketScopedUser(user?.email)
   const { data: locations } = useLocations()
 
   const locationOptions = useMemo(() => {
@@ -308,6 +309,7 @@ export default function ReservationsPage() {
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
+            {!isViewerMode && (
             <Button
               variant="outline"
               onClick={handleExportExcel}
@@ -321,16 +323,19 @@ export default function ReservationsPage() {
               )}
               تصدير Excel
             </Button>
+            )}
+            {!isViewerMode && (
             <Link href="/reservations/new">
               <Button className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-lg">
                 <Plus className="mr-2 h-4 w-4" />
                 حجز جديد
               </Button>
             </Link>
+            )}
           </div>
         </motion.div>
 
-        {selectedIds.length > 0 && (
+        {!isViewerMode && selectedIds.length > 0 && (
           <BulkActions
             selectedIds={selectedIds}
             onClearSelection={() => setSelectedIds([])}
@@ -593,7 +598,7 @@ export default function ReservationsPage() {
                   النتائج ({filteredReservations.length.toLocaleString('ar-EG')})
                 </CardTitle>
                 <div className="flex items-center gap-2">
-                  {filteredReservations.length > 0 && (
+                  {filteredReservations.length > 0 && !isViewerMode && (
                     <>
                       <Button
                         variant="outline"
@@ -639,7 +644,7 @@ export default function ReservationsPage() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/50">
-                        <TableHead className="w-10" />
+                        <TableHead className="w-10">{!isViewerMode ? '' : null}</TableHead>
                         <TableHead>الضيف</TableHead>
                         <TableHead>الوحدة</TableHead>
                         <TableHead>التواريخ</TableHead>
@@ -658,6 +663,7 @@ export default function ReservationsPage() {
                             className={`transition-colors hover:bg-accent/50 ${isSelected ? 'bg-accent/70' : ''}`}
                           >
                             <TableCell className="w-10">
+                              {!isViewerMode && (
                               <button
                                 onClick={() => {
                                   setSelectedIds(isSelected
@@ -671,6 +677,7 @@ export default function ReservationsPage() {
                                   <Square className="h-5 w-5 text-muted-foreground" />
                                 )}
                               </button>
+                              )}
                             </TableCell>
                             <TableCell>
                               <div className="space-y-1.5">
@@ -729,7 +736,7 @@ export default function ReservationsPage() {
                                     <Eye className="h-4 w-4" />
                                   </Button>
                                 </Link>
-                                {!restrictedBranchManager && (
+                                {!restrictedBranchManager && !isViewerMode && (
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -789,6 +796,7 @@ export default function ReservationsPage() {
                                   </div>
                                 )}
                               </div>
+                              {!isViewerMode && (
                               <button
                                 onClick={() => {
                                   setSelectedIds(isSelected
@@ -802,6 +810,7 @@ export default function ReservationsPage() {
                                   <Square className="h-5 w-5 text-muted-foreground" />
                                 )}
                               </button>
+                              )}
                             </div>
                           </CardHeader>
                           <CardContent className="relative z-10 pt-4 space-y-3">

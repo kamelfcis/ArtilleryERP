@@ -62,8 +62,14 @@ export default function ModulesPage() {
       return
     }
     // Non-SuperAdmin users skip this page entirely
-    if (!loading && user && roles.length > 0 && !hasRole('SuperAdmin')) {
-      router.replace('/dashboard')
+    if (!loading && user && roles.length > 0) {
+      if (hasRole('Viewer')) {
+        router.replace('/calendar')
+        return
+      }
+      if (!hasRole('SuperAdmin')) {
+        router.replace('/dashboard')
+      }
     }
   }, [loading, user, roles, hasRole, router])
 
@@ -81,7 +87,7 @@ export default function ModulesPage() {
   }
 
   // If not SuperAdmin, show nothing (redirecting)
-  if (!hasRole('SuperAdmin')) {
+  if (!hasRole('SuperAdmin') || hasRole('Viewer')) {
     return null
   }
 

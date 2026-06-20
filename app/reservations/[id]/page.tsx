@@ -31,7 +31,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { calculateReservationPrice } from '@/lib/utils/pricing'
 import { getReservationNights, formatNightsArabic } from '@/lib/utils/reservation-dates'
-import { isRocketHotelEmail } from '@/lib/constants/rocket-hotel'
+import { isRocketScopedUser } from '@/lib/constants/rocket-hotel'
 import { isAlarmEligibleLocation } from '@/lib/constants/rocket-locations'
 import { useLocations } from '@/lib/hooks/use-locations'
 
@@ -68,7 +68,8 @@ export default function ReservationDetailPage() {
   const { user, hasRole, elevatedOps } = useAuth()
   const restrictedBranchManager =
     hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
-  const isRocketUser = isRocketHotelEmail(user?.email)
+  const isViewerMode = hasRole('Viewer')
+  const isRocketUser = isRocketScopedUser(user?.email)
   const { data: locations } = useLocations()
   const id = params.id as string
   const { data: reservation, isLoading } = useReservation(id)
@@ -78,7 +79,7 @@ export default function ReservationDetailPage() {
     return isAlarmEligibleLocation(reservation.unit.location_id, locations || [])
   }, [isRocketUser, reservation?.unit?.location_id, locations])
 
-  const statusSelectRestricted = restrictedBranchManager && !rocketCanChangeStatus
+  const statusSelectRestricted = isViewerMode || (restrictedBranchManager && !rocketCanChangeStatus)
   const updateReservation = useUpdateReservation()
   const updateGuest = useUpdateGuest()
 
@@ -402,6 +403,8 @@ export default function ReservationDetailPage() {
           transition={{ delay: 0.2 }}
           className="flex gap-2 flex-wrap"
         >
+          {!isViewerMode && (
+          <>
           <CheckInOutActions reservation={reservation} />
           <ReservationPrint reservation={reservation} />
           <WhatsAppShareButton reservation={reservation} />
@@ -444,6 +447,9 @@ export default function ReservationDetailPage() {
             </Link>
           </motion.div>
           <ServiceQuickAdd reservationId={id} />
+          </>
+          )}
+          {isViewerMode && <ReservationPrint reservation={reservation} />}
         </motion.div>
       </motion.div>
 
@@ -519,6 +525,11 @@ export default function ReservationDetailPage() {
                 className="flex items-center justify-between p-3 rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-blue-200/50 dark:border-blue-800/50"
               >
                 <span className="text-muted-foreground font-medium">الحالة:</span>
+                {isViewerMode ? (
+                  <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold ${RESERVATION_STATUS_COLORS[reservation.status] || ''}`}>
+                    {RESERVATION_STATUSES[reservation.status as keyof typeof RESERVATION_STATUSES]}
+                  </span>
+                ) : (
                 <Select
                   value={reservation.status}
                   onValueChange={handleStatusChange}
@@ -537,6 +548,7 @@ export default function ReservationDetailPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                )}
               </motion.div>
               {editingDates ? (
                 <motion.div
@@ -598,7 +610,7 @@ export default function ReservationDetailPage() {
                     <span className="text-muted-foreground font-medium">تاريخ الدخول:</span>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-slate-900 dark:text-slate-100">{formatDateShort(reservation.check_in_date)}</span>
-                      {!restrictedBranchManager && (
+                      {!restrictedBranchManager && !isViewerMode && (
                         <button
                           onClick={() => setEditingDates(true)}
                           className="text-muted-foreground hover:text-primary transition-colors p-0.5 rounded"
@@ -651,9 +663,27 @@ export default function ReservationDetailPage() {
           </Card>
         </motion.div>
 
+        {!isViewerMode ? (
         <PaymentTracker reservation={reservation} />
+        ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">المدفوعات</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">الإجمالي</span>
+              <span className="font-bold">{formatCurrency(reservation.total_amount)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">المدفوع</span>
+              <span className="font-bold text-green-600">{formatCurrency(reservation.paid_amount)}</span>
+            </div>
+          </CardContent>
+        </Card>
+        )}
         
-        {reservation.guest_id && (
+        {!isViewerMode && reservation.guest_id && (
           <LoyaltyCard
             guestId={reservation.guest_id}
             reservationId={reservation.id}
@@ -702,7 +732,7 @@ export default function ReservationDetailPage() {
                     معلومات الضيف
                   </CardTitle>
                 </div>
-                {!guestEditing ? (
+                {!isViewerMode && !guestEditing ? (
                   <div className="flex gap-2 relative z-10">
                     <Button
                       variant="ghost"
@@ -723,7 +753,7 @@ export default function ReservationDetailPage() {
                       تغيير الضيف
                     </Button>
                   </div>
-                ) : (
+                ) : !isViewerMode && guestEditing ? (
                   <div className="flex gap-2 relative z-10">
                     <Button
                       variant="ghost"
@@ -745,11 +775,11 @@ export default function ReservationDetailPage() {
                       {guestSaving ? 'جارٍ الحفظ...' : 'حفظ'}
                     </Button>
                   </div>
-                )}
+                ) : null}
               </div>
             </CardHeader>
             <CardContent className="relative z-10 pt-4 space-y-4">
-              {guestEditing ? (
+              {guestEditing && !isViewerMode ? (
                 /* ====== EDIT MODE ====== */
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
@@ -1172,6 +1202,7 @@ export default function ReservationDetailPage() {
                     ملاحظات
                   </CardTitle>
                 </div>
+                {!isViewerMode && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1182,6 +1213,7 @@ export default function ReservationDetailPage() {
                   <Save className="h-4 w-4 ml-1" />
                   {notesSaving ? 'جارٍ الحفظ...' : 'حفظ'}
                 </Button>
+                )}
               </div>
             </CardHeader>
             <CardContent className="relative z-10 pt-4 space-y-4">
@@ -1191,6 +1223,8 @@ export default function ReservationDetailPage() {
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   rows={4}
+                  readOnly={isViewerMode}
+                  disabled={isViewerMode}
                   className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-2 hover:border-amber-400 transition-all resize-none"
                   placeholder="أضف ملاحظات..."
                   dir="rtl"

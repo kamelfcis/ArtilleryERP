@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation'
 import { DashboardLayout } from './DashboardLayout'
 import { RoleGuard } from '@/components/auth/RoleGuard'
+import { ViewerGuard } from '@/components/auth/ViewerGuard'
 import { SidebarProvider } from '@/contexts/SidebarContext'
 import { CalendarFilterProvider } from '@/contexts/CalendarFilterContext'
 
@@ -23,12 +24,14 @@ export function AppLayoutWrapper({ children }: { children: React.ReactNode }) {
   )
 
   return (
-    <RoleGuard allowedRoles={['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff']}>
-      {isCalendarPage ? (
-        <CalendarFilterProvider>{layout}</CalendarFilterProvider>
-      ) : (
-        layout
-      )}
+    <RoleGuard allowedRoles={['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff', 'Viewer']}>
+      <ViewerGuard>
+        {isCalendarPage ? (
+          <CalendarFilterProvider>{layout}</CalendarFilterProvider>
+        ) : (
+          layout
+        )}
+      </ViewerGuard>
     </RoleGuard>
   )
 }

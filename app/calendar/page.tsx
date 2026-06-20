@@ -16,6 +16,12 @@ import { useUnits } from '@/lib/hooks/use-units'
 import { useLocations } from '@/lib/hooks/use-locations'
 import { useCurrentStaff, useStaffList } from '@/lib/hooks/use-staff'
 import { useAuth } from '@/contexts/AuthContext'
+import { isRocketScopedUser } from '@/lib/constants/rocket-hotel'
+import {
+  getRocketManagedLocationIdsFromEnv,
+  isRocketManagedLocation,
+} from '@/lib/constants/rocket-locations'
+import { isViewerUser } from '@/lib/constants/viewer-user'
 import { useReservationsRealtime } from '@/lib/hooks/use-realtime'
 import { useGuests, useCreateGuest } from '@/lib/hooks/use-guests'
 import type { Guest } from '@/lib/types/database'
@@ -202,7 +208,9 @@ export default function CalendarPage() {
   const { hasRole, user, elevatedOps } = useAuth()
   const { data: currentStaff, isLoading: currentStaffLoading } = useCurrentStaff()
   const { data: allStaff } = useStaffList(undefined, { enabled: loadTooltipData })
-  const isStaffOnly = hasRole('Staff') && !hasRole('SuperAdmin') && !hasRole('BranchManager')
+  const isViewerMode = hasRole('Viewer')
+  const isRocketScoped = isRocketScopedUser(user?.email)
+  const isStaffOnly = hasRole('Staff') && !hasRole('SuperAdmin') && !hasRole('BranchManager') && !isViewerMode
 
   useEffect(() => {
     const schedule = () => setLoadTooltipData(true)
@@ -257,6 +265,20 @@ export default function CalendarPage() {
     : (selectedLocation !== 'all' ? selectedLocation : undefined)
 
   const { data: locations, isLoading: locationsLoading } = useLocations()
+
+  const rocketManagedLocationIds = useMemo(() => {
+    if (!isRocketScoped || !locations) return null as string[] | null
+    const rocketIds = getRocketManagedLocationIdsFromEnv()
+    if (rocketIds) return rocketIds.filter((id) => locations.some((l) => l.id === id))
+    return locations.filter(isRocketManagedLocation).map((l) => l.id)
+  }, [isRocketScoped, locations])
+
+  const displayedLocations = useMemo(() => {
+    if (!locations) return locations
+    if (!isRocketScoped || !rocketManagedLocationIds?.length) return locations
+    return locations.filter((l) => rocketManagedLocationIds.includes(l.id))
+  }, [locations, isRocketScoped, rocketManagedLocationIds])
+
   // Fetch all units for the location (no type filter) to derive available unit types for the dropdown.
   // onlyCalendarFields trims the select to slim columns — no nested images/facilities/location objects.
   const { data: allLocationUnits, isLoading: unitsLoading } = useUnits({
@@ -269,9 +291,13 @@ export default function CalendarPage() {
 
   const units = useMemo(() => {
     if (!allLocationUnits) return undefined
-    if (selectedTypesSet.size === 0) return allLocationUnits
-    return allLocationUnits.filter(u => selectedTypesSet.has(u.type))
-  }, [allLocationUnits, selectedTypesSet])
+    let list = allLocationUnits
+    if (isRocketScoped && rocketManagedLocationIds?.length) {
+      list = list.filter((u) => rocketManagedLocationIds.includes(u.location_id))
+    }
+    if (selectedTypesSet.size === 0) return list
+    return list.filter(u => selectedTypesSet.has(u.type))
+  }, [allLocationUnits, selectedTypesSet, isRocketScoped, rocketManagedLocationIds])
 
   // Compute available unit types from all units at this location
   const availableUnitTypes = useMemo(() => {
@@ -1357,10 +1383,11 @@ export default function CalendarPage() {
         setRangeEnd={setRangeEnd}
         shiftRange={shiftRange}
         getTodayString={getTodayString}
-        locations={locations}
+        locations={displayedLocations}
         units={units}
         availableUnitTypes={availableUnitTypes}
         isStaffOnly={isStaffOnly}
+        isViewerMode={isViewerMode}
         currentStaff={currentStaff}
         isUpdatingStatuses={isUpdatingStatuses}
         updateUnitStatuses={updateUnitStatuses}
@@ -1382,6 +1409,7 @@ export default function CalendarPage() {
         pendingIds={pendingIds}
         hasRole={hasRole}
         elevatedOps={elevatedOps}
+        readOnly={isViewerMode}
         staffByUserId={staffByUserId}
         onDateSelect={handleDateSelect}
         onEventClick={handleEventClick}

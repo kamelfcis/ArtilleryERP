@@ -5,7 +5,8 @@ INSERT INTO roles (name, description) VALUES
   ('SuperAdmin', 'Full system access'),
   ('BranchManager', 'Manage specific location'),
   ('Receptionist', 'Create and manage reservations'),
-  ('Accountant', 'Manage accounts and services');
+  ('Accountant', 'Manage accounts and services'),
+  ('Viewer', 'Read-only calendar and reservations access');
 
 -- Insert Permissions
 INSERT INTO permissions (name, resource, action) VALUES

@@ -34,6 +34,7 @@ interface Props {
   units: any[] | undefined
   availableUnitTypes: string[]
   isStaffOnly: boolean
+  isViewerMode?: boolean
   currentStaff: any
   isUpdatingStatuses: boolean
   updateUnitStatuses: () => void
@@ -63,6 +64,7 @@ export function CalendarFilterSheet({
   units,
   availableUnitTypes,
   isStaffOnly,
+  isViewerMode = false,
   currentStaff,
   isUpdatingStatuses,
   updateUnitStatuses,
@@ -374,6 +376,7 @@ export function CalendarFilterSheet({
               الإجراءات والعرض
             </Label>
             <div className="flex flex-col gap-3">
+              {!isViewerMode && (
               <Button
                 onClick={updateUnitStatuses}
                 disabled={isUpdatingStatuses}
@@ -384,6 +387,7 @@ export function CalendarFilterSheet({
                 />
                 {isUpdatingStatuses ? 'جاري التحديث...' : 'تحديث'}
               </Button>
+              )}
               <CalendarViewSwitcher
                 currentView={currentView}
                 onViewChange={(view) => {
