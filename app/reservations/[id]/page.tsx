@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useReservation, useUpdateReservation } from '@/lib/hooks/use-reservations'
 import { useGuests, useUpdateGuest } from '@/lib/hooks/use-guests'
@@ -31,6 +31,9 @@ import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { calculateReservationPrice } from '@/lib/utils/pricing'
 import { getReservationNights, formatNightsArabic } from '@/lib/utils/reservation-dates'
+import { isRocketHotelEmail } from '@/lib/constants/rocket-hotel'
+import { isAlarmEligibleLocation } from '@/lib/constants/rocket-locations'
+import { useLocations } from '@/lib/hooks/use-locations'
 
 const GUEST_TYPE_OPTIONS = [
   { value: 'military', label: 'عسكري' },
@@ -62,11 +65,20 @@ export default function ReservationDetailPage() {
   const params = useParams()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const { hasRole, elevatedOps } = useAuth()
+  const { user, hasRole, elevatedOps } = useAuth()
   const restrictedBranchManager =
     hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
+  const isRocketUser = isRocketHotelEmail(user?.email)
+  const { data: locations } = useLocations()
   const id = params.id as string
   const { data: reservation, isLoading } = useReservation(id)
+
+  const rocketCanChangeStatus = useMemo(() => {
+    if (!isRocketUser || !reservation?.unit?.location_id) return false
+    return isAlarmEligibleLocation(reservation.unit.location_id, locations || [])
+  }, [isRocketUser, reservation?.unit?.location_id, locations])
+
+  const statusSelectRestricted = restrictedBranchManager && !rocketCanChangeStatus
   const updateReservation = useUpdateReservation()
   const updateGuest = useUpdateGuest()
 
@@ -510,14 +522,14 @@ export default function ReservationDetailPage() {
                 <Select
                   value={reservation.status}
                   onValueChange={handleStatusChange}
-                  disabled={restrictedBranchManager}
+                  disabled={statusSelectRestricted}
                 >
                   <SelectTrigger className="w-[180px] bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-2 hover:border-primary/50 transition-all">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {Object.entries(RESERVATION_STATUSES)
-                      .filter(([value]) => !restrictedBranchManager || value === 'pending' || value === 'cancelled')
+                      .filter(([value]) => !statusSelectRestricted || value === 'pending' || value === 'cancelled')
                       .map(([value, label]) => (
                       <SelectItem key={value} value={value}>
                         {label}

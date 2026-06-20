@@ -15,6 +15,7 @@ import { Trash2, CheckCircle, XCircle } from 'lucide-react'
 import { useUpdateReservation, useDeleteReservation } from '@/lib/hooks/use-reservations'
 import { ReservationStatus } from '@/lib/types/database'
 import { useAuth } from '@/contexts/AuthContext'
+import { isRocketHotelEmail } from '@/lib/constants/rocket-hotel'
 
 interface BulkActionsProps {
   selectedIds: string[]
@@ -22,12 +23,14 @@ interface BulkActionsProps {
 }
 
 export function BulkActions({ selectedIds, onClearSelection }: BulkActionsProps) {
-  const { hasRole, elevatedOps } = useAuth()
+  const { user, hasRole, elevatedOps } = useAuth()
   const restrictedBranchManager =
     hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
+  const isRocketUser = isRocketHotelEmail(user?.email)
+  const statusRestricted = restrictedBranchManager && !isRocketUser
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [newStatus, setNewStatus] = useState<ReservationStatus>(restrictedBranchManager ? 'pending' : 'confirmed')
+  const [newStatus, setNewStatus] = useState<ReservationStatus>(statusRestricted ? 'pending' : 'confirmed')
   const updateReservation = useUpdateReservation()
   const deleteReservation = useDeleteReservation()
 
@@ -108,9 +111,9 @@ export function BulkActions({ selectedIds, onClearSelection }: BulkActionsProps)
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pending">قيد الانتظار</SelectItem>
-                  {!restrictedBranchManager && <SelectItem value="confirmed">مؤكد</SelectItem>}
-                  {!restrictedBranchManager && <SelectItem value="checked_in">تم تسجيل الدخول</SelectItem>}
-                  {!restrictedBranchManager && <SelectItem value="checked_out">تم تسجيل الخروج</SelectItem>}
+                  {!statusRestricted && <SelectItem value="confirmed">مؤكد</SelectItem>}
+                  {!statusRestricted && <SelectItem value="checked_in">تم تسجيل الدخول</SelectItem>}
+                  {!statusRestricted && <SelectItem value="checked_out">تم تسجيل الخروج</SelectItem>}
                   <SelectItem value="cancelled">ملغي</SelectItem>
                 </SelectContent>
               </Select>
@@ -126,7 +129,7 @@ export function BulkActions({ selectedIds, onClearSelection }: BulkActionsProps)
           </DialogContent>
         </Dialog>
 
-        {!restrictedBranchManager && <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        {!statusRestricted && <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
           <DialogTrigger asChild>
             <Button variant="outline" size="sm">
               <Trash2 className="mr-2 h-4 w-4" />

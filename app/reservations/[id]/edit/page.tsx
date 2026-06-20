@@ -19,7 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Plus, Calendar, User, Home, DollarSign, FileText, Edit, ArrowRight, Save, X, MapPin, Users, CreditCard, Percent, Receipt } from 'lucide-react'
 import { GuestForm } from '@/components/forms/GuestForm'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { formatCurrency } from '@/lib/utils'
@@ -29,17 +29,27 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { RESERVATION_STATUSES, RESERVATION_STATUS_COLORS, RESERVATION_SOURCES } from '@/lib/constants'
 import { useAuth } from '@/contexts/AuthContext'
+import { isRocketHotelEmail } from '@/lib/constants/rocket-hotel'
+import { isAlarmEligibleLocation } from '@/lib/constants/rocket-locations'
 
 export default function EditReservationPage() {
   const params = useParams()
   const router = useRouter()
-  const { hasRole, elevatedOps } = useAuth()
+  const { user, hasRole, elevatedOps } = useAuth()
   const restrictedBranchManager =
     hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
+  const isRocketUser = isRocketHotelEmail(user?.email)
   const id = params.id as string
   const { data: reservation, isLoading } = useReservation(id)
   const updateReservation = useUpdateReservation()
   const { data: locations } = useLocations()
+
+  const rocketCanChangeStatus = useMemo(() => {
+    if (!isRocketUser || !reservation?.unit?.location_id) return false
+    return isAlarmEligibleLocation(reservation.unit.location_id, locations || [])
+  }, [isRocketUser, reservation?.unit?.location_id, locations])
+
+  const statusSelectRestricted = restrictedBranchManager && !rocketCanChangeStatus
   const { data: units } = useUnits()
   const { data: guests } = useGuests()
   const { data: pricingData } = usePricing({ isActive: true })
@@ -445,14 +455,14 @@ export default function EditReservationPage() {
                     <Select
                       value={watch('status')}
                       onValueChange={(value) => setValue('status', value as any)}
-                      disabled={restrictedBranchManager}
+                      disabled={statusSelectRestricted}
                     >
                       <SelectTrigger className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border-2 hover:border-blue-400 transition-all">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         {Object.entries(RESERVATION_STATUSES)
-                          .filter(([value]) => !restrictedBranchManager || value === 'pending' || value === 'cancelled')
+                          .filter(([value]) => !statusSelectRestricted || value === 'pending' || value === 'cancelled')
                           .map(([value, label]) => (
                           <SelectItem key={value} value={value}>
                             {label}
