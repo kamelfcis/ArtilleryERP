@@ -1,28 +1,34 @@
 'use client'
 
-import { useReservations } from '@/lib/hooks/use-reservations'
+import { useDashboardStats } from '@/lib/hooks/use-dashboard-stats'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { RESERVATION_STATUSES, RESERVATION_STATUS_COLORS } from '@/lib/constants'
 import { useMemo } from 'react'
 
-export function StatusDistribution() {
-  const { data: reservations, isLoading } = useReservations()
+interface StatusDistributionProps {
+  locationId?: string
+}
+
+export function StatusDistribution({ locationId }: StatusDistributionProps = {}) {
+  const { data: stats, isLoading } = useDashboardStats(
+    locationId ? { locationId } : undefined
+  )
 
   const distribution = useMemo(() => {
-    if (!reservations) return []
+    if (!stats) return []
 
-    const counts: Record<string, number> = {}
-    reservations.forEach(r => {
-      counts[r.status] = (counts[r.status] || 0) + 1
-    })
+    const total = stats.totalReservations
+    if (total === 0) return []
 
-    return Object.entries(counts).map(([status, count]) => ({
-      status,
-      count,
-      percentage: (count / reservations.length) * 100,
-    }))
-  }, [reservations])
+    return Object.entries(stats.statusCounts)
+      .filter(([, count]) => count > 0)
+      .map(([status, count]) => ({
+        status,
+        count,
+        percentage: (count / total) * 100,
+      }))
+  }, [stats])
 
   if (isLoading) {
     return (
@@ -84,4 +90,3 @@ export function StatusDistribution() {
     </Card>
   )
 }
-

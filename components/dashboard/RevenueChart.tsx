@@ -1,42 +1,20 @@
 'use client'
 
-import { useReservations } from '@/lib/hooks/use-reservations'
+import { useDashboardStats } from '@/lib/hooks/use-dashboard-stats'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatCurrency } from '@/lib/utils'
-import { useMemo } from 'react'
 
 interface RevenueChartProps {
   locationId?: string
 }
 
 export function RevenueChart({ locationId }: RevenueChartProps = {}) {
-  const { data: reservations, isLoading } = useReservations(
+  const { data: stats, isLoading } = useDashboardStats(
     locationId ? { locationId } : undefined
   )
 
-  const monthlyRevenue = useMemo(() => {
-    if (!reservations) return []
-
-    const months: Record<string, number> = {}
-    
-    reservations.forEach(reservation => {
-      if (reservation.status !== 'cancelled' && reservation.status !== 'no_show') {
-        const date = new Date(reservation.check_in_date)
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-        months[monthKey] = (months[monthKey] || 0) + reservation.total_amount
-      }
-    })
-
-    return Object.entries(months)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-6) // Last 6 months
-      .map(([month, revenue]) => ({
-        month,
-        revenue,
-      }))
-  }, [reservations])
-
+  const monthlyRevenue = stats?.monthlyRevenue ?? []
   const maxRevenue = Math.max(...monthlyRevenue.map(m => m.revenue), 1)
 
   if (isLoading) {
@@ -95,4 +73,3 @@ export function RevenueChart({ locationId }: RevenueChartProps = {}) {
     </Card>
   )
 }
-

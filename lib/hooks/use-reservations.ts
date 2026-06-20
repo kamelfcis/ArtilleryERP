@@ -47,7 +47,7 @@ type ReservationFilters = {
   fetchAll?: boolean
 }
 
-async function fetchReservations(filters?: ReservationFilters): Promise<Reservation[]> {
+export async function fetchReservations(filters?: ReservationFilters): Promise<Reservation[]> {
   // If filtering by location, first get units for that location
   let unitIds: string[] | undefined
   if (filters?.locationId) {
@@ -203,6 +203,7 @@ export function useCreateReservation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
       queryClient.invalidateQueries({ queryKey: ['calendar-window'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
     },
   })
 }
@@ -296,6 +297,7 @@ export function useUpdateReservation() {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
       queryClient.invalidateQueries({ queryKey: ['reservation', data.id] })
       queryClient.invalidateQueries({ queryKey: ['calendar-window'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
     },
   })
 }
@@ -317,6 +319,7 @@ export function useDeleteReservation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
       queryClient.invalidateQueries({ queryKey: ['calendar-window'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
     },
   })
 }

@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useReservations } from '@/lib/hooks/use-reservations'
+import { useDashboardStats } from '@/lib/hooks/use-dashboard-stats'
 import { useUnits } from '@/lib/hooks/use-units'
 import { useGuests } from '@/lib/hooks/use-guests'
 import { useLocations } from '@/lib/hooks/use-locations'
@@ -44,6 +45,9 @@ export default function DashboardPage() {
     : (selectedLocationId !== 'all' ? selectedLocationId : undefined)
 
   const { data: locations } = useLocations()
+  const { data: dashboardStats, isLoading: statsLoading } = useDashboardStats(
+    effectiveLocationId ? { locationId: effectiveLocationId } : undefined
+  )
   const { data: reservations, isLoading: reservationsLoading } = useReservations(
     effectiveLocationId ? { locationId: effectiveLocationId } : undefined
   )
@@ -60,43 +64,13 @@ export default function DashboardPage() {
     router.prefetch('/units')
   }, [router])
 
-  const isLoading = reservationsLoading || unitsLoading || guestsLoading
-
-  // Calculate today's revenue
-  const todayRevenue = useMemo(() => {
-    if (!reservations) return 0
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    
-    return reservations
-      .filter(r => {
-        const checkIn = new Date(r.check_in_date)
-        checkIn.setHours(0, 0, 0, 0)
-        return checkIn.getTime() === today.getTime() && 
-               r.status !== 'cancelled' && 
-               r.status !== 'no_show'
-      })
-      .reduce((sum, r) => sum + (r.total_amount || 0), 0)
-  }, [reservations])
-
-  // Calculate total revenue
-  const totalRevenue = useMemo(() => {
-    if (!reservations) return 0
-    return reservations
-      .filter(r => r.status !== 'cancelled' && r.status !== 'no_show')
-      .reduce((sum, r) => sum + (r.total_amount || 0), 0)
-  }, [reservations])
-
-  // Calculate pending reservations count
-  const pendingReservations = useMemo(() => {
-    if (!reservations) return 0
-    return reservations.filter(r => r.status === 'pending').length
-  }, [reservations])
+  const isLoading = statsLoading || unitsLoading || guestsLoading
 
   const stats = [
     {
       title: 'إجمالي الحجوزات',
-      value: reservations?.length || 0,
+      value: dashboardStats?.totalReservations ?? 0,
+      loading: statsLoading,
       icon: Calendar,
       gradient: 'from-blue-500 via-blue-600 to-indigo-600',
       iconBg: 'bg-white/20',
@@ -107,6 +81,7 @@ export default function DashboardPage() {
     {
       title: 'الوحدات المتاحة',
       value: units?.filter(u => u.status === 'available').length || 0,
+      loading: unitsLoading,
       icon: Home,
       gradient: 'from-green-500 via-emerald-600 to-teal-600',
       iconBg: 'bg-white/20',
@@ -116,7 +91,8 @@ export default function DashboardPage() {
     },
     {
       title: 'إيرادات اليوم',
-      value: formatCurrency(todayRevenue),
+      value: formatCurrency(dashboardStats?.todayRevenue ?? 0),
+      loading: statsLoading,
       icon: DollarSign,
       gradient: 'from-orange-500 via-amber-600 to-yellow-600',
       iconBg: 'bg-white/20',
@@ -126,7 +102,8 @@ export default function DashboardPage() {
     },
     {
       title: 'إجمالي الإيرادات',
-      value: formatCurrency(totalRevenue),
+      value: formatCurrency(dashboardStats?.totalRevenue ?? 0),
+      loading: statsLoading,
       icon: TrendingUp,
       gradient: 'from-emerald-500 via-green-600 to-teal-600',
       iconBg: 'bg-white/20',
@@ -136,7 +113,8 @@ export default function DashboardPage() {
     },
     {
       title: 'حجوزات قيد الانتظار',
-      value: pendingReservations,
+      value: dashboardStats?.pendingReservations ?? 0,
+      loading: statsLoading,
       icon: AlertCircle,
       gradient: 'from-yellow-500 via-amber-600 to-orange-600',
       iconBg: 'bg-white/20',
@@ -147,7 +125,7 @@ export default function DashboardPage() {
   ]
 
   // Show skeleton during initial load for smooth transition
-  if (isLoading && !reservations && !units && !guests) {
+  if (isLoading && !dashboardStats && !units && !guests) {
     return <DashboardSkeleton />
   }
 
@@ -370,7 +348,7 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {stats.map((stat, index) => {
           const Icon = stat.icon
-          const isLoading = reservationsLoading || unitsLoading || guestsLoading
+          const cardLoading = stat.loading
 
           return (
             <motion.div
@@ -440,7 +418,7 @@ export default function DashboardPage() {
                   </motion.div>
                 </CardHeader>
                 <CardContent className="relative z-10">
-                  {isLoading ? (
+                  {cardLoading ? (
                     <Skeleton className="h-8 w-20 bg-white/20" />
                   ) : (
                     <motion.div
@@ -473,7 +451,7 @@ export default function DashboardPage() {
       {/* Charts Section */}
       <div className="grid gap-4 md:grid-cols-2">
         <RevenueChart locationId={effectiveLocationId} />
-        <StatusDistribution />
+        <StatusDistribution locationId={effectiveLocationId} />
       </div>
 
       {/* Services and Notifications */}

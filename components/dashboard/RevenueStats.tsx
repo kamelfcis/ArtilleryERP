@@ -1,10 +1,9 @@
 'use client'
 
-import { useReservations } from '@/lib/hooks/use-reservations'
+import { useDashboardStats } from '@/lib/hooks/use-dashboard-stats'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatCurrency } from '@/lib/utils'
-import { useMemo } from 'react'
 import { DollarSign, TrendingUp, TrendingDown, Calendar } from 'lucide-react'
 import { motion } from 'framer-motion'
 
@@ -13,68 +12,9 @@ interface RevenueStatsProps {
 }
 
 export function RevenueStats({ locationId }: RevenueStatsProps = {}) {
-  const { data: reservations, isLoading } = useReservations(
+  const { data: stats, isLoading } = useDashboardStats(
     locationId ? { locationId } : undefined
   )
-
-  const stats = useMemo(() => {
-    if (!reservations) return null
-
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const thisMonth = new Date(today.getFullYear(), today.getMonth(), 1)
-    const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1)
-    const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0)
-
-    const todayRevenue = reservations
-      .filter(r => {
-        const checkIn = new Date(r.check_in_date)
-        checkIn.setHours(0, 0, 0, 0)
-        return checkIn.getTime() === today.getTime() && 
-               r.status !== 'cancelled' && 
-               r.status !== 'no_show'
-      })
-      .reduce((sum, r) => sum + (r.total_amount || 0), 0)
-
-    const thisMonthRevenue = reservations
-      .filter(r => {
-        const checkIn = new Date(r.check_in_date)
-        return checkIn >= thisMonth && 
-               r.status !== 'cancelled' && 
-               r.status !== 'no_show'
-      })
-      .reduce((sum, r) => sum + (r.total_amount || 0), 0)
-
-    const lastMonthRevenue = reservations
-      .filter(r => {
-        const checkIn = new Date(r.check_in_date)
-        return checkIn >= lastMonth && 
-               checkIn <= lastMonthEnd &&
-               r.status !== 'cancelled' && 
-               r.status !== 'no_show'
-      })
-      .reduce((sum, r) => sum + (r.total_amount || 0), 0)
-
-    const totalRevenue = reservations
-      .filter(r => r.status !== 'cancelled' && r.status !== 'no_show')
-      .reduce((sum, r) => sum + (r.total_amount || 0), 0)
-
-    const averageRevenue = reservations.length > 0 
-      ? totalRevenue / reservations.length 
-      : 0
-
-    const monthlyGrowth = lastMonthRevenue > 0
-      ? ((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100
-      : 0
-
-    return {
-      today: todayRevenue,
-      thisMonth: thisMonthRevenue,
-      total: totalRevenue,
-      average: averageRevenue,
-      monthlyGrowth,
-    }
-  }, [reservations])
 
   if (isLoading) {
     return (
@@ -116,7 +56,7 @@ export function RevenueStats({ locationId }: RevenueStatsProps = {}) {
                 </div>
                 <span className="text-sm font-semibold text-white/90">إيرادات اليوم</span>
               </div>
-              <div className="text-2xl font-bold text-white drop-shadow-lg">{formatCurrency(stats.today)}</div>
+              <div className="text-2xl font-bold text-white drop-shadow-lg">{formatCurrency(stats.todayRevenue)}</div>
             </motion.div>
             <motion.div
               whileHover={{ scale: 1.05, y: -4 }}
@@ -128,7 +68,7 @@ export function RevenueStats({ locationId }: RevenueStatsProps = {}) {
                 </div>
                 <span className="text-sm font-semibold text-white/90">إيرادات الشهر</span>
               </div>
-              <div className="text-2xl font-bold text-white drop-shadow-lg">{formatCurrency(stats.thisMonth)}</div>
+              <div className="text-2xl font-bold text-white drop-shadow-lg">{formatCurrency(stats.thisMonthRevenue)}</div>
             </motion.div>
             <motion.div
               whileHover={{ scale: 1.05, y: -4 }}
@@ -140,7 +80,7 @@ export function RevenueStats({ locationId }: RevenueStatsProps = {}) {
                 </div>
                 <span className="text-sm font-semibold text-white/90">إجمالي الإيرادات</span>
               </div>
-              <div className="text-2xl font-bold text-white drop-shadow-lg">{formatCurrency(stats.total)}</div>
+              <div className="text-2xl font-bold text-white drop-shadow-lg">{formatCurrency(stats.totalRevenue)}</div>
             </motion.div>
             <motion.div
               whileHover={{ scale: 1.05, y: -4 }}
@@ -152,7 +92,7 @@ export function RevenueStats({ locationId }: RevenueStatsProps = {}) {
                 </div>
                 <span className="text-sm font-semibold text-white/90">متوسط الحجز</span>
               </div>
-              <div className="text-2xl font-bold text-white drop-shadow-lg">{formatCurrency(stats.average)}</div>
+              <div className="text-2xl font-bold text-white drop-shadow-lg">{formatCurrency(stats.averageRevenue)}</div>
             </motion.div>
           </div>
           <div className="pt-4 border-t border-emerald-200/50 dark:border-emerald-800/50">
@@ -175,4 +115,3 @@ export function RevenueStats({ locationId }: RevenueStatsProps = {}) {
     </Card>
   )
 }
-
