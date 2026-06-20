@@ -11,24 +11,31 @@ import { Button } from '@/components/ui/button'
 
 interface ServicesWidgetProps {
   locationId?: string
+  locationIds?: string[]
 }
 
-export function ServicesWidget({ locationId }: ServicesWidgetProps = {}) {
+export function ServicesWidget({ locationId, locationIds }: ServicesWidgetProps = {}) {
+  const scopeKey = locationId ?? locationIds?.slice().sort().join(',') ?? 'all'
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['services-stats', locationId],
+    queryKey: ['services-stats', scopeKey],
     queryFn: async () => {
       const today = new Date()
       const startOfDay = new Date(today.setHours(0, 0, 0, 0)).toISOString()
       const endOfDay = new Date(today.setHours(23, 59, 59, 999)).toISOString()
 
-      // If filtering by location, first get reservations for that location
       let reservationIds: string[] | undefined
-      if (locationId) {
-        // Get units for this location
+      const scopedLocationIds =
+        locationIds && locationIds.length > 0
+          ? locationIds
+          : locationId
+            ? [locationId]
+            : null
+
+      if (scopedLocationIds) {
         const { data: units, error: unitsError } = await supabase
           .from('units')
           .select('id')
-          .eq('location_id', locationId)
+          .in('location_id', scopedLocationIds)
           .eq('is_active', true)
 
         if (unitsError) throw unitsError

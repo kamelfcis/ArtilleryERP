@@ -1,14 +1,20 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useReservations } from '@/lib/hooks/use-reservations'
-import { useDashboardStats } from '@/lib/hooks/use-dashboard-stats'
+import { useDashboardStats, type DashboardStatsFilters } from '@/lib/hooks/use-dashboard-stats'
 import { useUnits } from '@/lib/hooks/use-units'
 import { useGuests } from '@/lib/hooks/use-guests'
 import { useLocations } from '@/lib/hooks/use-locations'
 import { useCurrentStaff } from '@/lib/hooks/use-staff'
 import { useAuth } from '@/contexts/AuthContext'
+import { isRocketScopedUser } from '@/lib/constants/rocket-hotel'
+import {
+  getRocketManagedLocationIdsFromEnv,
+  isKingTutLocation,
+  isRocketManagedLocation,
+} from '@/lib/constants/rocket-locations'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Calendar, Users, Home, DollarSign, TrendingUp, AlertCircle, BarChart3, MapPin, Building2, Waves, Trees, Hotel, Castle, Mountain, Palmtree, Tent, Ship, Anchor } from 'lucide-react'
@@ -34,26 +40,62 @@ export default function DashboardPage() {
   const router = useRouter()
   const [selectedLocationId, setSelectedLocationId] = useState<string>('all')
   
-  // Check if user is Staff-only (not admin/manager)
-  const { hasRole } = useAuth()
+  const { hasRole, user } = useAuth()
   const { data: currentStaff } = useCurrentStaff()
+  const isRocketScoped = isRocketScopedUser(user?.email)
   const isStaffOnly = hasRole('Staff') && !hasRole('SuperAdmin') && !hasRole('BranchManager')
-  
-  // For Staff users, force their location; for admins, use selected location
-  const effectiveLocationId = isStaffOnly && currentStaff?.location_id 
-    ? currentStaff.location_id 
-    : (selectedLocationId !== 'all' ? selectedLocationId : undefined)
 
   const { data: locations } = useLocations()
-  const { data: dashboardStats, isLoading: statsLoading } = useDashboardStats(
-    effectiveLocationId ? { locationId: effectiveLocationId } : undefined
-  )
-  const { data: reservations, isLoading: reservationsLoading } = useReservations(
-    effectiveLocationId ? { locationId: effectiveLocationId } : undefined
-  )
-  const { data: units, isLoading: unitsLoading } = useUnits(
-    effectiveLocationId ? { locationId: effectiveLocationId } : undefined
-  )
+
+  const rocketManagedLocationIds = useMemo(() => {
+    if (!isRocketScoped || !locations) return null as string[] | null
+    const rocketIds = getRocketManagedLocationIdsFromEnv()
+    if (rocketIds) return rocketIds.filter((id) => locations.some((l) => l.id === id))
+    return locations.filter(isRocketManagedLocation).map((l) => l.id)
+  }, [isRocketScoped, locations])
+
+  const visibleLocations = useMemo(() => {
+    if (!locations) return []
+    let list = locations.filter((l) => !isKingTutLocation(l))
+    if (isRocketScoped && rocketManagedLocationIds?.length) {
+      list = list.filter((l) => rocketManagedLocationIds.includes(l.id))
+    }
+    return list
+  }, [locations, isRocketScoped, rocketManagedLocationIds])
+
+  const statsFilters = useMemo((): DashboardStatsFilters | undefined => {
+    if (isStaffOnly && currentStaff?.location_id) {
+      return { locationId: currentStaff.location_id }
+    }
+    if (selectedLocationId !== 'all') {
+      return { locationId: selectedLocationId }
+    }
+    if (isRocketScoped && rocketManagedLocationIds?.length) {
+      return { locationIds: rocketManagedLocationIds }
+    }
+    return undefined
+  }, [isStaffOnly, currentStaff?.location_id, selectedLocationId, isRocketScoped, rocketManagedLocationIds])
+
+  const effectiveLocationId =
+    isStaffOnly && currentStaff?.location_id
+      ? currentStaff.location_id
+      : selectedLocationId !== 'all'
+        ? selectedLocationId
+        : undefined
+
+  const reservationFilters = useMemo(() => {
+    if (effectiveLocationId) return { locationId: effectiveLocationId }
+    if (isRocketScoped && rocketManagedLocationIds?.length) {
+      return { locationIds: rocketManagedLocationIds }
+    }
+    return undefined
+  }, [effectiveLocationId, isRocketScoped, rocketManagedLocationIds])
+
+  const unitFilters = reservationFilters
+
+  const { data: dashboardStats, isLoading: statsLoading } = useDashboardStats(statsFilters)
+  const { data: reservations, isLoading: reservationsLoading } = useReservations(reservationFilters)
+  const { data: units, isLoading: unitsLoading } = useUnits(unitFilters)
   const { data: guests, isLoading: guestsLoading } = useGuests()
 
   // Prefetch common routes for instant navigation
@@ -219,7 +261,7 @@ export default function DashboardPage() {
       )}
 
       {/* Location Filter Toggle Buttons - Only show for admins, not for Staff-only users */}
-      {!isStaffOnly && locations && locations.length > 0 && (
+      {!isStaffOnly && visibleLocations.length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -231,6 +273,7 @@ export default function DashboardPage() {
             <span>فلترة حسب الموقع:</span>
           </div>
           <div className="flex flex-wrap gap-2">
+            {!isRocketScoped && (
             <Button
               variant={selectedLocationId === 'all' ? 'default' : 'outline'}
               size="sm"
@@ -245,8 +288,8 @@ export default function DashboardPage() {
               <Building2 className="h-4 w-4" />
               جميع المواقع
             </Button>
-            {/* Sort locations: Arabic names first, then English */}
-            {[...locations]
+            )}
+            {[...visibleLocations]
               .sort((a, b) => {
                 const nameA = a.name_ar || a.name
                 const nameB = b.name_ar || b.name
@@ -443,20 +486,34 @@ export default function DashboardPage() {
 
       {/* Detailed Stats Section */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <RevenueStats locationId={effectiveLocationId} />
-        <UnitsStats locationId={effectiveLocationId} />
+        <RevenueStats filters={statsFilters} />
+        <UnitsStats
+          locationId={effectiveLocationId}
+          locationIds={
+            !effectiveLocationId && isRocketScoped && rocketManagedLocationIds?.length
+              ? rocketManagedLocationIds
+              : undefined
+          }
+        />
         <GuestsStats />
       </div>
 
       {/* Charts Section */}
       <div className="grid gap-4 md:grid-cols-2">
-        <RevenueChart locationId={effectiveLocationId} />
-        <StatusDistribution locationId={effectiveLocationId} />
+        <RevenueChart filters={statsFilters} />
+        <StatusDistribution filters={statsFilters} />
       </div>
 
       {/* Services and Notifications */}
       <div className="grid gap-4 md:grid-cols-2">
-        <ServicesWidget locationId={effectiveLocationId} />
+        <ServicesWidget
+          locationId={effectiveLocationId}
+          locationIds={
+            !effectiveLocationId && isRocketScoped && rocketManagedLocationIds?.length
+              ? rocketManagedLocationIds
+              : undefined
+          }
+        />
         <ServiceNotifications />
       </div>
 
@@ -465,7 +522,14 @@ export default function DashboardPage() {
 
       {/* Reservations Timeline and Recent */}
       <div className="grid gap-4 md:grid-cols-2">
-        <ReservationsTimeline locationId={effectiveLocationId} />
+        <ReservationsTimeline
+          locationId={effectiveLocationId}
+          locationIds={
+            !effectiveLocationId && isRocketScoped && rocketManagedLocationIds?.length
+              ? rocketManagedLocationIds
+              : undefined
+          }
+        />
         
         <Card>
           <CardHeader>

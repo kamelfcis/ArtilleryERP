@@ -9,11 +9,16 @@ import { motion } from 'framer-motion'
 
 interface UnitsStatsProps {
   locationId?: string
+  locationIds?: string[]
 }
 
-export function UnitsStats({ locationId }: UnitsStatsProps = {}) {
+export function UnitsStats({ locationId, locationIds }: UnitsStatsProps = {}) {
   const { data: units, isLoading } = useUnits(
-    locationId ? { locationId } : undefined
+    locationId
+      ? { locationId }
+      : locationIds?.length
+        ? { locationIds }
+        : undefined
   )
 
   const stats = useMemo(() => {

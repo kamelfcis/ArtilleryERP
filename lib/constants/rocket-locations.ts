@@ -6,6 +6,17 @@ export function getRocketManagedLocationIdsFromEnv(): string[] | null {
   return ids.length > 0 ? ids : null
 }
 
+/** King Tut hotel — hidden from rocket-scoped users. */
+export function isKingTutLocation(loc: { name: string; name_ar: string }): boolean {
+  const ar = loc.name_ar || ''
+  const bundle = `${loc.name} ${loc.name_ar}`.toLowerCase()
+  return (
+    ar.includes('كينج توت') ||
+    bundle.includes('king tut') ||
+    (bundle.includes('king') && bundle.includes('tut'))
+  )
+}
+
 /** Rocket Beach + قرية الندي — fallback when NEXT_PUBLIC_ROCKET_MANAGED_LOCATION_IDS is unset. */
 export function isRocketManagedLocation(loc: { name: string; name_ar: string }): boolean {
   const bundle = `${loc.name} ${loc.name_ar}`.toLowerCase()

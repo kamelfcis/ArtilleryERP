@@ -1,6 +1,6 @@
 'use client'
 
-import { useDashboardStats } from '@/lib/hooks/use-dashboard-stats'
+import { useDashboardStats, type DashboardStatsFilters } from '@/lib/hooks/use-dashboard-stats'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatCurrency } from '@/lib/utils'
@@ -9,12 +9,13 @@ import { motion } from 'framer-motion'
 
 interface RevenueStatsProps {
   locationId?: string
+  filters?: DashboardStatsFilters
 }
 
-export function RevenueStats({ locationId }: RevenueStatsProps = {}) {
-  const { data: stats, isLoading } = useDashboardStats(
-    locationId ? { locationId } : undefined
-  )
+export function RevenueStats({ locationId, filters }: RevenueStatsProps = {}) {
+  const statsFilters =
+    filters ?? (locationId ? { locationId } : undefined)
+  const { data: stats, isLoading } = useDashboardStats(statsFilters)
 
   if (isLoading) {
     return (

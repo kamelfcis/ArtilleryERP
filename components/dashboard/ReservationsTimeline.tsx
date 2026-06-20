@@ -14,11 +14,16 @@ import { GlowEffect } from '@/components/ui/glow-effect'
 
 interface ReservationsTimelineProps {
   locationId?: string
+  locationIds?: string[]
 }
 
-export function ReservationsTimeline({ locationId }: ReservationsTimelineProps = {}) {
+export function ReservationsTimeline({ locationId, locationIds }: ReservationsTimelineProps = {}) {
   const { data: reservations, isLoading } = useReservations(
-    locationId ? { locationId } : undefined
+    locationId
+      ? { locationId }
+      : locationIds?.length
+        ? { locationIds }
+        : undefined
   )
 
   const upcomingReservations = useMemo(() => {

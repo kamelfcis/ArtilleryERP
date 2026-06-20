@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { deleteFromR2 } from '@/lib/storage/upload'
 import { Unit } from '@/lib/types/database'
 
 /** Minimal payload for toolbar type chips — type + location only. */
@@ -22,6 +23,7 @@ export function useUnitTypesByLocation() {
 
 export function useUnits(filters?: {
   locationId?: string
+  locationIds?: string[]
   type?: string
   status?: string
   /**
@@ -53,7 +55,9 @@ export function useUnits(filters?: {
         .order('orderno', { ascending: true, nullsFirst: false })
         .order('unit_number', { ascending: true })
 
-      if (filters?.locationId) {
+      if (filters?.locationIds && filters.locationIds.length > 0) {
+        query = query.in('location_id', filters.locationIds)
+      } else if (filters?.locationId) {
         query = query.eq('location_id', filters.locationId)
       }
       if (filters?.type) {
@@ -163,31 +167,15 @@ export function useDeleteUnit() {
         }
 
         if (unitImages && unitImages.length > 0) {
-          // Delete images from storage
           const imagePaths = unitImages.map(img => img.image_path)
-          const { error: storageError } = await supabase.storage
-            .from('unit-images')
-            .remove(imagePaths)
-
-          if (storageError) {
-            console.error('Error deleting images from storage:', storageError)
+          for (const imagePath of imagePaths) {
+            try {
+              await deleteFromR2('unit-images', imagePath)
+            } catch (err) {
+              console.error('Error deleting image from storage:', err)
+            }
           }
 
-          // Delete the entire unit folder from storage
-          const unitFolder = `unit-${id}`
-          const { data: folderFiles } = await supabase.storage
-            .from('unit-images')
-            .list(unitFolder)
-          
-          if (folderFiles && folderFiles.length > 0) {
-            const folderFilePaths = folderFiles.map(file => `${unitFolder}/${file.name}`)
-            await supabase.storage
-              .from('unit-images')
-              .remove(folderFilePaths)
-              .catch(err => console.error('Error deleting unit folder:', err))
-          }
-
-          // Delete image records from database
           const { error: imageRecordsError } = await supabase
             .from('unit_images')
             .delete()

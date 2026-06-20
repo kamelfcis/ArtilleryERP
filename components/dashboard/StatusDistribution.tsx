@@ -1,6 +1,6 @@
 'use client'
 
-import { useDashboardStats } from '@/lib/hooks/use-dashboard-stats'
+import { useDashboardStats, type DashboardStatsFilters } from '@/lib/hooks/use-dashboard-stats'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { RESERVATION_STATUSES, RESERVATION_STATUS_COLORS } from '@/lib/constants'
@@ -8,12 +8,13 @@ import { useMemo } from 'react'
 
 interface StatusDistributionProps {
   locationId?: string
+  filters?: DashboardStatsFilters
 }
 
-export function StatusDistribution({ locationId }: StatusDistributionProps = {}) {
-  const { data: stats, isLoading } = useDashboardStats(
-    locationId ? { locationId } : undefined
-  )
+export function StatusDistribution({ locationId, filters }: StatusDistributionProps = {}) {
+  const statsFilters =
+    filters ?? (locationId ? { locationId } : undefined)
+  const { data: stats, isLoading } = useDashboardStats(statsFilters)
 
   const distribution = useMemo(() => {
     if (!stats) return []

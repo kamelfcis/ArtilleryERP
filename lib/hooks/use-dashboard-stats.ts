@@ -7,6 +7,8 @@ const EXCLUDED_REVENUE_STATUSES = ['cancelled', 'no_show']
 
 export type DashboardStatsFilters = {
   locationId?: string
+  /** Multi-location scope (e.g. rocket user: Rocket Beach + Nadi). */
+  locationIds?: string[]
 }
 
 export type DashboardStats = {
@@ -29,13 +31,20 @@ function toDateString(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
-async function resolveUnitIds(locationId?: string): Promise<string[] | null> {
-  if (!locationId) return null
+async function resolveUnitIds(filters?: DashboardStatsFilters): Promise<string[] | null> {
+  const locationIds =
+    filters?.locationIds && filters.locationIds.length > 0
+      ? filters.locationIds
+      : filters?.locationId
+        ? [filters.locationId]
+        : null
+
+  if (!locationIds) return null
 
   const { data, error } = await supabase
     .from('units')
     .select('id')
-    .eq('location_id', locationId)
+    .in('location_id', locationIds)
     .eq('is_active', true)
 
   if (error) throw error
@@ -110,7 +119,7 @@ async function sumRevenue(
 export async function fetchDashboardStats(
   filters?: DashboardStatsFilters
 ): Promise<DashboardStats> {
-  const unitIds = await resolveUnitIds(filters?.locationId)
+  const unitIds = await resolveUnitIds(filters)
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -209,7 +218,11 @@ export async function fetchDashboardStats(
 
 export function useDashboardStats(filters?: DashboardStatsFilters) {
   return useQuery({
-    queryKey: ['dashboard-stats', filters?.locationId ?? 'all'],
+    queryKey: [
+      'dashboard-stats',
+      filters?.locationId ?? 'none',
+      filters?.locationIds?.slice().sort().join(',') ?? 'all',
+    ],
     queryFn: () => fetchDashboardStats(filters),
     staleTime: 60_000,
   })

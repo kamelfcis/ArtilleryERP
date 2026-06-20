@@ -20,6 +20,12 @@ import { useLocations } from '@/lib/hooks/use-locations'
 import { useUnitTypesByLocation } from '@/lib/hooks/use-units'
 import { useCurrentStaff } from '@/lib/hooks/use-staff'
 import { useAuth } from '@/contexts/AuthContext'
+import { isRocketScopedUser } from '@/lib/constants/rocket-hotel'
+import {
+  getRocketManagedLocationIdsFromEnv,
+  isKingTutLocation,
+  isRocketManagedLocation,
+} from '@/lib/constants/rocket-locations'
 import { useCalendarFilters } from '@/contexts/CalendarFilterContext'
 
 const UNIT_TYPE_META = [
@@ -118,8 +124,9 @@ function UnitTypeDropdownPortal({
 }
 
 export function CalendarToolbarFilters() {
-  const { hasRole } = useAuth()
+  const { hasRole, user } = useAuth()
   const { data: currentStaff } = useCurrentStaff()
+  const isRocketScoped = isRocketScopedUser(user?.email)
   const isStaffOnly = hasRole('Staff') && !hasRole('SuperAdmin') && !hasRole('BranchManager')
 
   const {
@@ -148,12 +155,24 @@ export function CalendarToolbarFilters() {
     return map
   }, [unitTypesRows])
 
+  const rocketManagedLocationIds = useMemo(() => {
+    if (!isRocketScoped || !locations) return null as string[] | null
+    const rocketIds = getRocketManagedLocationIdsFromEnv()
+    if (rocketIds) return rocketIds.filter((id) => locations.some((l) => l.id === id))
+    return locations.filter(isRocketManagedLocation).map((l) => l.id)
+  }, [isRocketScoped, locations])
+
   const visibleLocations = useMemo(() => {
     if (isStaffOnly && currentStaff?.location_id) {
       return locations?.filter(l => l.id === currentStaff.location_id) ?? []
     }
-    return locations ?? []
-  }, [locations, isStaffOnly, currentStaff?.location_id])
+    let list = locations ?? []
+    list = list.filter((l) => !isKingTutLocation(l))
+    if (isRocketScoped && rocketManagedLocationIds?.length) {
+      list = list.filter((l) => rocketManagedLocationIds.includes(l.id))
+    }
+    return list
+  }, [locations, isStaffOnly, currentStaff?.location_id, isRocketScoped, rocketManagedLocationIds])
 
   const staffLocationId = isStaffOnly ? currentStaff?.location_id : undefined
 
@@ -186,8 +205,10 @@ export function CalendarToolbarFilters() {
 
   const locationOptions = useMemo(() => {
     if (isStaffOnly) return visibleLocations
-    return [{ id: 'all', name_ar: 'جميع المواقع', name: 'All locations' }, ...visibleLocations]
-  }, [isStaffOnly, visibleLocations])
+    const allOption = { id: 'all', name_ar: 'جميع المواقع', name: 'All locations' }
+    if (isRocketScoped) return visibleLocations
+    return [allOption, ...visibleLocations]
+  }, [isStaffOnly, visibleLocations, isRocketScoped])
 
   const hoveredLocation = useMemo(() => {
     if (!hoveredLocationId) return null

@@ -1,18 +1,19 @@
 'use client'
 
-import { useDashboardStats } from '@/lib/hooks/use-dashboard-stats'
+import { useDashboardStats, type DashboardStatsFilters } from '@/lib/hooks/use-dashboard-stats'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatCurrency } from '@/lib/utils'
 
 interface RevenueChartProps {
   locationId?: string
+  filters?: DashboardStatsFilters
 }
 
-export function RevenueChart({ locationId }: RevenueChartProps = {}) {
-  const { data: stats, isLoading } = useDashboardStats(
-    locationId ? { locationId } : undefined
-  )
+export function RevenueChart({ locationId, filters }: RevenueChartProps = {}) {
+  const statsFilters =
+    filters ?? (locationId ? { locationId } : undefined)
+  const { data: stats, isLoading } = useDashboardStats(statsFilters)
 
   const monthlyRevenue = stats?.monthlyRevenue ?? []
   const maxRevenue = Math.max(...monthlyRevenue.map(m => m.revenue), 1)
