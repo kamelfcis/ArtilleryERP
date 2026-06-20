@@ -10,6 +10,7 @@ import { toast } from '@/components/ui/use-toast'
 import { Eye, EyeOff, Mail, Lock, Building2, Shield, Users, Calendar, ArrowLeft, MapPin } from 'lucide-react'
 import Image from 'next/image'
 import { isSoldierRocketViewerEmail, VIEWER_HOME_PATH } from '@/lib/constants/viewer-user'
+import { motion, AnimatePresence } from 'framer-motion'
 
 const locations = [
   {
