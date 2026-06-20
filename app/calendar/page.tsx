@@ -18,6 +18,7 @@ import { useCurrentStaff, useStaffList } from '@/lib/hooks/use-staff'
 import { useAuth } from '@/contexts/AuthContext'
 import { useReservationsRealtime } from '@/lib/hooks/use-realtime'
 import { useGuests, useCreateGuest } from '@/lib/hooks/use-guests'
+import type { Guest } from '@/lib/types/database'
 import { toast } from '@/components/ui/use-toast'
 import { Button } from '@/components/ui/button'
 import { useCreateBookingNotification } from '@/lib/hooks/use-booking-notifications'
@@ -832,13 +833,13 @@ export default function CalendarPage() {
     // (cached under ['guests', '<search>']) rather than the parent's base list
     // (['guests', ''], limited to 100). Scan all cached guest query results so
     // a guest located through search is always found.
-    let selectedGuest = guests?.find(g => g.id === guestId)
+    let selectedGuest: Guest | undefined = guests?.find(g => g.id === guestId)
     if (!selectedGuest) {
-      const allGuestData = queryClient.getQueriesData<Array<{ id: string } & Record<string, unknown>>>({ queryKey: ['guests'] })
+      const allGuestData = queryClient.getQueriesData<Guest[]>({ queryKey: ['guests'] })
       for (const [, data] of allGuestData) {
         if (Array.isArray(data)) {
           const found = data.find(g => g.id === guestId)
-          if (found) { selectedGuest = found as typeof selectedGuest; break }
+          if (found) { selectedGuest = found; break }
         }
       }
     }
