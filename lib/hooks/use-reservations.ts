@@ -25,7 +25,10 @@ const RESERVATION_LIST_SELECT = `
 `
 
 type ReservationFilters = {
+  /** Single location (legacy). Prefer `locationIds` for multi-select. */
   locationId?: string
+  /** Selected location IDs. Empty or omitted = all locations. */
+  locationIds?: string[]
   status?: ReservationStatus
   /**
    * Filter reservations whose check_in_date is >= this date. Combined with
@@ -48,13 +51,19 @@ type ReservationFilters = {
 }
 
 export async function fetchReservations(filters?: ReservationFilters): Promise<Reservation[]> {
-  // If filtering by location, first get units for that location
+  const locationFilterIds =
+    filters?.locationIds && filters.locationIds.length > 0
+      ? filters.locationIds
+      : filters?.locationId
+        ? [filters.locationId]
+        : undefined
+
   let unitIds: string[] | undefined
-  if (filters?.locationId) {
+  if (locationFilterIds?.length) {
     const { data: units, error: unitsError } = await supabase
       .from('units')
       .select('id')
-      .eq('location_id', filters.locationId)
+      .in('location_id', locationFilterIds)
       .eq('is_active', true)
 
     if (unitsError) throw unitsError

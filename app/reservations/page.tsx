@@ -41,6 +41,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { BulkActions } from '@/components/reservations/BulkActions'
+import { LocationMultiSelect } from '@/components/filters/LocationMultiSelect'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Badge } from '@/components/ui/badge'
 
@@ -70,7 +71,7 @@ function guestDisplayName(guest?: Reservation['guest']) {
 export default function ReservationsPage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [locationFilter, setLocationFilter] = useState<string>('all')
+  const [locationIds, setLocationIds] = useState<string[]>([])
   const [unitTypeFilter, setUnitTypeFilter] = useState<string>('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -88,12 +89,12 @@ export default function ReservationsPage() {
   const restrictedBranchManager =
     hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
 
-  const effectiveLocationId = isStaffOnly && currentStaff?.location_id
-    ? currentStaff.location_id
-    : (locationFilter !== 'all' ? locationFilter : undefined)
+  const effectiveLocationIds = isStaffOnly && currentStaff?.location_id
+    ? [currentStaff.location_id]
+    : locationIds.length > 0 ? locationIds : undefined
 
   const { data: reservations, isLoading } = useReservations({
-    locationId: effectiveLocationId,
+    locationIds: effectiveLocationIds,
     status: statusFilter !== 'all' ? statusFilter as ReservationStatus : undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
@@ -123,13 +124,15 @@ export default function ReservationsPage() {
         r.guest?.phone?.includes(search) ||
         r.guest?.email?.toLowerCase().includes(search.toLowerCase())
 
-      const matchesLocation = isStaffOnly || locationFilter === 'all' || r.unit?.location_id === locationFilter
+      const matchesLocation = isStaffOnly ||
+        locationIds.length === 0 ||
+        (r.unit?.location_id != null && locationIds.includes(r.unit.location_id))
       const matchesUnitType = unitTypeFilter === 'all' || r.unit?.type === unitTypeFilter
       const matchesSource = sourceFilter === 'all' || r.source === sourceFilter
 
       return matchesSearch && matchesLocation && matchesUnitType && matchesSource
     })
-  }, [reservations, search, locationFilter, unitTypeFilter, sourceFilter, isStaffOnly])
+  }, [reservations, search, locationIds, unitTypeFilter, sourceFilter, isStaffOnly])
 
   const stats = useMemo(() => ({
     total: reservations?.length ?? 0,
@@ -140,7 +143,7 @@ export default function ReservationsPage() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [search, statusFilter, locationFilter, unitTypeFilter, dateFrom, dateTo, sourceFilter])
+  }, [search, statusFilter, locationIds, unitTypeFilter, dateFrom, dateTo, sourceFilter])
 
   const totalPages = Math.max(1, Math.ceil(filteredReservations.length / itemsPerPage))
   const paginatedReservations = useMemo(() => {
@@ -209,14 +212,14 @@ export default function ReservationsPage() {
   function clearFilters() {
     setSearch('')
     setStatusFilter('all')
-    setLocationFilter('all')
+    setLocationIds([])
     setUnitTypeFilter('all')
     setDateFrom('')
     setDateTo('')
     setSourceFilter('all')
   }
 
-  const hasActiveFilters = statusFilter !== 'all' || (!isStaffOnly && locationFilter !== 'all') ||
+  const hasActiveFilters = statusFilter !== 'all' || (!isStaffOnly && locationIds.length > 0) ||
     unitTypeFilter !== 'all' || dateFrom || dateTo || sourceFilter !== 'all'
 
   function toggleSelectAll() {
@@ -410,7 +413,7 @@ export default function ReservationsPage() {
                     فلاتر متقدمة
                     {hasActiveFilters && (
                       <Badge className="mr-2 bg-primary text-primary-foreground">
-                        {[statusFilter !== 'all', !isStaffOnly && locationFilter !== 'all', unitTypeFilter !== 'all', dateFrom, dateTo, sourceFilter !== 'all'].filter(Boolean).length}
+                        {[statusFilter !== 'all', !isStaffOnly && locationIds.length > 0, unitTypeFilter !== 'all', dateFrom, dateTo, sourceFilter !== 'all'].filter(Boolean).length}
                       </Badge>
                     )}
                   </Button>
@@ -448,19 +451,11 @@ export default function ReservationsPage() {
                       <div className="space-y-2">
                         <Label>الموقع</Label>
                         {!isStaffOnly ? (
-                          <Select value={locationFilter} onValueChange={setLocationFilter}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="جميع المواقع" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">جميع المواقع</SelectItem>
-                              {locations?.map((location) => (
-                                <SelectItem key={location.id} value={location.id}>
-                                  {location.name_ar}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <LocationMultiSelect
+                            locations={locations ?? []}
+                            selectedIds={locationIds}
+                            onChange={setLocationIds}
+                          />
                         ) : (
                           <div className="px-3 py-2 h-10 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md border border-blue-300 dark:border-blue-700 flex items-center gap-2 text-sm font-medium">
                             {currentStaff?.location?.name_ar || currentStaff?.location?.name || 'موقعي'}
