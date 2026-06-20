@@ -215,13 +215,19 @@ async function runSync(
  * Triggers a sync immediately on mount (handles the "tab reopened while
  * offline" case) and again on every 'online' event.
  */
-export function useSyncEngine(calendarArgs: CalendarWindowArgs) {
+export function useSyncEngine(
+  calendarArgs: CalendarWindowArgs,
+  options?: { enabled?: boolean }
+) {
   const queryClient = useQueryClient()
+  const enabled = options?.enabled !== false
   // Use a ref so the effect closure always sees the latest args.
   const argsRef = useRef(calendarArgs)
   argsRef.current = calendarArgs
 
   useEffect(() => {
+    if (!enabled) return
+
     const handleOnline = () => {
       runSync(queryClient, argsRef.current)
       registerBackgroundSync()
@@ -237,7 +243,7 @@ export function useSyncEngine(calendarArgs: CalendarWindowArgs) {
     return () => {
       window.removeEventListener('online', handleOnline)
     }
-  }, [queryClient])
+  }, [queryClient, enabled])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

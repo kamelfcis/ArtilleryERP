@@ -6,7 +6,7 @@ import { Staff, Shift, ShiftRequest } from '@/lib/types/database'
 import { useAuth } from '@/contexts/AuthContext'
 
 // Get current logged-in user's staff profile with location
-export function useCurrentStaff() {
+export function useCurrentStaff(options?: { enabled?: boolean }) {
   const { user } = useAuth()
   
   return useQuery({
@@ -27,7 +27,7 @@ export function useCurrentStaff() {
       if (error) throw error
       return data as Staff | null
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && options?.enabled !== false,
   })
 }
 

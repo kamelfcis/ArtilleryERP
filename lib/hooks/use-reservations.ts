@@ -7,6 +7,45 @@ import type { CalendarEvent, CalendarWindowArgs } from '@/lib/types/calendar'
 // .range(0, 9999) still returns at most that cap — paginate when fetchAll is set.
 const POSTGREST_PAGE_SIZE = 1000
 
+const RESERVATION_LIST_SELECT_SLIM = `
+  id,
+  reservation_number,
+  unit_id,
+  guest_id,
+  check_in_date,
+  check_out_date,
+  status,
+  source,
+  adults,
+  children,
+  total_amount,
+  paid_amount,
+  discount_amount,
+  notes,
+  notes_ar,
+  created_by,
+  created_at,
+  updated_at,
+  unit:units (
+    id,
+    unit_number,
+    name,
+    name_ar,
+    type,
+    location_id,
+    location:locations (id, name, name_ar)
+  ),
+  guest:guests (
+    id,
+    first_name,
+    last_name,
+    first_name_ar,
+    last_name_ar,
+    phone,
+    email
+  )
+`
+
 const RESERVATION_LIST_SELECT = `
   *,
   unit:units (
@@ -23,6 +62,9 @@ const RESERVATION_LIST_SELECT = `
     email
   )
 `
+
+const UNIT_IDS_CACHE_MS = 300_000
+const unitIdsByLocationsCache = new Map<string, { ids: string[] | undefined; at: number }>()
 
 type ReservationFilters = {
   /** Single location (legacy). Prefer `locationIds` for multi-select. */
@@ -71,6 +113,12 @@ async function resolveUnitIdsForLocations(
 ): Promise<string[] | undefined> {
   if (!locationFilterIds?.length) return undefined
 
+  const cacheKey = [...locationFilterIds].sort().join(',')
+  const cached = unitIdsByLocationsCache.get(cacheKey)
+  if (cached && Date.now() - cached.at < UNIT_IDS_CACHE_MS) {
+    return cached.ids
+  }
+
   const { data: units, error: unitsError } = await supabase
     .from('units')
     .select('id')
@@ -79,7 +127,9 @@ async function resolveUnitIdsForLocations(
 
   if (unitsError) throw unitsError
   const unitIds = units?.map(u => u.id) || []
-  return unitIds.length > 0 ? unitIds : []
+  const resolved = unitIds.length > 0 ? unitIds : []
+  unitIdsByLocationsCache.set(cacheKey, { ids: resolved, at: Date.now() })
+  return resolved
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -178,7 +228,7 @@ export async function fetchReservations(filters?: ReservationFilters): Promise<R
   let query = applyReservationFilters(
     supabase
       .from('reservations')
-      .select(RESERVATION_LIST_SELECT)
+      .select(RESERVATION_LIST_SELECT_SLIM)
       .order('check_in_date', { ascending: true }),
     filters,
     unitIds
@@ -200,51 +250,32 @@ export async function fetchReservationsPaginated(
         ? [filters.locationId]
         : undefined
 
-  const unitIds = await resolveUnitIdsForLocations(locationFilterIds)
-  if (unitIds !== undefined && unitIds.length === 0) {
-    return { rows: [], totalCount: 0, statusCounts: { confirmed: 0, pending: 0 } }
+  const { data, error } = await supabase.rpc('get_reservations_page', {
+    p_location_ids: locationFilterIds?.length ? locationFilterIds : null,
+    p_status: filters.status ?? null,
+    p_date_from: filters.dateFrom ?? null,
+    p_date_to: filters.dateTo ?? null,
+    p_search: filters.search ?? null,
+    p_unit_type: filters.unitType ?? null,
+    p_source: filters.source ?? null,
+    p_page: Math.max(1, filters.page),
+    p_page_size: Math.max(1, filters.pageSize),
+  })
+
+  if (error) throw error
+
+  const payload = (data ?? {}) as {
+    rows?: Reservation[]
+    total_count?: number
+    status_counts?: { confirmed?: number; pending?: number }
   }
-
-  const page = Math.max(1, filters.page)
-  const pageSize = Math.max(1, filters.pageSize)
-  const from = (page - 1) * pageSize
-  const to = from + pageSize - 1
-
-  const baseListQuery = () =>
-    applyReservationFilters(
-      supabase
-        .from('reservations')
-        .select(RESERVATION_LIST_SELECT, { count: 'exact' })
-        .order('check_in_date', { ascending: false }),
-      filters,
-      unitIds
-    )
-
-  const countQuery = (status: ReservationStatus) => {
-    const { status: _omit, ...rest } = filters
-    return applyReservationFilters(
-      supabase.from('reservations').select('*', { count: 'exact', head: true }),
-      { ...rest, status },
-      unitIds
-    )
-  }
-
-  const [listResult, confirmedResult, pendingResult] = await Promise.all([
-    baseListQuery().range(from, to),
-    countQuery('confirmed'),
-    countQuery('pending'),
-  ])
-
-  if (listResult.error) throw listResult.error
-  if (confirmedResult.error) throw confirmedResult.error
-  if (pendingResult.error) throw pendingResult.error
 
   return {
-    rows: (listResult.data ?? []) as Reservation[],
-    totalCount: listResult.count ?? 0,
+    rows: payload.rows ?? [],
+    totalCount: payload.total_count ?? 0,
     statusCounts: {
-      confirmed: confirmedResult.count ?? 0,
-      pending: pendingResult.count ?? 0,
+      confirmed: payload.status_counts?.confirmed ?? 0,
+      pending: payload.status_counts?.pending ?? 0,
     },
   }
 }

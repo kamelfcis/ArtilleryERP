@@ -5,10 +5,14 @@ import {
   safeSupabaseCall,
   validateSupabaseAdminConfig,
 } from '@/lib/supabase/admin-server'
+import { requireAnyRole } from '@/lib/api/require-role'
 
-export async function POST(_request: NextRequest) {
+export async function POST(request: NextRequest) {
   const configError = validateSupabaseAdminConfig()
   if (configError) return configError
+
+  const authResult = await requireAnyRole(request, ['SuperAdmin', 'Receptionist'])
+  if (authResult instanceof NextResponse) return authResult
 
   try {
     const supabaseAdmin = createAdminClient()

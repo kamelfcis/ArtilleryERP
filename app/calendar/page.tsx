@@ -205,9 +205,11 @@ export default function CalendarPage() {
 
   // Check if user is Staff-only (not admin/manager)
   const { hasRole, user, elevatedOps } = useAuth()
-  const { data: currentStaff, isLoading: currentStaffLoading } = useCurrentStaff()
-  const { data: allStaff } = useStaffList(undefined, { enabled: loadTooltipData })
   const isViewerMode = hasRole('Viewer')
+  const { data: currentStaff, isLoading: currentStaffLoading } = useCurrentStaff({
+    enabled: !isViewerMode,
+  })
+  const { data: allStaff } = useStaffList(undefined, { enabled: loadTooltipData })
   const isRocketScoped = isRocketScopedUser(user?.email)
   const isStaffOnly = hasRole('Staff') && !hasRole('SuperAdmin') && !hasRole('BranchManager') && !isViewerMode
 
@@ -315,10 +317,15 @@ export default function CalendarPage() {
   // Real-time cache patches — mutates the cached window instead of invalidating it.
   useReservationsRealtime(calendarArgs)
 
-  // Prefetch the previous and next calendar windows so navigation feels instant.
+  const canUpdateUnitStatuses =
+    !isViewerMode && (hasRole('SuperAdmin') || hasRole('Receptionist'))
+
+  // Prefetch adjacent windows after the first load, during idle time.
   useEffect(() => {
     if (!rangeStart || !rangeEnd) return
     if (!navigator.onLine) return
+    if (reservationsLoading && reservations === undefined) return
+
     const startDate = new Date(rangeStart)
     const endDate = new Date(rangeEnd)
     const durationMs = endDate.getTime() - startDate.getTime()
@@ -334,12 +341,30 @@ export default function CalendarPage() {
       return { ...calendarArgs, start: fmt(s), end: fmt(e) }
     }
 
-    const prev = shift(-1)
-    const next = shift(+1)
-    queryClient.prefetchQuery({ queryKey: calendarWindowKey(prev), queryFn: () => fetchCalendarWindow(prev), staleTime: 60_000 })
-    queryClient.prefetchQuery({ queryKey: calendarWindowKey(next), queryFn: () => fetchCalendarWindow(next), staleTime: 60_000 })
+    const runPrefetch = () => {
+      const prev = shift(-1)
+      const next = shift(+1)
+      queryClient.prefetchQuery({
+        queryKey: calendarWindowKey(prev),
+        queryFn: () => fetchCalendarWindow(prev),
+        staleTime: 60_000,
+      })
+      queryClient.prefetchQuery({
+        queryKey: calendarWindowKey(next),
+        queryFn: () => fetchCalendarWindow(next),
+        staleTime: 60_000,
+      })
+    }
+
+    if (typeof requestIdleCallback !== 'undefined') {
+      const id = requestIdleCallback(runPrefetch, { timeout: 3000 })
+      return () => cancelIdleCallback(id)
+    }
+
+    const timer = setTimeout(runPrefetch, 500)
+    return () => clearTimeout(timer)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rangeStart, rangeEnd, effectiveLocationId, selectedStatus])
+  }, [rangeStart, rangeEnd, effectiveLocationId, selectedStatus, reservationsLoading, reservations])
   const { data: guests } = useGuests(undefined, { enabled: guestDialogOpen })
   const createReservation = useCreateReservation()
   const createBookingNotif = useCreateBookingNotification()
@@ -351,13 +376,15 @@ export default function CalendarPage() {
   const isOnline = useIsOnline()
   const offlineMutation = useOfflineMutation(calendarArgs)
   // Mount the sync engine — drains outbox and delta-pulls on reconnect.
-  useSyncEngine(calendarArgs)
+  useSyncEngine(calendarArgs, { enabled: !isViewerMode })
   const [conflictSheetOpen, setConflictSheetOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   // Set of outbox localIds — used to show pending badges on calendar events.
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
+    if (isViewerMode) return
+
     let mounted = true
     let timerId: ReturnType<typeof setTimeout>
 
@@ -379,7 +406,7 @@ export default function CalendarPage() {
 
     refresh()
     return () => { mounted = false; clearTimeout(timerId) }
-  }, [])
+  }, [isViewerMode])
 
   async function handleManualSync() {
     setIsSyncing(true)
@@ -422,6 +449,7 @@ export default function CalendarPage() {
   // Fetch room blocks — scoped to the visible date range for efficiency.
   const { data: roomBlocks } = useQuery({
     queryKey: ['room-blocks', rangeStart, rangeEnd],
+    enabled: reservations !== undefined,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
     gcTime: 300_000,
@@ -601,6 +629,8 @@ export default function CalendarPage() {
 
   // Defer status sync so it does not compete with the initial calendar load.
   useEffect(() => {
+    if (!canUpdateUnitStatuses) return
+
     const run = () => {
       if (typeof navigator !== 'undefined' && !navigator.onLine) return
       updateUnitStatuses({ silent: true })
@@ -613,7 +643,7 @@ export default function CalendarPage() {
       window.removeEventListener('online', onOnline)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [canUpdateUnitStatuses])
 
   // Function to update unit statuses
   async function updateUnitStatuses(options?: { silent?: boolean }) {
@@ -1328,13 +1358,17 @@ export default function CalendarPage() {
     <div className="h-full flex flex-col min-h-0 overflow-hidden bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30 dark:from-slate-950 dark:via-blue-950/20 dark:to-purple-950/20">
       {/* Offline banner — appears when offline or when pending outbox entries exist */}
       <div className="shrink-0">
-        <OfflineBanner onSyncRequest={handleManualSync} syncing={isSyncing} />
+        {!isViewerMode && (
+          <OfflineBanner onSyncRequest={handleManualSync} syncing={isSyncing} />
+        )}
       </div>
       {/* Conflict resolution sheet — opens automatically when sync conflicts are detected */}
+      {!isViewerMode && (
       <ConflictResolutionSheet
         open={conflictSheetOpen}
         onOpenChange={setConflictSheetOpen}
       />
+      )}
 
       {calendarDataReady && (
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">

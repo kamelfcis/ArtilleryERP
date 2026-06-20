@@ -9,7 +9,9 @@ import { Label } from '@/components/ui/label'
 import { toast } from '@/components/ui/use-toast'
 import { Eye, EyeOff, Mail, Lock, Building2, Shield, Users, Calendar, ArrowLeft, MapPin } from 'lucide-react'
 import Image from 'next/image'
-import { isSoldierRocketViewerEmail, VIEWER_HOME_PATH } from '@/lib/constants/viewer-user'
+import { isViewerUser, VIEWER_HOME_PATH } from '@/lib/constants/viewer-user'
+import { getCachedSession } from '@/lib/auth/cache'
+import { UserRole } from '@/lib/types/database'
 import { motion, AnimatePresence } from 'framer-motion'
 
 const locations = [
@@ -40,7 +42,17 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [currentSlide, setCurrentSlide] = useState(0)
   const router = useRouter()
-  const { signIn, user, loading } = useAuth()
+  const { signIn, user, roles, loading } = useAuth()
+
+  function getLoginRedirectPath(userRoles: UserRole[]): string {
+    return isViewerUser(userRoles) ? VIEWER_HOME_PATH : '/modules'
+  }
+
+  function resolveRolesForRedirect(): UserRole[] | null {
+    if (roles.length > 0) return roles
+    const cached = getCachedSession()?.roles
+    return cached && cached.length > 0 ? cached : null
+  }
 
   // Auto-rotate slides
   useEffect(() => {
@@ -57,15 +69,13 @@ export default function LoginPage() {
     router.prefetch('/calendar')
   }, [router])
 
-  // Redirect if already logged in
+  // Redirect if already logged in (wait for roles from auth/cache)
   useEffect(() => {
-    if (!loading && user) {
-      const destination = isSoldierRocketViewerEmail(user.email)
-        ? VIEWER_HOME_PATH
-        : '/modules'
-      router.replace(destination)
-    }
-  }, [user, loading, router])
+    if (loading || !user) return
+    const resolvedRoles = resolveRolesForRedirect()
+    if (!resolvedRoles) return
+    router.replace(getLoginRedirectPath(resolvedRoles))
+  }, [user, loading, roles, router])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -82,10 +92,8 @@ export default function LoginPage() {
         description: 'تم تسجيل الدخول بنجاح',
       })
 
-      const destination = isSoldierRocketViewerEmail(email.trim())
-        ? VIEWER_HOME_PATH
-        : '/modules'
-      router.push(destination)
+      const resolvedRoles = getCachedSession()?.roles ?? roles
+      router.push(getLoginRedirectPath(resolvedRoles))
     } catch (error: any) {
       setIsLoading(false)
       

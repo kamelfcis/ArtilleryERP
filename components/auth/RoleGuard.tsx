@@ -2,6 +2,7 @@
 
 import { useAuth } from '@/contexts/AuthContext'
 import { UserRole } from '@/lib/types/database'
+import { isSoldierRocketViewerEmail } from '@/lib/constants/viewer-user'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 
@@ -21,6 +22,11 @@ export function RoleGuard({
   const { hasAnyRole, loading, roles, user } = useAuth()
   const router = useRouter()
 
+  const rolesPending = Boolean(user && roles.length === 0)
+  const viewerGrace =
+    rolesPending && isSoldierRocketViewerEmail(user?.email) && allowedRoles.includes('Viewer')
+  const hasAccess = hasAnyRole(allowedRoles) || viewerGrace
+
   useEffect(() => {
     // Don't redirect if already on login page
     if (typeof window !== 'undefined' && window.location.pathname === '/login') {
@@ -33,28 +39,32 @@ export function RoleGuard({
       return
     }
 
-    // If not loading, user exists but no roles, redirect to login
+    // User exists but roles not loaded yet — wait before redirecting (skip known viewer email)
     if (!loading && user && roles.length === 0) {
-      // Wait a bit for roles to load, then redirect if still no roles
       const timeout = setTimeout(() => {
-        if (roles.length === 0 && typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        if (
+          roles.length === 0 &&
+          !isSoldierRocketViewerEmail(user.email) &&
+          typeof window !== 'undefined' &&
+          window.location.pathname !== '/login'
+        ) {
           router.replace('/login')
         }
-      }, 2000) // Wait 2 seconds for roles to load
+      }, 5000)
 
       return () => clearTimeout(timeout)
     }
 
-    // If user has no access, redirect
-    if (!loading && user && !hasAnyRole(allowedRoles)) {
+    // If user has no access once roles are loaded, redirect
+    if (!loading && user && roles.length > 0 && !hasAnyRole(allowedRoles)) {
       if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
         router.replace('/login')
       }
     }
   }, [loading, hasAnyRole, allowedRoles, redirectTo, router, roles, user])
 
-  // Show loading while checking auth or loading roles
-  if (loading || (user && roles.length === 0)) {
+  // Show loading while checking auth or loading roles (except known viewer email grace)
+  if (loading || (rolesPending && !viewerGrace)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -68,10 +78,9 @@ export function RoleGuard({
   }
 
   // If user has no access, show nothing (redirecting)
-  if (!hasAnyRole(allowedRoles)) {
+  if (!hasAccess) {
     return null
   }
 
   return <>{children}</>
 }
-
