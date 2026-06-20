@@ -41,6 +41,11 @@ const sourceLabels: Record<string, string> = {
   email: 'بريد إلكتروني',
 }
 
+function guestDisplayName(guest?: Reservation['guest']) {
+  if (!guest) return ''
+  return `${guest.first_name_ar || guest.first_name} ${guest.last_name_ar || guest.last_name}`.trim()
+}
+
 export default function ReservationsPage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -72,6 +77,7 @@ export default function ReservationsPage() {
     status: statusFilter !== 'all' ? statusFilter as ReservationStatus : undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
+    fetchAll: true,
   })
   const { data: locations } = useLocations()
   const deleteReservation = useDeleteReservation()
@@ -89,10 +95,14 @@ export default function ReservationsPage() {
 
     return reservations.filter(r => {
       // Search filter
+      const guestName = guestDisplayName(r.guest)
       const matchesSearch = !search || 
         r.reservation_number.toLowerCase().includes(search.toLowerCase()) ||
+        guestName.toLowerCase().includes(search.toLowerCase()) ||
         r.guest?.first_name?.toLowerCase().includes(search.toLowerCase()) ||
         r.guest?.last_name?.toLowerCase().includes(search.toLowerCase()) ||
+        r.guest?.first_name_ar?.toLowerCase().includes(search.toLowerCase()) ||
+        r.guest?.last_name_ar?.toLowerCase().includes(search.toLowerCase()) ||
         r.guest?.phone?.includes(search) ||
         r.guest?.email?.toLowerCase().includes(search.toLowerCase())
 
@@ -528,7 +538,7 @@ export default function ReservationsPage() {
                         <div>
                           <p className="font-semibold">{reservation.reservation_number}</p>
                           <p className="text-sm text-muted-foreground">
-                            {reservation.guest?.first_name} {reservation.guest?.last_name}
+                            {guestDisplayName(reservation.guest) || '—'}
                           </p>
                           <p className="text-xs text-muted-foreground mt-1">
                             {reservation.guest?.phone}
@@ -608,7 +618,7 @@ export default function ReservationsPage() {
                           <div>
                             <p className="font-bold text-lg">{reservation.reservation_number}</p>
                             <p className="text-sm text-muted-foreground">
-                              {reservation.guest?.first_name} {reservation.guest?.last_name}
+                              {guestDisplayName(reservation.guest) || '—'}
                             </p>
                           </div>
                           <button

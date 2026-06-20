@@ -3,12 +3,28 @@ import { supabase } from '@/lib/supabase/client'
 import { Reservation, ReservationStatus } from '@/lib/types/database'
 import type { CalendarEvent, CalendarWindowArgs } from '@/lib/types/calendar'
 
-// Defense-in-depth ceiling so the implicit PostgREST row cap (typically 1000)
-// can't silently truncate our calendar / dashboard queries. Callers that need
-// a window should still pass overlapStart/overlapEnd to keep the payload small.
-const RESERVATIONS_MAX_ROWS = 9999
+// PostgREST enforces a server-side max-rows cap (typically 1000). A single
+// .range(0, 9999) still returns at most that cap — paginate when fetchAll is set.
+const POSTGREST_PAGE_SIZE = 1000
 
-export function useReservations(filters?: {
+const RESERVATION_LIST_SELECT = `
+  *,
+  unit:units (
+    *,
+    location:locations (*)
+  ),
+  guest:guests (
+    id,
+    first_name,
+    last_name,
+    first_name_ar,
+    last_name_ar,
+    phone,
+    email
+  )
+`
+
+type ReservationFilters = {
   locationId?: string
   status?: ReservationStatus
   /**
@@ -27,70 +43,96 @@ export function useReservations(filters?: {
   overlapStart?: string
   /** Overlap-window end (YYYY-MM-DD). */
   overlapEnd?: string
-}) {
-  return useQuery({
-    queryKey: ['reservations', filters],
-    queryFn: async () => {
-      // If filtering by location, first get units for that location
-      let unitIds: string[] | undefined
-      if (filters?.locationId) {
-        const { data: units, error: unitsError } = await supabase
-          .from('units')
-          .select('id')
-          .eq('location_id', filters.locationId)
-          .eq('is_active', true)
+  /** Paginate through all PostgREST pages (for the full reservations list). */
+  fetchAll?: boolean
+}
 
-        if (unitsError) throw unitsError
-        unitIds = units?.map(u => u.id) || []
-        
-        // If no units found for this location, return empty array
-        if (unitIds.length === 0) {
-          return [] as Reservation[]
-        }
-      }
+async function fetchReservations(filters?: ReservationFilters): Promise<Reservation[]> {
+  // If filtering by location, first get units for that location
+  let unitIds: string[] | undefined
+  if (filters?.locationId) {
+    const { data: units, error: unitsError } = await supabase
+      .from('units')
+      .select('id')
+      .eq('location_id', filters.locationId)
+      .eq('is_active', true)
 
-      let query = supabase
-        .from('reservations')
-        .select(`
-          *,
-          unit:units (
-            *,
-            location:locations (*)
-          ),
-          guest:guests (*)
-        `)
-        .order('check_in_date', { ascending: true })
-        .range(0, RESERVATIONS_MAX_ROWS)
+    if (unitsError) throw unitsError
+    unitIds = units?.map(u => u.id) || []
 
-      // Filter by unit IDs if location filter is applied
-      if (unitIds && unitIds.length > 0) {
-        query = query.in('unit_id', unitIds)
-      }
-      
-      if (filters?.status) {
-        query = query.eq('status', filters.status)
-      }
-      if (filters?.dateFrom) {
-        query = query.gte('check_in_date', filters.dateFrom)
-      }
-      if (filters?.dateTo) {
-        query = query.lte('check_out_date', filters.dateTo)
-      }
-      // Overlap semantics: keep any reservation whose stay intersects the window.
-      // [check_in, check_out] overlaps [overlapStart, overlapEnd] iff
-      //   check_in_date <= overlapEnd AND check_out_date >= overlapStart.
-      if (filters?.overlapEnd) {
-        query = query.lte('check_in_date', filters.overlapEnd)
-      }
-      if (filters?.overlapStart) {
-        query = query.gte('check_out_date', filters.overlapStart)
-      }
+    if (unitIds.length === 0) {
+      return []
+    }
+  }
 
-      const { data, error } = await query
+  const applyFilters = <T extends { in: Function; eq: Function; gte: Function; lte: Function }>(
+    query: T
+  ) => {
+    let q = query
+    if (unitIds && unitIds.length > 0) {
+      q = q.in('unit_id', unitIds)
+    }
+    if (filters?.status) {
+      q = q.eq('status', filters.status)
+    }
+    if (filters?.dateFrom) {
+      q = q.gte('check_in_date', filters.dateFrom)
+    }
+    if (filters?.dateTo) {
+      q = q.lte('check_out_date', filters.dateTo)
+    }
+    // Overlap semantics: keep any reservation whose stay intersects the window.
+    if (filters?.overlapEnd) {
+      q = q.lte('check_in_date', filters.overlapEnd)
+    }
+    if (filters?.overlapStart) {
+      q = q.gte('check_out_date', filters.overlapStart)
+    }
+    return q
+  }
+
+  if (filters?.fetchAll) {
+    const all: Reservation[] = []
+    let offset = 0
+
+    while (true) {
+      let query = applyFilters(
+        supabase
+          .from('reservations')
+          .select(RESERVATION_LIST_SELECT)
+          .order('check_in_date', { ascending: true })
+      )
+      const { data, error } = await query.range(
+        offset,
+        offset + POSTGREST_PAGE_SIZE - 1
+      )
 
       if (error) throw error
-      return data as Reservation[]
-    },
+      const batch = (data ?? []) as Reservation[]
+      all.push(...batch)
+      if (batch.length < POSTGREST_PAGE_SIZE) break
+      offset += POSTGREST_PAGE_SIZE
+    }
+
+    return all
+  }
+
+  let query = applyFilters(
+    supabase
+      .from('reservations')
+      .select(RESERVATION_LIST_SELECT)
+      .order('check_in_date', { ascending: true })
+  )
+  const { data, error } = await query.range(0, POSTGREST_PAGE_SIZE - 1)
+
+  if (error) throw error
+  return (data ?? []) as Reservation[]
+}
+
+export function useReservations(filters?: ReservationFilters) {
+  return useQuery({
+    queryKey: ['reservations', filters],
+    queryFn: () => fetchReservations(filters),
   })
 }
 
