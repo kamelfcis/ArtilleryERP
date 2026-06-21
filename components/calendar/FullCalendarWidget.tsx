@@ -338,6 +338,7 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
                 const alarmPrefix = showAlarm ? '⚠ ' : ''
                 const showRank = guestTypeShowsRank(reservation.guest_type)
                 const rank = reservation.guest_military_rank_ar || ''
+                const displayName = showRank && rank ? `${rank} / ${guestName}` : guestName
 
                 const checkIn = new Date(reservation.check_in_date)
                 const checkOut = new Date(reservation.check_out_date)
@@ -347,8 +348,7 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
                 return {
                   html: `
                     <div class="cal-event-content ${isSingleDay ? 'single-day-event' : ''}">
-                      <div class="cal-event-name">${alarmPrefix}${guestName}</div>
-                      ${showRank && rank ? `<div class="cal-event-phone">🎖️ ${rank}</div>` : ''}
+                      <div class="cal-event-name">${alarmPrefix}${displayName}</div>
                       ${phone ? `<div class="cal-event-phone">📞 ${phone}</div>` : ''}
                     </div>
                   `
@@ -544,24 +544,26 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
 
                 function buildTooltipHTML(res: CalendarEventRow): string {
                   const gName = `${res.guest_first_name_ar || res.guest_first_name || ''} ${res.guest_last_name_ar || res.guest_last_name || ''}`.trim()
+                  const gType = res.guest_type || ''
+                  const rank = res.guest_military_rank_ar || ''
+                  const headerName = guestTypeShowsRank(gType) && rank
+                    ? `${rank} / ${gName || res.id.substring(0, 8)}`
+                    : (gName || res.id.substring(0, 8))
                   const ph = res.guest_phone || ''
                   const cIn = res.check_in_date ? new Date(res.check_in_date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
                   const cOut = res.check_out_date ? new Date(res.check_out_date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
                   const cAt = res.created_at ? new Date(res.created_at).toLocaleString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : ''
                   const st = res.status || ''
-                  const gType = res.guest_type || ''
-                  const rank = res.guest_military_rank_ar || ''
                   const notes = res.notes || ''
                   const creatorUserId = res.created_by_user_id
                   const creatorName = creatorUserId ? (staffByUserId.get(creatorUserId) || creatorUserId.substring(0, 8) + '...') : null
                   return `
                     <button class="fc-tooltip-close" style="position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2);color:#f1f5f9;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background 0.15s;">&times;</button>
                     <div style="font-weight: 700; font-size: 15px; margin-bottom: 8px; color: #60a5fa; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
-                      👤 ${gName || res.id.substring(0, 8)}
+                      👤 ${headerName}
                     </div>
                     ${ph ? `<div style="margin-bottom: 4px;">📞 <span style="color: #a5b4fc;">${ph}</span></div>` : ''}
                     ${gType ? `<div style="margin-bottom: 4px;">🏷️ نوع الضيف: <span style="color: #38bdf8;">${guestTypeMap[gType] || gType}</span></div>` : ''}
-                    ${guestTypeShowsRank(gType) && rank ? `<div style="margin-bottom: 4px;">🎖️ الرتبة: <span style="color: #fcd34d;">${rank}</span></div>` : ''}
                     <div style="margin-bottom: 4px;">📅 الدخول: <span style="color: #34d399;">${cIn}</span></div>
                     <div style="margin-bottom: 4px;">📅 الخروج: <span style="color: #fb923c;">${cOut}</span></div>
                     ${st ? `<div style="margin-bottom: 4px;">📌 الحالة: <span style="color: #c084fc;">${statusMap[st] || st}</span></div>` : ''}
