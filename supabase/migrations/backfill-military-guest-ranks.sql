@@ -1,110 +1,111 @@
--- =============================================================================
--- Backfill military_rank_ar / military_rank from legacy first_name patterns
--- for guest_type = 'military' where military_rank_ar is empty.
---
--- Strategy: extract_and_clean — parse rank from first_name / first_name_ar,
--- write to military_rank_ar + military_rank, strip rank from name fields so
--- calendar display "rank / name" does not duplicate (e.g. "عقيد / عقيد محمد").
---
--- Idempotent: skips rows that already have military_rank_ar set.
--- =============================================================================
+-- Backfill military_rank_ar / military_rank from embedded rank tokens in guest names.
+-- Scope: guest_type = 'military' only, rows where military_rank_ar is empty.
+-- Strategy: extract rank (longest match first) and clean names so calendar shows "rank / name".
+-- Idempotent: skips rows that already have military_rank_ar; cleaned names no longer match ranks.
 
--- -----------------------------------------------------------------------------
--- PREVIEW QUERIES (read-only; run before migration to estimate ~908 updates)
--- -----------------------------------------------------------------------------
-
--- PREVIEW 1: Military guests missing rank with a recognizable rank prefix (~908)
--- SELECT COUNT(*) AS expected_updates
+-- =============================================================================
+-- PREVIEW QUERIES (run manually before applying; ~979 candidates expected)
+-- =============================================================================
+--
+-- 1) Total military guests missing rank:
+-- SELECT COUNT(*) AS missing_rank
+-- FROM guests
+-- WHERE guest_type = 'military'
+--   AND COALESCE(TRIM(military_rank_ar), '') = '';
+-- Expected: ~2024 (includes rows with no embedded rank to extract)
+--
+-- 2) Candidates whose name fields contain a known rank token (~979 expected):
+-- SELECT COUNT(*) AS extractable
 -- FROM guests g
 -- WHERE g.guest_type = 'military'
---   AND (g.military_rank_ar IS NULL OR trim(g.military_rank_ar) = '')
---   AND (
---     trim(coalesce(g.first_name_ar, '')) ~ '^(مشير|فريق أول|فريق|لواء|عميد|عقيد|مقدم|رائد|نقيب|ملازم أول|ملازم|رقيب أول|رقيب|عريف|جندي أول|جندي|ملازم\s+اول|رقيب\s+اول|جندي\s+اول|فريق\s+اول)(\s|/|\\|$)'
---     OR trim(coalesce(g.first_name, '')) ~ '^(مشير|فريق أول|فريق|لواء|عميد|عقيد|مقدم|رائد|نقيب|ملازم أول|ملازم|رقيب أول|رقيب|عريف|جندي أول|جندي|ملازم\s+اول|رقيب\s+اول|جندي\s+اول|فريق\s+اول)(\s|/|\\|$)'
---   );
-
--- PREVIEW 2: Rank-only first_name (name stored in last_name) — 298 rows
--- SELECT first_name, last_name, COUNT(*) AS cnt
+--   AND COALESCE(TRIM(g.military_rank_ar), '') = ''
+--   AND public.guest_name_contains_military_rank(
+--         COALESCE(g.first_name_ar, g.first_name, ''),
+--         COALESCE(g.first_name, '')
+--       );
+--
+-- 3) Sample rows before backfill:
+-- SELECT id, first_name, last_name, first_name_ar, last_name_ar, military_rank_ar
 -- FROM guests
 -- WHERE guest_type = 'military'
---   AND (military_rank_ar IS NULL OR trim(military_rank_ar) = '')
---   AND trim(first_name) IN (
---     'مشير','فريق أول','فريق','لواء','عميد','عقيد','مقدم','رائد','نقيب',
---     'ملازم أول','ملازم','رقيب أول','رقيب','عريف','جندي أول','جندي'
---   )
--- GROUP BY first_name, last_name
--- ORDER BY cnt DESC
+--   AND COALESCE(TRIM(military_rank_ar), '') = ''
+--   AND public.guest_name_contains_military_rank(
+--         COALESCE(first_name_ar, first_name, ''),
+--         COALESCE(first_name, '')
+--       )
+-- ORDER BY created_at DESC
 -- LIMIT 20;
-
--- PREVIEW 3: Slash / backslash legacy patterns — sample
--- SELECT id, first_name, last_name
--- FROM guests
--- WHERE guest_type = 'military'
---   AND (military_rank_ar IS NULL OR trim(military_rank_ar) = '')
---   AND (first_name LIKE '%/%' OR first_name LIKE '%\\%')
--- LIMIT 15;
-
--- PREVIEW 4: Alternate spelling "ملازم اول" (without hamza)
--- SELECT first_name, COUNT(*)
--- FROM guests
--- WHERE guest_type = 'military'
---   AND (military_rank_ar IS NULL OR trim(military_rank_ar) = '')
---   AND first_name ~* 'ملازم\s+اول'
--- GROUP BY first_name;
-
--- PREVIEW 5: Simulate extraction (after functions exist, before UPDATE)
--- SELECT g.id, g.first_name, g.last_name,
---        e_fn.rank_ar AS rank_from_fn,
---        e_fn.cleaned_name AS cleaned_fn,
---        e_fnar.rank_ar AS rank_from_fnar,
---        e_fnar.cleaned_name AS cleaned_fnar
+--
+-- 4) Dry-run preview (after creating functions, before UPDATE):
+-- SELECT
+--   g.id,
+--   g.first_name,
+--   g.last_name,
+--   p.rank_ar,
+--   p.first_name     AS new_first_name,
+--   p.last_name      AS new_last_name,
+--   p.first_name_ar  AS new_first_name_ar,
+--   p.last_name_ar   AS new_last_name_ar
 -- FROM guests g
--- CROSS JOIN LATERAL extract_military_rank_from_name(g.first_name) e_fn
--- CROSS JOIN LATERAL extract_military_rank_from_name(g.first_name_ar) e_fnar
+-- CROSS JOIN LATERAL public.parse_military_guest_names(
+--   g.first_name, g.last_name, g.first_name_ar, g.last_name_ar
+-- ) p
 -- WHERE g.guest_type = 'military'
---   AND (g.military_rank_ar IS NULL OR trim(g.military_rank_ar) = '')
---   AND (e_fn.rank_ar IS NOT NULL OR e_fnar.rank_ar IS NOT NULL)
--- LIMIT 20;
+--   AND COALESCE(TRIM(g.military_rank_ar), '') = ''
+--   AND p.rank_ar IS NOT NULL
+-- LIMIT 25;
+--
+-- 5) Post-backfill verification:
+-- SELECT COUNT(*) AS military_with_rank
+-- FROM guests
+-- WHERE guest_type = 'military'
+--   AND COALESCE(TRIM(military_rank_ar), '') <> '';
+--
+-- SELECT COUNT(*) AS military_still_missing
+-- FROM guests
+-- WHERE guest_type = 'military'
+--   AND COALESCE(TRIM(military_rank_ar), '') = '';
+-- =============================================================================
 
--- =============================================================================
--- Helper: normalize legacy rank spellings in a name field
--- =============================================================================
-CREATE OR REPLACE FUNCTION normalize_military_name_text(p_text TEXT)
+CREATE OR REPLACE FUNCTION public.normalize_guest_name_text(input_text TEXT)
 RETURNS TEXT
-LANGUAGE sql
+LANGUAGE plpgsql
 IMMUTABLE
 AS $$
-  SELECT CASE
-    WHEN p_text IS NULL THEN NULL
-    ELSE trim(
-      regexp_replace(
-        regexp_replace(
-          regexp_replace(
-            regexp_replace(trim(p_text), 'ملازم\s+اول', 'ملازم أول', 'gi'),
-            'رقيب\s+اول', 'رقيب أول', 'gi'
-          ),
-          'جندي\s+اول', 'جندي أول', 'gi'
-        ),
-        'فريق\s+اول', 'فريق أول', 'gi'
-      )
-    )
-  END;
+BEGIN
+  IF input_text IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN TRIM(REGEXP_REPLACE(input_text, '\s+', ' ', 'g'));
+END;
 $$;
 
--- =============================================================================
--- Parse military rank from a single name field (longest rank match first)
--- Returns canonical rank_ar and cleaned name without the rank prefix.
--- Handles: rank-only, "rank / name", "rank\\ name", "rank name", legacy اول spellings.
--- =============================================================================
-CREATE OR REPLACE FUNCTION extract_military_rank_from_name(p_text TEXT)
-RETURNS TABLE(rank_ar TEXT, cleaned_name TEXT)
+CREATE OR REPLACE FUNCTION public.normalize_rank_token(input_text TEXT)
+RETURNS TEXT
 LANGUAGE plpgsql
 IMMUTABLE
 AS $$
 DECLARE
-  v_normalized TEXT;
-  v_rank TEXT;
-  v_ranks TEXT[] := ARRAY[
+  normalized TEXT;
+BEGIN
+  normalized := public.normalize_guest_name_text(input_text);
+  IF normalized IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- Legacy imports sometimes use "اول" instead of "أول"
+  normalized := REPLACE(normalized, 'اول', 'أول');
+  RETURN normalized;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.military_rank_list()
+RETURNS TEXT[]
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT ARRAY[
     'مشير',
     'فريق أول',
     'فريق',
@@ -121,31 +122,52 @@ DECLARE
     'عريف',
     'جندي أول',
     'جندي'
-  ];
-  v_remainder TEXT;
+  ]::TEXT[];
+$$;
+
+CREATE OR REPLACE FUNCTION public.try_extract_rank_from_field(input_text TEXT)
+RETURNS TABLE(rank_ar TEXT, name_remainder TEXT)
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  ranks TEXT[] := public.military_rank_list();
+  candidate TEXT;
+  normalized TEXT;
+  rank_token TEXT;
+  rank_pos INT;
+  prefix TEXT;
+  remainder TEXT;
 BEGIN
   rank_ar := NULL;
-  cleaned_name := NULL;
+  name_remainder := NULL;
 
-  v_normalized := normalize_military_name_text(p_text);
-  IF v_normalized IS NULL OR v_normalized = '' THEN
+  normalized := public.normalize_rank_token(input_text);
+  IF normalized IS NULL OR normalized = '' THEN
     RETURN;
   END IF;
 
-  FOREACH v_rank IN ARRAY v_ranks LOOP
-    -- Exact rank-only (name may live in last_name)
-    IF v_normalized = v_rank THEN
-      rank_ar := v_rank;
-      cleaned_name := '';
+  FOREACH rank_token IN ARRAY ranks LOOP
+    IF normalized = rank_token THEN
+      rank_ar := rank_token;
+      name_remainder := NULL;
       RETURN NEXT;
       RETURN;
     END IF;
 
-    -- Rank prefix: "عقيد / محمد", "عميد\\ محمد", "عميد منتصر", "لواء محمد"
-    IF v_normalized ~ ('^' || v_rank || '(\s|[/\\])') THEN
-      rank_ar := v_rank;
-      v_remainder := trim(regexp_replace(v_normalized, '^' || v_rank || '[\s/\\]+', ''));
-      cleaned_name := v_remainder;
+    rank_pos := POSITION(rank_token IN normalized);
+    IF rank_pos <= 0 THEN
+      CONTINUE;
+    END IF;
+
+    prefix := TRIM(SUBSTRING(normalized FROM 1 FOR rank_pos - 1));
+    remainder := TRIM(SUBSTRING(normalized FROM rank_pos + CHAR_LENGTH(rank_token)));
+    remainder := TRIM(REGEXP_REPLACE(remainder, '^[/\\\s]+', ''));
+
+    IF rank_pos = 1
+       OR prefix ~ '^(حرم|والدة|والده|زوجة|زوج|ابن|ابنة|ابنه|ابنت)?$' THEN
+      rank_ar := rank_token;
+      name_remainder := NULLIF(remainder, '');
       RETURN NEXT;
       RETURN;
     END IF;
@@ -153,72 +175,271 @@ BEGIN
 END;
 $$;
 
--- =============================================================================
--- Backfill: update military guests missing military_rank_ar
--- =============================================================================
-CREATE OR REPLACE FUNCTION backfill_military_guest_ranks()
+CREATE OR REPLACE FUNCTION public.guest_name_contains_military_rank(
+  primary_text TEXT,
+  fallback_text TEXT DEFAULT NULL
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  parsed RECORD;
+BEGIN
+  SELECT * INTO parsed FROM public.try_extract_rank_from_field(primary_text);
+  IF parsed.rank_ar IS NOT NULL THEN
+    RETURN TRUE;
+  END IF;
+
+  IF fallback_text IS NOT NULL AND fallback_text IS DISTINCT FROM primary_text THEN
+    SELECT * INTO parsed FROM public.try_extract_rank_from_field(fallback_text);
+    RETURN parsed.rank_ar IS NOT NULL;
+  END IF;
+
+  RETURN FALSE;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.parse_military_guest_names(
+  p_first_name TEXT,
+  p_last_name TEXT,
+  p_first_name_ar TEXT DEFAULT NULL,
+  p_last_name_ar TEXT DEFAULT NULL
+)
+RETURNS TABLE(
+  rank_ar TEXT,
+  first_name TEXT,
+  last_name TEXT,
+  first_name_ar TEXT,
+  last_name_ar TEXT
+)
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  parsed_primary RECORD;
+  parsed_fallback RECORD;
+  source_field TEXT;
+  extracted_rank TEXT;
+  extracted_remainder TEXT;
+  out_first TEXT;
+  out_last TEXT;
+  out_first_ar TEXT;
+  out_last_ar TEXT;
+BEGIN
+  rank_ar := NULL;
+  first_name := public.normalize_guest_name_text(p_first_name);
+  last_name := public.normalize_guest_name_text(p_last_name);
+  first_name_ar := public.normalize_guest_name_text(p_first_name_ar);
+  last_name_ar := public.normalize_guest_name_text(p_last_name_ar);
+
+  source_field := NULL;
+  extracted_rank := NULL;
+  extracted_remainder := NULL;
+
+  SELECT * INTO parsed_primary FROM public.try_extract_rank_from_field(p_first_name_ar);
+  IF parsed_primary.rank_ar IS NOT NULL THEN
+    extracted_rank := parsed_primary.rank_ar;
+    extracted_remainder := parsed_primary.name_remainder;
+    source_field := 'first_name_ar';
+  ELSE
+    SELECT * INTO parsed_fallback FROM public.try_extract_rank_from_field(p_first_name);
+    IF parsed_fallback.rank_ar IS NOT NULL THEN
+      extracted_rank := parsed_fallback.rank_ar;
+      extracted_remainder := parsed_fallback.name_remainder;
+      source_field := 'first_name';
+    END IF;
+  END IF;
+
+  IF extracted_rank IS NULL THEN
+    rank_ar := NULL;
+    RETURN NEXT;
+    RETURN;
+  END IF;
+
+  rank_ar := extracted_rank;
+
+  IF extracted_remainder IS NULL THEN
+    -- Rank-only first field: guest name lives in last_name(_ar)
+    out_first_ar := COALESCE(
+      NULLIF(first_name_ar, extracted_rank),
+      NULLIF(last_name_ar, ''),
+      NULLIF(first_name, extracted_rank),
+      NULLIF(last_name, '')
+    );
+    out_last_ar := NULLIF(
+      CASE
+        WHEN first_name_ar IS NOT NULL AND public.normalize_rank_token(first_name_ar) = extracted_rank
+          THEN NULLIF(last_name_ar, '')
+        ELSE last_name_ar
+      END,
+      ''
+    );
+
+    out_first := COALESCE(
+      NULLIF(first_name, extracted_rank),
+      NULLIF(last_name, ''),
+      out_first_ar
+    );
+    out_last := NULLIF(
+      CASE
+        WHEN first_name IS NOT NULL AND public.normalize_rank_token(first_name) = extracted_rank
+          THEN NULLIF(last_name, '')
+        ELSE last_name
+      END,
+      ''
+    );
+
+    -- When rank was only token in first field, move full name into first and clear last
+    IF public.normalize_rank_token(p_first_name_ar) = extracted_rank
+       OR public.normalize_rank_token(p_first_name) = extracted_rank THEN
+      IF out_last_ar IS NOT NULL AND (out_first_ar IS NULL OR out_first_ar = '') THEN
+        out_first_ar := out_last_ar;
+        out_last_ar := NULL;
+      END IF;
+      IF out_last IS NOT NULL AND (out_first IS NULL OR out_first = '') THEN
+        out_first := out_last;
+        out_last := NULL;
+      END IF;
+    END IF;
+  ELSE
+    IF source_field = 'first_name_ar' THEN
+      out_first_ar := extracted_remainder;
+      out_last_ar := last_name_ar;
+      IF public.guest_name_contains_military_rank(first_name, NULL) THEN
+        SELECT name_remainder INTO out_first
+        FROM public.try_extract_rank_from_field(p_first_name);
+      ELSE
+        out_first := first_name;
+      END IF;
+      out_last := last_name;
+    ELSE
+      out_first := extracted_remainder;
+      out_last := last_name;
+      out_first_ar := first_name_ar;
+      out_last_ar := last_name_ar;
+    END IF;
+  END IF;
+
+  first_name := COALESCE(NULLIF(public.normalize_guest_name_text(out_first), ''), '');
+  last_name := COALESCE(NULLIF(public.normalize_guest_name_text(out_last), ''), '');
+  first_name_ar := NULLIF(public.normalize_guest_name_text(out_first_ar), '');
+  last_name_ar := NULLIF(public.normalize_guest_name_text(out_last_ar), '');
+
+  RETURN NEXT;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.backfill_military_guest_ranks()
 RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  rec RECORD;
-  v_fn RECORD;
-  v_fnar RECORD;
-  v_rank TEXT;
-  v_new_first TEXT;
-  v_new_first_ar TEXT;
-  v_updated INTEGER := 0;
+  guest_row RECORD;
+  parsed RECORD;
+  updated_count INTEGER := 0;
 BEGIN
-  FOR rec IN
-    SELECT id, first_name, last_name, first_name_ar, last_name_ar
-    FROM guests
-    WHERE guest_type = 'military'
-      AND (military_rank_ar IS NULL OR trim(military_rank_ar) = '')
+  FOR guest_row IN
+    SELECT g.id, g.first_name, g.last_name, g.first_name_ar, g.last_name_ar
+    FROM guests g
+    WHERE g.guest_type = 'military'
+      AND COALESCE(TRIM(g.military_rank_ar), '') = ''
   LOOP
-    SELECT * INTO v_fn FROM extract_military_rank_from_name(rec.first_name);
-    SELECT * INTO v_fnar FROM extract_military_rank_from_name(rec.first_name_ar);
+    SELECT * INTO parsed
+    FROM public.parse_military_guest_names(
+      guest_row.first_name,
+      guest_row.last_name,
+      guest_row.first_name_ar,
+      guest_row.last_name_ar
+    );
 
-    v_rank := COALESCE(v_fnar.rank_ar, v_fn.rank_ar);
-    IF v_rank IS NULL THEN
+    IF parsed.rank_ar IS NULL THEN
       CONTINUE;
-    END IF;
-
-    -- Clean whichever field(s) contained the rank prefix
-    v_new_first := rec.first_name;
-    v_new_first_ar := rec.first_name_ar;
-
-    IF v_fn.rank_ar IS NOT NULL THEN
-      v_new_first := v_fn.cleaned_name;
-    END IF;
-
-    IF v_fnar.rank_ar IS NOT NULL THEN
-      v_new_first_ar := v_fnar.cleaned_name;
-    END IF;
-
-    -- first_name is NOT NULL; use empty string when rank-only
-    IF v_new_first IS NULL OR trim(v_new_first) = '' THEN
-      v_new_first := '';
-    END IF;
-
-    IF v_new_first_ar IS NOT NULL AND trim(v_new_first_ar) = '' THEN
-      v_new_first_ar := NULL;
     END IF;
 
     UPDATE guests
     SET
-      military_rank_ar = v_rank,
-      military_rank = v_rank,
-      first_name = v_new_first,
-      first_name_ar = v_new_first_ar,
+      military_rank_ar = parsed.rank_ar,
+      military_rank = parsed.rank_ar,
+      first_name = parsed.first_name,
+      last_name = parsed.last_name,
+      first_name_ar = parsed.first_name_ar,
+      last_name_ar = parsed.last_name_ar,
       updated_at = NOW()
-    WHERE id = rec.id;
+    WHERE id = guest_row.id;
 
-    v_updated := v_updated + 1;
+    updated_count := updated_count + 1;
   END LOOP;
 
-  RETURN v_updated;
+  RETURN updated_count;
 END;
 $$;
 
--- Run backfill
-SELECT backfill_military_guest_ranks() AS rows_updated;
+CREATE OR REPLACE FUNCTION public.repair_military_guest_names()
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  guest_row RECORD;
+  parsed RECORD;
+  repaired_count INTEGER := 0;
+BEGIN
+  FOR guest_row IN
+    SELECT g.id, g.first_name, g.last_name, g.first_name_ar, g.last_name_ar, g.military_rank_ar
+    FROM guests g
+    WHERE g.guest_type = 'military'
+      AND (
+        public.guest_name_contains_military_rank(
+          COALESCE(g.first_name_ar, g.first_name, ''),
+          COALESCE(g.first_name, '')
+        )
+        OR (
+          COALESCE(TRIM(g.military_rank_ar), '') <> ''
+          AND COALESCE(TRIM(g.first_name), '') = ''
+          AND COALESCE(TRIM(g.last_name), '') <> ''
+        )
+      )
+  LOOP
+    SELECT * INTO parsed
+    FROM public.parse_military_guest_names(
+      guest_row.first_name,
+      guest_row.last_name,
+      guest_row.first_name_ar,
+      guest_row.last_name_ar
+    );
+
+    IF parsed.rank_ar IS NULL THEN
+      IF COALESCE(TRIM(guest_row.military_rank_ar), '') <> ''
+         AND COALESCE(TRIM(guest_row.first_name), '') = ''
+         AND COALESCE(TRIM(guest_row.last_name), '') <> '' THEN
+        UPDATE guests
+        SET
+          first_name = TRIM(guest_row.last_name),
+          last_name = '',
+          updated_at = NOW()
+        WHERE id = guest_row.id;
+        repaired_count := repaired_count + 1;
+      END IF;
+      CONTINUE;
+    END IF;
+
+    UPDATE guests
+    SET
+      military_rank_ar = parsed.rank_ar,
+      military_rank = parsed.rank_ar,
+      first_name = parsed.first_name,
+      last_name = parsed.last_name,
+      first_name_ar = parsed.first_name_ar,
+      last_name_ar = parsed.last_name_ar,
+      updated_at = NOW()
+    WHERE id = guest_row.id;
+
+    repaired_count := repaired_count + 1;
+  END LOOP;
+
+  RETURN repaired_count;
+END;
+$$;
+
+SELECT public.backfill_military_guest_ranks() AS rows_updated;
+SELECT public.repair_military_guest_names() AS names_repaired;
