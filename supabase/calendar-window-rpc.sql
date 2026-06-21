@@ -52,7 +52,9 @@ select
   r.notes,
   r.created_at,
   r.updated_at,
-  r.created_by_user_id
+  r.created_by_user_id,
+  g.guest_type::text  as guest_type,
+  g.military_rank_ar  as guest_military_rank_ar
 from reservations r
 join units  u on u.id = r.unit_id
 left join guests g on g.id = r.guest_id;

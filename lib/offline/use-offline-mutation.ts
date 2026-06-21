@@ -21,6 +21,7 @@ import { supabase } from '@/lib/supabase/client'
 import { db, type OutboxEntry } from '@/lib/offline/db'
 import { calendarWindowKey, fetchCalendarWindow } from '@/lib/hooks/use-reservations'
 import type { CalendarEvent, CalendarWindowArgs } from '@/lib/types/calendar'
+import { isReservationOverlapError } from '@/lib/utils/reservation-overlap'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Online status hook
@@ -112,10 +113,19 @@ export function useOfflineMutation(calendarArgs: CalendarWindowArgs) {
           .insert(payload)
           .select('id')
           .single()
-        if (error) throw error
+        if (error) {
+          throw new Error(
+            isReservationOverlapError(error)
+              ? 'الوحدة محجوزة في التواريخ المحددة'
+              : error.message
+          )
+        }
 
-        // Invalidate so realtime + delta sync pick it up.
-        queryClient.invalidateQueries({ queryKey: ['calendar-window'] })
+        // Re-fetch the window (paginated) so the new row appears immediately.
+        const fresh = await fetchCalendarWindow(calendarArgs)
+        queryClient.setQueryData(calendarWindowKey(calendarArgs), fresh)
+        queryClient.invalidateQueries({ queryKey: ['reservations'] })
+        queryClient.invalidateQueries({ queryKey: ['reservations-paginated'] })
         return { id: data.id, wasOffline: false }
       }
 
@@ -154,6 +164,8 @@ export function useOfflineMutation(calendarArgs: CalendarWindowArgs) {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         created_by_user_id: null,
+        guest_type: null,
+        guest_military_rank_ar: null,
       }
 
       patchWindowCache(queryClient, calendarArgs, (prev) => [...prev, optimisticEvent])

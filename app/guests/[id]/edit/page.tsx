@@ -3,7 +3,7 @@
 import { useParams, useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { guestSchema, type GuestFormData } from '@/lib/validations/guest'
+import { guestSchema, guestTypeShowsRank, type GuestFormData } from '@/lib/validations/guest'
 import { useGuest, useUpdateGuest } from '@/lib/hooks/use-guests'
 import { Guest, GuestType } from '@/lib/types/database'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -75,6 +75,8 @@ export default function EditGuestPage() {
   }, [errors])
 
   const currentGuestType = watch('guest_type')
+  const showRank = guestTypeShowsRank(currentGuestType) || (!currentGuestType && guest && guestTypeShowsRank(guest.guest_type))
+  const showMilitaryUnit = currentGuestType === 'military' || (!currentGuestType && guest?.guest_type === 'military')
 
   useEffect(() => {
     if (guest) {
@@ -362,9 +364,11 @@ export default function EditGuestPage() {
                     value={currentGuestType || guest.guest_type}
                     onValueChange={(value) => {
                       setValue('guest_type', value as any)
-                      if (value !== 'military') {
+                      if (!guestTypeShowsRank(value)) {
                         setValue('military_rank_ar', '')
                         setValue('military_rank', '')
+                      }
+                      if (value !== 'military') {
                         setValue('unit', '')
                         setValue('unit_ar', '')
                       }
@@ -386,8 +390,8 @@ export default function EditGuestPage() {
             </Card>
           </motion.div>
 
-          {/* Military Info Card - Only for military guests */}
-          {(currentGuestType === 'military' || (!currentGuestType && guest.guest_type === 'military')) && (
+          {/* Rank / military info - military gets full card; club member gets rank only */}
+          {(showRank || showMilitaryUnit) && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -407,11 +411,12 @@ export default function EditGuestPage() {
                       <Shield className="h-5 w-5 text-purple-600" />
                     </motion.div>
                     <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-violet-600 bg-clip-text text-transparent">
-                      المعلومات العسكرية
+                      {showMilitaryUnit ? 'المعلومات العسكرية' : 'الرتبة'}
                     </CardTitle>
                   </div>
                 </CardHeader>
                 <CardContent className="relative z-10 pt-4 space-y-4">
+                  {showRank && (
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="military_rank" className="flex items-center gap-2 font-medium">
@@ -448,7 +453,9 @@ export default function EditGuestPage() {
                       </Select>
                     </div>
                   </div>
+                  )}
 
+                  {showMilitaryUnit && (
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="unit" className="flex items-center gap-2 font-medium">
@@ -476,6 +483,7 @@ export default function EditGuestPage() {
                       />
                     </div>
                   </div>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
@@ -486,7 +494,7 @@ export default function EditGuestPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.6 }}
-            className={(currentGuestType === 'military' || (!currentGuestType && guest.guest_type === 'military')) ? '' : 'md:col-span-2'}
+            className={(showRank || showMilitaryUnit) ? '' : 'md:col-span-2'}
           >
             <Card className="relative overflow-hidden border-0 shadow-xl bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-950/30 dark:via-yellow-950/30 dark:to-orange-950/30 backdrop-blur-sm h-full">
               <div className="absolute inset-0 opacity-5">

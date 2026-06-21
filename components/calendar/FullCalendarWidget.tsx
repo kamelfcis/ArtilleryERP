@@ -10,6 +10,7 @@ import interactionPlugin from '@fullcalendar/interaction'
 import arLocale from '@fullcalendar/core/locales/ar'
 import type { CalendarEvent as CalendarEventRow } from '@/lib/types/calendar'
 import type { UserRole } from '@/lib/types/database'
+import { guestTypeShowsRank } from '@/lib/validations/guest'
 import { getUnitTypeIconData, getShakkaRoomIconGradient } from '@/lib/utils/calendar-helpers'
 
 const CALENDAR_PLUGINS = [dayGridPlugin, timeGridPlugin, interactionPlugin, resourceTimelinePlugin]
@@ -335,6 +336,8 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
                 const phone = reservation.guest_phone || ''
                 const showAlarm = !!arg.event.extendedProps.showAlarm
                 const alarmPrefix = showAlarm ? '⚠ ' : ''
+                const showRank = guestTypeShowsRank(reservation.guest_type)
+                const rank = reservation.guest_military_rank_ar || ''
 
                 const checkIn = new Date(reservation.check_in_date)
                 const checkOut = new Date(reservation.check_out_date)
@@ -345,6 +348,7 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
                   html: `
                     <div class="cal-event-content ${isSingleDay ? 'single-day-event' : ''}">
                       <div class="cal-event-name">${alarmPrefix}${guestName}</div>
+                      ${showRank && rank ? `<div class="cal-event-phone">🎖️ ${rank}</div>` : ''}
                       ${phone ? `<div class="cal-event-phone">📞 ${phone}</div>` : ''}
                     </div>
                   `
@@ -545,7 +549,8 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
                   const cOut = res.check_out_date ? new Date(res.check_out_date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
                   const cAt = res.created_at ? new Date(res.created_at).toLocaleString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : ''
                   const st = res.status || ''
-                  const gType = ''
+                  const gType = res.guest_type || ''
+                  const rank = res.guest_military_rank_ar || ''
                   const notes = res.notes || ''
                   const creatorUserId = res.created_by_user_id
                   const creatorName = creatorUserId ? (staffByUserId.get(creatorUserId) || creatorUserId.substring(0, 8) + '...') : null
@@ -556,6 +561,7 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
                     </div>
                     ${ph ? `<div style="margin-bottom: 4px;">📞 <span style="color: #a5b4fc;">${ph}</span></div>` : ''}
                     ${gType ? `<div style="margin-bottom: 4px;">🏷️ نوع الضيف: <span style="color: #38bdf8;">${guestTypeMap[gType] || gType}</span></div>` : ''}
+                    ${guestTypeShowsRank(gType) && rank ? `<div style="margin-bottom: 4px;">🎖️ الرتبة: <span style="color: #fcd34d;">${rank}</span></div>` : ''}
                     <div style="margin-bottom: 4px;">📅 الدخول: <span style="color: #34d399;">${cIn}</span></div>
                     <div style="margin-bottom: 4px;">📅 الخروج: <span style="color: #fb923c;">${cOut}</span></div>
                     ${st ? `<div style="margin-bottom: 4px;">📌 الحالة: <span style="color: #c084fc;">${statusMap[st] || st}</span></div>` : ''}

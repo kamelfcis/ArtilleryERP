@@ -16,6 +16,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/components/ui/use-toast'
 import { Skeleton } from '@/components/ui/skeleton'
 import { supabase } from '@/lib/supabase/client'
+import { uploadToR2, deleteFromR2 } from '@/lib/storage/upload'
 import { useEffect, useState, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import Image from 'next/image'
@@ -145,11 +146,13 @@ export default function EditUnitPage() {
 
         if (imagesToDelete && imagesToDelete.length > 0) {
           const imagePaths = imagesToDelete.map(img => img.image_path)
-          // Delete from storage
-          await supabase.storage
-            .from('unit-images')
-            .remove(imagePaths)
-            .catch(err => console.error('Error deleting images from storage:', err))
+          for (const imagePath of imagePaths) {
+            try {
+              await deleteFromR2('unit-images', imagePath)
+            } catch (err) {
+              console.error('Error deleting image from storage:', err)
+            }
+          }
         }
 
         // Delete from database
@@ -174,30 +177,14 @@ export default function EditUnitPage() {
           const filePath = `unit-${id}/${fileName}`
           
           try {
-            // Upload file to unit folder
-            const { error: uploadError } = await supabase.storage
-              .from('unit-images')
-              .upload(filePath, file, {
-                cacheControl: '3600',
-                upsert: false,
-              })
-            
-            if (!uploadError) {
-              // Get public URL
-              const { data: urlData } = supabase.storage
-                .from('unit-images')
-                .getPublicUrl(filePath)
-              
-              // Save to database
-              await supabase.from('unit_images').insert({
-                unit_id: id,
-                image_url: urlData.publicUrl,
-                image_path: filePath,
-                is_primary: isFirstImage && i === 0,
-              })
-            } else {
-              console.error('Error uploading image:', uploadError)
-            }
+            const publicUrl = await uploadToR2('unit-images', filePath, file)
+
+            await supabase.from('unit_images').insert({
+              unit_id: id,
+              image_url: publicUrl,
+              image_path: filePath,
+              is_primary: isFirstImage && i === 0,
+            })
           } catch (error) {
             console.error('Error processing image:', error)
           }

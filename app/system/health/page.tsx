@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
@@ -35,19 +36,21 @@ export default function SystemHealthPage() {
         }
       }
 
-      // Check storage
+      // Check R2 storage via API (HeadBucket)
       const storageStart = Date.now()
       try {
-        const { error } = await supabase.storage.from('unit-images').list('', { limit: 1 })
+        const res = await fetchWithSupabaseAuth('/api/storage/health')
+        const data = await res.json().catch(() => ({}))
         checks.storage = {
-          status: error ? 'error' : 'healthy',
-          message: error ? error.message : 'التخزين يعمل بشكل طبيعي',
-          responseTime: Date.now() - storageStart,
+          status: res.ok && data.status === 'healthy' ? 'healthy' : 'error',
+          message: data.message || (res.ok ? 'التخزين يعمل بشكل طبيعي' : 'خطأ في الاتصال بالتخزين'),
+          responseTime: data.responseTime ?? Date.now() - storageStart,
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'خطأ في الاتصال بالتخزين'
         checks.storage = {
           status: 'error',
-          message: e.message || 'خطأ في الاتصال بالتخزين',
+          message,
           responseTime: Date.now() - storageStart,
         }
       }

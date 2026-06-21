@@ -43,6 +43,10 @@ import {
   getRoomBlockConflictsForUnits,
   type CalendarRoomBlock,
 } from '@/lib/utils/room-block-overlap'
+import {
+  findConflictingReservations,
+  formatReservationConflictMessage,
+} from '@/lib/utils/reservation-overlap'
 
 const CreateReservationDialog = dynamic(
   () => import('@/components/calendar/dialogs/CreateReservationDialog').then(m => ({ default: m.CreateReservationDialog })),
@@ -940,6 +944,13 @@ export default function CalendarPage() {
           (pricingData || []) as any[]
         )
 
+        if (isOnline) {
+          const conflicting = await findConflictingReservations(unitId, checkIn, checkOut)
+          if (conflicting.length > 0) {
+            throw new Error(formatReservationConflictMessage(unit.unit_number))
+          }
+        }
+
         const result = await offlineMutation.create({
           unit_id: unitId,
           guest_id: guestId,
@@ -991,13 +1002,55 @@ export default function CalendarPage() {
             ? `تم إنشاء الحجز بنجاح. المبلغ الإجمالي: ${formatCurrency(totalAmountSum)}`
             : `تم إنشاء ${successCount} حجوزات بنجاح. المبلغ الإجمالي: ${formatCurrency(totalAmountSum)}`),
       })
+
+      // Ensure the visible fetch window includes the new stay dates, then refresh cache.
+      if (!offline) {
+        let nextStart = rangeStart
+        let nextEnd = rangeEnd
+        if (checkIn < nextStart) {
+          nextStart = checkIn
+          setRangeStart(checkIn)
+        }
+        if (checkOut > nextEnd) {
+          nextEnd = checkOut
+          setRangeEnd(checkOut)
+        }
+        // New calendar bookings are always pending — widen status filter if it would hide them.
+        let statusFilter = calendarArgs.status
+        if (selectedStatus !== 'all' && selectedStatus !== 'pending') {
+          setSelectedStatus('all')
+          statusFilter = undefined
+        }
+        const refreshedArgs: CalendarWindowArgs = {
+          ...calendarArgs,
+          start: nextStart,
+          end: nextEnd,
+          status: statusFilter,
+        }
+        try {
+          const fresh = await fetchCalendarWindow(refreshedArgs)
+          queryClient.setQueryData(calendarWindowKey(refreshedArgs), fresh)
+        } catch {
+          queryClient.invalidateQueries({ queryKey: ['calendar-window'] })
+        }
+      }
     }
 
-    const failCount = results.filter(r => r.status === 'rejected').length
-    if (failCount > 0) {
+    const failures = results.filter(
+      (r): r is PromiseRejectedResult => r.status === 'rejected'
+    )
+    if (failures.length > 0) {
+      const firstMessage =
+        failures[0]?.reason instanceof Error
+          ? failures[0].reason.message
+          : typeof failures[0]?.reason === 'string'
+            ? failures[0].reason
+            : null
       toast({
         title: 'تحذير',
-        description: `فشل إنشاء ${failCount} حجز. يرجى المحاولة مجدداً.`,
+        description:
+          firstMessage ||
+          `فشل إنشاء ${failures.length} حجز. يرجى المحاولة مجدداً.`,
         variant: 'destructive',
       })
     }

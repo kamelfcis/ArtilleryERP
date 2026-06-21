@@ -506,14 +506,27 @@ export const calendarWindowKey = (a: CalendarWindowArgs) =>
 export async function fetchCalendarWindow(
   a: CalendarWindowArgs
 ): Promise<CalendarEvent[]> {
-  const { data, error } = await supabase.rpc('get_calendar_window', {
-    p_location_id: a.locationId ?? null,
-    p_start: a.start,
-    p_end: a.end,
-    p_status: a.status ?? null,
-  })
-  if (error) throw error
-  return (data ?? []) as CalendarEvent[]
+  const all: CalendarEvent[] = []
+  let offset = 0
+
+  while (true) {
+    const { data, error } = await supabase
+      .rpc('get_calendar_window', {
+        p_location_id: a.locationId ?? null,
+        p_start: a.start,
+        p_end: a.end,
+        p_status: a.status ?? null,
+      })
+      .range(offset, offset + POSTGREST_PAGE_SIZE - 1)
+
+    if (error) throw error
+    const batch = (data ?? []) as CalendarEvent[]
+    all.push(...batch)
+    if (batch.length < POSTGREST_PAGE_SIZE) break
+    offset += POSTGREST_PAGE_SIZE
+  }
+
+  return all
 }
 
 /**

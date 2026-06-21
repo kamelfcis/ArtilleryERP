@@ -1,14 +1,15 @@
 'use client'
 
 import { useState } from 'react'
-import { supabase } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/use-toast'
 import { Upload, X, Image as ImageIcon } from 'lucide-react'
 import Image from 'next/image'
+import { uploadToR2 } from '@/lib/storage/upload'
+import type { StorageBucket } from '@/lib/storage/r2-client'
 
 interface MultiFileUploadProps {
-  bucket: 'unit-images' | 'reservation-files'
+  bucket: StorageBucket
   folder?: string
   onUploadComplete: (files: Array<{ url: string; path: string; name: string; size?: number }>) => void
   accept?: string
@@ -47,10 +48,9 @@ export function MultiFileUpload({
     setUploading(true)
 
     try {
-      const uploadedFiles: Array<{ url: string; path: string; name: string }> = []
+      const uploadedFiles: Array<{ url: string; path: string; name: string; size?: number }> = []
 
       for (const file of files) {
-        // Check file size
         if (file.size > maxSize * 1024 * 1024) {
           toast({
             title: 'خطأ',
@@ -64,27 +64,13 @@ export function MultiFileUpload({
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
         const filePath = folder ? `${folder}/${fileName}` : fileName
 
-        const { error: uploadError } = await supabase.storage
-          .from(bucket)
-          .upload(filePath, file, {
-            cacheControl: '3600',
-            upsert: false,
-          })
-
-        if (uploadError) {
-          console.error('Upload error:', uploadError)
-          throw new Error(uploadError.message || 'فشل في رفع الملف')
-        }
-
-        // Both buckets are public, so use public URLs
-        const { data } = supabase.storage
-          .from(bucket)
-          .getPublicUrl(filePath)
+        const publicUrl = await uploadToR2(bucket, filePath, file)
 
         uploadedFiles.push({
-          url: data.publicUrl,
+          url: publicUrl,
           path: filePath,
           name: file.name,
+          size: file.size,
         })
       }
 
@@ -96,10 +82,11 @@ export function MultiFileUpload({
         title: 'نجح',
         description: `تم رفع ${uploadedFiles.length} ملف بنجاح`,
       })
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'فشل في رفع الملفات'
       toast({
         title: 'خطأ',
-        description: error.message || 'فشل في رفع الملفات',
+        description: message,
         variant: 'destructive',
       })
     } finally {
@@ -161,7 +148,7 @@ export function MultiFileUpload({
                     variant="destructive"
                     size="icon"
                     className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => handleRemove(index, (preview as any).id)}
+                    onClick={() => handleRemove(index, (preview as { id?: string }).id)}
                   >
                     <X className="h-4 w-4" />
                   </Button>
@@ -173,7 +160,7 @@ export function MultiFileUpload({
                     variant="destructive"
                     size="icon"
                     className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => handleRemove(index, (preview as any).id)}
+                    onClick={() => handleRemove(index, (preview as { id?: string }).id)}
                   >
                     <X className="h-4 w-4" />
                   </Button>
@@ -187,4 +174,3 @@ export function MultiFileUpload({
     </div>
   )
 }
-

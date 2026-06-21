@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { deleteFromR2 } from '@/lib/storage/upload'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -40,12 +41,7 @@ export default function ReservationAttachmentsPage() {
       const attachment = attachments?.find(a => a.id === attachmentId)
       if (!attachment) return
 
-      // Delete from storage
-      const { error: storageError } = await supabase.storage
-        .from('reservation-files')
-        .remove([attachment.file_path])
-
-      if (storageError) throw storageError
+      await deleteFromR2('reservation-files', attachment.file_path)
 
       // Delete from database
       const { error: dbError } = await supabase
@@ -76,44 +72,20 @@ export default function ReservationAttachmentsPage() {
       const { data: userData } = await supabase.auth.getUser()
       const userId = userData?.user?.id
 
-      // Get file sizes from storage
-      const attachmentsToInsert = await Promise.all(
-        files.map(async (file) => {
-          // Try to get file metadata from storage
-          let fileSize = file.size || 0
-          try {
-            const filePathParts = file.path.split('/')
-            const fileName = filePathParts[filePathParts.length - 1]
-            const folderPath = filePathParts.slice(0, -1).join('/') || id
-            
-            const { data: fileList } = await supabase.storage
-              .from('reservation-files')
-              .list(folderPath, {
-                limit: 1000,
-              })
+      const attachmentsToInsert = files.map((file) => {
+        const fileSize = file.size || 0
+        const fileType = file.name.split('.').pop()?.toLowerCase() || ''
 
-            const fileData = fileList?.find(f => f.name === fileName)
-            if (fileData?.metadata?.size) {
-              fileSize = parseInt(fileData.metadata.size)
-            }
-          } catch (e) {
-            // If we can't get size from storage, use provided size or 0
-            console.warn('Could not get file size from storage:', e)
-          }
-
-          const fileType = file.name.split('.').pop()?.toLowerCase() || ''
-
-          return {
-            reservation_id: id,
-            file_url: file.url,
-            file_path: file.path,
-            file_name: file.name,
-            file_type: fileType,
-            file_size: fileSize,
-            uploaded_by: userId,
-          }
-        })
-      )
+        return {
+          reservation_id: id,
+          file_url: file.url,
+          file_path: file.path,
+          file_name: file.name,
+          file_type: fileType,
+          file_size: fileSize,
+          uploaded_by: userId,
+        }
+      })
 
       const { error } = await supabase
         .from('reservation_attachments')

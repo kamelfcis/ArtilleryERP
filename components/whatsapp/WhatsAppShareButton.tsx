@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { MessageCircle, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/use-toast'
-import { supabase } from '@/lib/supabase/client'
+import { uploadToR2, deleteFromR2 } from '@/lib/storage/upload'
 import { buildContractHtml } from '@/lib/utils/build-contract-html'
 import { useReservationServices } from '@/lib/hooks/use-services'
 import type { Reservation } from '@/lib/types/database'
@@ -197,23 +197,17 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
         throw new Error(`PDF generation produced a suspiciously small blob (${blob?.size ?? 0} bytes)`)
       }
 
-      // ── 6. Upload to Supabase (delete first → bypass missing UPDATE RLS) ───
+      // ── 6. Upload to R2 (delete first to allow re-upload) ─────────────────
       const path = `${reservation.id}/contract.pdf`
       let uploadFailed = false
 
-      await supabase.storage.from('reservation-files').remove([path]).catch(() => undefined)
-
-      const { error: upErr } = await supabase.storage
-        .from('reservation-files')
-        .upload(path, blob, {
-          contentType: 'application/pdf',
-          cacheControl: '0',
-        })
-
-      if (upErr) {
+      try {
+        await deleteFromR2('reservation-files', path).catch(() => undefined)
+        await uploadToR2('reservation-files', path, blob, 'application/pdf')
+      } catch (upErr) {
         uploadFailed = true
         // eslint-disable-next-line no-console
-        console.error('[whatsapp-pdf] supabase upload failed:', upErr)
+        console.error('[whatsapp-pdf] R2 upload failed:', upErr)
       }
 
       // ── 7. Either share via URL or fall back to local download ─────────────
@@ -221,10 +215,8 @@ export function WhatsAppShareButton({ reservation }: { reservation: Reservation 
         `${reservation.guest?.first_name_ar || reservation.guest?.first_name || ''} ${reservation.guest?.last_name_ar || reservation.guest?.last_name || ''}`.trim()
 
       if (!uploadFailed) {
-        const {
-          data: { publicUrl },
-        } = supabase.storage.from('reservation-files').getPublicUrl(path)
-        const publicUrlWithBust = `${publicUrl}?v=${Date.now()}`
+        const cdnBase = (process.env.NEXT_PUBLIC_R2_CDN_URL || '').replace(/\/$/, '')
+        const publicUrlWithBust = `${cdnBase}/reservation-files/${path}?v=${Date.now()}`
         const msg =
         `🏨✨ فندق كينج توت — إدارة المدفعية ✨🏨
       

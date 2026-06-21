@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/components/ui/use-toast'
 import { supabase } from '@/lib/supabase/client'
+import { uploadToR2 } from '@/lib/storage/upload'
 import Image from 'next/image'
 import { X, ImageIcon, Home, Plus, Sparkles } from 'lucide-react'
 import { motion } from 'framer-motion'
@@ -64,33 +65,17 @@ export default function NewUnitPage() {
           const filePath = `unit-${unit.id}/${fileName}`
           
           try {
-            // Upload file directly to unit folder
-            const { error: uploadError } = await supabase.storage
-              .from('unit-images')
-              .upload(filePath, file, {
-                cacheControl: '3600',
-                upsert: false,
-              })
-            
-            if (!uploadError) {
-              // Get public URL
-              const { data: urlData } = supabase.storage
-                .from('unit-images')
-                .getPublicUrl(filePath)
-              
-              // Save to database
-              const { error: imageError } = await supabase.from('unit_images').insert({
-                unit_id: unit.id,
-                image_url: urlData.publicUrl,
-                image_path: filePath,
-                is_primary: i === 0,
-              })
-              
-              if (imageError) {
-                console.error('Error inserting image:', imageError)
-              }
-            } else {
-              console.error('Error uploading image to unit folder:', uploadError)
+            const publicUrl = await uploadToR2('unit-images', filePath, file)
+
+            const { error: imageError } = await supabase.from('unit_images').insert({
+              unit_id: unit.id,
+              image_url: publicUrl,
+              image_path: filePath,
+              is_primary: i === 0,
+            })
+
+            if (imageError) {
+              console.error('Error inserting image:', imageError)
             }
           } catch (error) {
             console.error('Error processing image:', error)

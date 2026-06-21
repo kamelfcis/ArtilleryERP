@@ -1,7 +1,13 @@
 import { z } from 'zod'
+import type { GuestType } from '@/lib/types/database'
 
 // Helper to handle null values from database
 const nullableString = z.string().nullable().optional().transform(val => val ?? '')
+
+/** Guest types that use the rank (الرتبة) field */
+export function guestTypeShowsRank(type: string | null | undefined): type is GuestType {
+  return type === 'military' || type === 'club_member'
+}
 
 export const guestSchema = z.object({
   first_name: z.string().min(1, 'يجب إدخال الاسم الأول'),

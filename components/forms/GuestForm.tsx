@@ -2,7 +2,7 @@
 
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { guestSchema, type GuestFormData } from '@/lib/validations/guest'
+import { guestSchema, guestTypeShowsRank, type GuestFormData } from '@/lib/validations/guest'
 import { useCreateGuest } from '@/lib/hooks/use-guests'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -194,8 +194,7 @@ export function GuestForm({ onSuccess, initialData }: GuestFormProps) {
           value={currentGuestType || 'military'}
           onValueChange={(value) => {
             setValue('guest_type', value as any)
-            // Clear military rank if not military
-            if (value !== 'military') {
+            if (!guestTypeShowsRank(value)) {
               setValue('military_rank_ar', '')
               setValue('military_rank', '')
             }
@@ -241,8 +240,8 @@ export function GuestForm({ onSuccess, initialData }: GuestFormProps) {
         </Select>
       </div>
 
-      {/* Military Rank - Only show for military type */}
-      {currentGuestType === 'military' && (
+      {/* Rank - for military and club member types */}
+      {guestTypeShowsRank(currentGuestType) && (
         <div className="space-y-3 p-4 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-2 border-blue-200/50 dark:border-blue-800/50">
           <Label htmlFor="military_rank_ar" className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
             <div className="p-1.5 rounded-lg bg-blue-200 dark:bg-blue-800/50">
