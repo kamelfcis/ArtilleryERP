@@ -60,6 +60,7 @@ logs/
 *.ldf
 *.sql
 !supabase/**/*.sql
+!scripts/migration/verify-counts.sql
 
 # Non-essential docs
 *.docx
