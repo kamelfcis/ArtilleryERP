@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { isApiProvider } from '@/lib/api/data-provider'
 import { supabase } from '@/lib/supabase/client'
+import { useAuth } from '@/contexts/AuthContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,6 +19,8 @@ import { Plus, Edit, Trash2, Calendar, LayoutGrid, List, Search, Filter, AlertTr
 import { formatDateShort } from '@/lib/utils'
 import { useUnits } from '@/lib/hooks/use-units'
 import { useLocations } from '@/lib/hooks/use-locations'
+import { useRoomBlocks, useDeleteRoomBlock, useSaveRoomBlock } from '@/lib/hooks/use-room-blocks'
+import { apiGet } from '@/lib/api/http-client'
 import { AdvancedSearch, SearchFilters } from '@/components/search/AdvancedSearch'
 import { motion } from 'framer-motion'
 
@@ -33,55 +37,8 @@ export default function RoomBlocksPage() {
   const [formKey, setFormKey] = useState(0)
   const queryClient = useQueryClient()
 
-  const { data: blocks, isLoading } = useQuery({
-    queryKey: ['room-blocks'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('room_blocks')
-        .select(`
-          *,
-          units:room_block_units (
-            unit:units (
-              id,
-              unit_number,
-              name,
-              name_ar
-            )
-          )
-        `)
-        .order('start_date', { ascending: false })
-
-      if (error) throw error
-      return data
-    },
-  })
-
-  const deleteBlock = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('room_blocks')
-        .delete()
-        .eq('id', id)
-
-      if (error) throw error
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['room-blocks'] })
-      toast({
-        title: 'نجح',
-        description: 'تم حذف الحظر بنجاح',
-      })
-      setDeleteDialogOpen(false)
-      setBlockToDelete(null)
-    },
-    onError: (error: any) => {
-      toast({
-        title: 'خطأ',
-        description: error.message || 'فشل في حذف الحظر',
-        variant: 'destructive',
-      })
-    },
-  })
+  const { data: blocks, isLoading } = useRoomBlocks()
+  const deleteBlockMutation = useDeleteRoomBlock()
 
   function handleEdit(id: string) {
     setEditingBlock(id)
@@ -96,7 +53,23 @@ export default function RoomBlocksPage() {
 
   function handleDelete() {
     if (!blockToDelete) return
-    deleteBlock.mutate(blockToDelete.id)
+    deleteBlockMutation.mutate(blockToDelete.id, {
+      onSuccess: () => {
+        toast({
+          title: 'نجح',
+          description: 'تم حذف الحظر بنجاح',
+        })
+        setDeleteDialogOpen(false)
+        setBlockToDelete(null)
+      },
+      onError: (error: any) => {
+        toast({
+          title: 'خطأ',
+          description: error.message || 'فشل في حذف الحظر',
+          variant: 'destructive',
+        })
+      },
+    })
   }
 
   function handleAdvancedSearch(filters: SearchFilters) {
@@ -426,10 +399,10 @@ export default function RoomBlocksPage() {
             </Button>
             <Button
               onClick={handleDelete}
-              disabled={deleteBlock.isPending}
+              disabled={deleteBlockMutation.isPending}
               className="bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white shadow-lg"
             >
-              {deleteBlock.isPending ? 'جاري الحذف...' : 'حذف'}
+              {deleteBlockMutation.isPending ? 'جاري الحذف...' : 'حذف'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -484,10 +457,14 @@ function RoomBlockForm({
     locationId: selectedLocation !== 'all' ? selectedLocation : undefined,
   })
 
+  const saveBlock = useSaveRoomBlock()
+  const { user } = useAuth()
+
   const { data: existingBlock } = useQuery({
     queryKey: ['room-block', blockId],
     queryFn: async () => {
       if (!blockId) return null
+      if (isApiProvider()) return apiGet<Record<string, unknown>>(`/room-blocks/${blockId}`)
       const { data, error } = await supabase
         .from('room_blocks')
         .select(`
@@ -520,78 +497,24 @@ function RoomBlockForm({
     }
   }, [existingBlock])
 
-  const saveBlock = useMutation({
+  const saveBlockMutation = useMutation({
     mutationFn: async () => {
-      const { data: userData } = await supabase.auth.getUser()
-      const userId = userData?.user?.id
-
-      if (blockId) {
-        // Update existing block
-        const { data, error } = await supabase
-          .from('room_blocks')
-          .update({
-            name,
-            name_ar: nameAr,
-            start_date: startDate,
-            end_date: endDate,
-            reason,
-            reason_ar: reasonAr,
-          })
-          .eq('id', blockId)
-          .select()
-          .single()
-
-        if (error) throw error
-
-        // Update units
-        await supabase
-          .from('room_block_units')
-          .delete()
-          .eq('block_id', blockId)
-
-        if (selectedUnits.length > 0) {
-          const unitLinks = selectedUnits.map(unitId => ({
-            block_id: blockId,
-            unit_id: unitId,
-          }))
-          const { error: linkError } = await supabase.from('room_block_units').insert(unitLinks)
-          if (linkError) throw linkError
-        }
-
-        return data
-      } else {
-        // Create new block
-        const { data, error } = await supabase
-          .from('room_blocks')
-          .insert({
-            name,
-            name_ar: nameAr,
-            start_date: startDate,
-            end_date: endDate,
-            reason,
-            reason_ar: reasonAr,
-            created_by: userId,
-          })
-          .select()
-          .single()
-
-        if (error) throw error
-
-        // Link units
-        if (selectedUnits.length > 0) {
-          const unitLinks = selectedUnits.map(unitId => ({
-            block_id: data.id,
-            unit_id: unitId,
-          }))
-          const { error: linkError } = await supabase.from('room_block_units').insert(unitLinks)
-          if (linkError) throw linkError
-        }
-
-        return data
+      const blockData = {
+        name,
+        name_ar: nameAr,
+        start_date: startDate,
+        end_date: endDate,
+        reason,
+        reason_ar: reasonAr,
+        ...(blockId ? {} : { created_by: user?.id }),
       }
+      return saveBlock.mutateAsync({
+        id: blockId,
+        blockData,
+        unitIds: selectedUnits,
+      })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['room-blocks'] })
       toast({
         title: 'نجح',
         description: blockId ? 'تم تحديث الحظر بنجاح' : 'تم إنشاء الحظر بنجاح',
@@ -619,7 +542,7 @@ function RoomBlockForm({
           })
           return
         }
-        saveBlock.mutate()
+        saveBlockMutation.mutate()
       }}
       className="space-y-4"
     >
@@ -765,8 +688,8 @@ function RoomBlockForm({
         >
           إعادة تعيين
         </Button>
-        <Button type="submit" disabled={saveBlock.isPending} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white">
-          {saveBlock.isPending ? 'جاري الحفظ...' : 'حفظ'}
+        <Button type="submit" disabled={saveBlockMutation.isPending} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white">
+          {saveBlockMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
         </Button>
       </DialogFooter>
     </form>

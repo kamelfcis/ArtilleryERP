@@ -19,6 +19,9 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiPost, apiPatch, apiDelete, apiGet } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import {
   db,
   getOutboxEntries,
@@ -42,24 +45,31 @@ async function replayEntry(entry: OutboxEntry): Promise<'ok' | 'transient'> {
 
   try {
     if (action === 'insert') {
-      // Strip synthetic fields that exist only in the optimistic cache.
       const { id: _id, ...insertData } = payload as any
-      const { error } = await supabase.from('reservations').insert(insertData)
-      if (error) throw error
+      if (isApiProvider()) {
+        await apiPost('/reservations', insertData)
+      } else {
+        const { error } = await supabase.from('reservations').insert(insertData)
+        if (error) throw error
+      }
     } else if (action === 'update') {
       const { id, ...updates } = payload as any
       if (!id) return 'transient'
-      const { error } = await supabase
-        .from('reservations')
-        .update(updates)
-        .eq('id', id)
-      if (error) throw error
+      if (isApiProvider()) {
+        await apiPatch(`/reservations/${id}`, { id, ...updates })
+      } else {
+        const { error } = await supabase.from('reservations').update(updates).eq('id', id)
+        if (error) throw error
+      }
     } else if (action === 'delete') {
       const id = payload.id ?? localId
       if (!id) return 'transient'
-      const { error } = await supabase.from('reservations').delete().eq('id', id)
-      // 404 on delete = already gone, treat as success.
-      if (error && error.code !== 'PGRST116') throw error
+      if (isApiProvider()) {
+        await apiDelete(`/reservations/${id}`)
+      } else {
+        const { error } = await supabase.from('reservations').delete().eq('id', id)
+        if (error && error.code !== 'PGRST116') throw error
+      }
     }
     return 'ok'
   } catch (err: any) {
@@ -117,16 +127,22 @@ async function deltaPull(
 ): Promise<void> {
   const since = await getLastSync()
 
-  const { data, error } = await supabase.rpc('reservations_changed_since', {
-    p_since: since,
-  })
-
-  if (error) {
-    console.error('[sync-engine] delta pull failed:', error.message)
-    return
+  let changed: CalendarEvent[]
+  if (isApiProvider()) {
+    changed = await apiGet<CalendarEvent[]>(
+      `/calendar/changes${buildQuery({ since })}`
+    )
+  } else {
+    const { data, error } = await supabase.rpc('reservations_changed_since', {
+      p_since: since,
+    })
+    if (error) {
+      console.error('[sync-engine] delta pull failed:', error.message)
+      return
+    }
+    changed = (data ?? []) as CalendarEvent[]
   }
 
-  const changed = (data ?? []) as CalendarEvent[]
   if (changed.length === 0) {
     await setLastSync(new Date().toISOString())
     return

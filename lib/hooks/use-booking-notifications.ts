@@ -2,6 +2,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRocketUserId } from '@/lib/hooks/use-rocket-user-id'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost, apiPatch } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 
 export interface BookingNotification {
   id: string
@@ -53,6 +56,13 @@ function applyBookingNotificationFilters<T extends { eq: (col: string, val: stri
   return query.eq('created_by', ctx.rocketUserId).is('notify_user_id', null)
 }
 
+function notificationQueryParams(ctx: ReturnType<typeof useNotificationViewerContext>) {
+  return {
+    restrictedBranchManager: ctx.restrictedBranchManager ? 'true' : undefined,
+    rocketUserId: ctx.rocketUserId ?? undefined,
+  }
+}
+
 export function useBookingNotifications() {
   const ctx = useNotificationViewerContext()
 
@@ -60,6 +70,12 @@ export function useBookingNotifications() {
     queryKey: ['booking-notifications', ctx.queryScope],
     queryFn: async () => {
       if (!ctx.restrictedBranchManager && !ctx.rocketUserId) return []
+
+      if (isApiProvider()) {
+        return apiGet<BookingNotification[]>(
+          `/notifications${buildQuery(notificationQueryParams(ctx))}`
+        )
+      }
 
       let query = supabase
         .from('booking_notifications')
@@ -95,6 +111,13 @@ export function useUnreadNotificationCount() {
     queryFn: async () => {
       if (!ctx.restrictedBranchManager && !ctx.rocketUserId) return 0
 
+      if (isApiProvider()) {
+        const { count } = await apiGet<{ count: number }>(
+          `/notifications/unread-count${buildQuery(notificationQueryParams(ctx))}`
+        )
+        return count
+      }
+
       let query = supabase
         .from('booking_notifications')
         .select('*', { count: 'exact', head: true })
@@ -116,6 +139,10 @@ export function useMarkNotificationRead() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (id: string) => {
+      if (isApiProvider()) {
+        await apiPatch(`/notifications/${id}/read`)
+        return
+      }
       const { error } = await supabase
         .from('booking_notifications')
         .update({ is_read: true })
@@ -136,6 +163,14 @@ export function useMarkAllNotificationsRead() {
   return useMutation({
     mutationFn: async () => {
       if (!ctx.restrictedBranchManager && !ctx.rocketUserId) return
+
+      if (isApiProvider()) {
+        await apiPatch('/notifications/read-all', {
+          restrictedBranchManager: ctx.restrictedBranchManager,
+          rocketUserId: ctx.rocketUserId,
+        })
+        return
+      }
 
       let query = supabase
         .from('booking_notifications')
@@ -158,9 +193,11 @@ export function useCreateBookingNotification() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (data: { reservation_id: string; created_by: string; message: string; notify_user_id?: string }) => {
-      const { error } = await supabase
-        .from('booking_notifications')
-        .insert(data)
+      if (isApiProvider()) {
+        await apiPost('/notifications', data)
+        return
+      }
+      const { error } = await supabase.from('booking_notifications').insert(data)
       if (error) throw error
     },
     onSuccess: () => {

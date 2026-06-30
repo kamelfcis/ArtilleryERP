@@ -4,6 +4,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { Staff, Shift, ShiftRequest } from '@/lib/types/database'
 import { useAuth } from '@/contexts/AuthContext'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 
 // Get current logged-in user's staff profile with location
 export function useCurrentStaff(options?: { enabled?: boolean }) {
@@ -13,7 +16,9 @@ export function useCurrentStaff(options?: { enabled?: boolean }) {
     queryKey: ['current-staff', user?.id],
     queryFn: async () => {
       if (!user?.id) return null
-      
+      if (isApiProvider()) {
+        return apiGet<Staff | null>('/staff/me')
+      }
       const { data, error } = await supabase
         .from('staff')
         .select(`
@@ -42,6 +47,14 @@ export function useStaffList(
     staleTime: 300_000,
     gcTime: 600_000,
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<Staff[]>(
+          `/staff${buildQuery({
+            locationId: filters?.locationId,
+            isActive: filters?.isActive,
+          })}`
+        )
+      }
       let query = supabase
         .from('staff')
         .select(`
@@ -70,6 +83,7 @@ export function useStaff(id: string) {
   return useQuery({
     queryKey: ['staff', id],
     queryFn: async () => {
+      if (isApiProvider()) return apiGet<Staff>(`/staff/${id}`)
       const { data, error } = await supabase
         .from('staff')
         .select(`
@@ -92,6 +106,7 @@ export function useCreateStaff() {
 
   return useMutation({
     mutationFn: async (staffData: Partial<Staff>) => {
+      if (isApiProvider()) return apiPost<Staff>('/staff', staffData)
       const { data, error } = await supabase
         .from('staff')
         .insert(staffData)
@@ -113,6 +128,7 @@ export function useUpdateStaff() {
 
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Staff> & { id: string }) => {
+      if (isApiProvider()) return apiPatch<Staff>(`/staff/${id}`, updates)
       const { data, error } = await supabase
         .from('staff')
         .update(updates)
@@ -135,6 +151,10 @@ export function useDeleteStaff() {
 
   return useMutation({
     mutationFn: async (id: string) => {
+      if (isApiProvider()) {
+        await apiDelete(`/staff/${id}`)
+        return
+      }
       const { error } = await supabase
         .from('staff')
         .delete()
@@ -162,6 +182,16 @@ export function useShifts(filters?: {
   return useQuery({
     queryKey: ['shifts', filters],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<Shift[]>(
+          `/staff/shifts/list${buildQuery({
+            staffId: filters?.staffId,
+            locationId: filters?.locationId,
+            startDate: filters?.startDate,
+            endDate: filters?.endDate,
+          })}`
+        )
+      }
       let query = supabase
         .from('shifts')
         .select(`
@@ -199,6 +229,9 @@ export function useCreateShift() {
 
   return useMutation({
     mutationFn: async (shiftData: Partial<Shift>) => {
+      if (isApiProvider()) {
+        return apiPost<Shift>('/staff/shifts', { ...shiftData, created_by: user?.id })
+      }
       const { data, error } = await supabase
         .from('shifts')
         .insert({
@@ -223,6 +256,7 @@ export function useUpdateShift() {
 
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Shift> & { id: string }) => {
+      if (isApiProvider()) return apiPatch<Shift>(`/staff/shifts/${id}`, updates)
       const { data, error } = await supabase
         .from('shifts')
         .update(updates)
@@ -245,6 +279,10 @@ export function useDeleteShift() {
 
   return useMutation({
     mutationFn: async (id: string) => {
+      if (isApiProvider()) {
+        await apiDelete(`/staff/shifts/${id}`)
+        return
+      }
       const { error } = await supabase
         .from('shifts')
         .delete()
@@ -270,6 +308,14 @@ export function useShiftRequests(filters?: {
   return useQuery({
     queryKey: ['shift-requests', filters],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<ShiftRequest[]>(
+          `/staff/shift-requests/list${buildQuery({
+            staffId: filters?.staffId,
+            status: filters?.status,
+          })}`
+        )
+      }
       let query = supabase
         .from('shift_requests')
         .select(`
@@ -300,6 +346,12 @@ export function useCreateShiftRequest() {
 
   return useMutation({
     mutationFn: async (requestData: Partial<ShiftRequest>) => {
+      if (isApiProvider()) {
+        return apiPost<ShiftRequest>('/staff/shift-requests', {
+          ...requestData,
+          requested_by: user?.id,
+        })
+      }
       const { data, error } = await supabase
         .from('shift_requests')
         .insert({
@@ -325,6 +377,9 @@ export function useReviewShiftRequest() {
 
   return useMutation({
     mutationFn: async ({ id, status }: { id: string; status: 'approved' | 'rejected' }) => {
+      if (isApiProvider()) {
+        return apiPatch<ShiftRequest>(`/staff/shift-requests/${id}/review`, { status })
+      }
       const { data, error } = await supabase
         .from('shift_requests')
         .update({

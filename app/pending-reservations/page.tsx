@@ -33,7 +33,10 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { toast } from '@/components/ui/use-toast'
-import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
+import { fetchAdminUsers } from '@/lib/api/admin-users'
 import { formatDateShort, formatCurrency, cn } from '@/lib/utils'
 import { RESERVATION_STATUSES } from '@/lib/constants'
 import {
@@ -226,6 +229,26 @@ export default function PendingReservationsPage() {
       (!rocketUserForQuery || allLocations !== undefined) &&
       (!restrictedBranchManager || !!user?.id),
     queryFn: async (): Promise<{ rows: PendingReservation[]; total: number }> => {
+      if (isApiProvider()) {
+        return apiGet<{ rows: PendingReservation[]; total: number }>(
+          `/reservations/pending${buildQuery({
+            page: currentPage,
+            pageSize: PAGE_SIZE,
+            statusFilter,
+            locationFilter,
+            rocketLocationIds: rocketUserForQuery ? rocketLocationIds : undefined,
+            restrictedBranchManager: restrictedBranchManager ? 'true' : undefined,
+            search: debouncedSearch,
+            checkInFrom,
+            checkInTo,
+            checkOutFrom,
+            checkOutTo,
+            createdFrom,
+            createdTo,
+          })}`
+        )
+      }
+
       const select = `
           *,
           guest:guests(id, first_name, last_name, first_name_ar, last_name_ar, phone, email),
@@ -341,12 +364,7 @@ export default function PendingReservationsPage() {
 
   const { data: authUsers } = useQuery({
     queryKey: ['admin-users-for-pending'],
-    queryFn: async () => {
-      const res = await fetchWithSupabaseAuth('/api/admin/users')
-      if (!res.ok) return []
-      const json = await res.json()
-      return json.users as { id: string; email: string }[]
-    },
+    queryFn: () => fetchAdminUsers(),
   })
 
   const userEmailById = new Map<string, string>()
@@ -373,15 +391,19 @@ export default function PendingReservationsPage() {
       if (notif) markRead.mutate(notif.id)
       let res: PendingReservation | undefined = pendingRows.find((r) => r.id === id)
       if (!res) {
-        const { data } = await supabase
-          .from('reservations')
-          .select(
-            `*, guest:guests(id, first_name, last_name, first_name_ar, last_name_ar, phone, email),
-            unit:units(id, unit_number, name, location_id, location:locations(id, name, name_ar))`
-          )
-          .eq('id', id)
-          .maybeSingle()
-        if (data) res = data as PendingReservation
+        if (isApiProvider()) {
+          res = await apiGet<PendingReservation>(`/reservations/${id}`)
+        } else {
+          const { data } = await supabase
+            .from('reservations')
+            .select(
+              `*, guest:guests(id, first_name, last_name, first_name_ar, last_name_ar, phone, email),
+              unit:units(id, unit_number, name, location_id, location:locations(id, name, name_ar))`
+            )
+            .eq('id', id)
+            .maybeSingle()
+          if (data) res = data as PendingReservation
+        }
       }
       if (res) sendReverseNotification(res, 'confirmed')
       queryClient.invalidateQueries({ queryKey: ['pending-reservations'] })
@@ -398,15 +420,19 @@ export default function PendingReservationsPage() {
       if (notif) markRead.mutate(notif.id)
       let res: PendingReservation | undefined = pendingRows.find((r) => r.id === id)
       if (!res) {
-        const { data } = await supabase
-          .from('reservations')
-          .select(
-            `*, guest:guests(id, first_name, last_name, first_name_ar, last_name_ar, phone, email),
-            unit:units(id, unit_number, name, location_id, location:locations(id, name, name_ar))`
-          )
-          .eq('id', id)
-          .maybeSingle()
-        if (data) res = data as PendingReservation
+        if (isApiProvider()) {
+          res = await apiGet<PendingReservation>(`/reservations/${id}`)
+        } else {
+          const { data } = await supabase
+            .from('reservations')
+            .select(
+              `*, guest:guests(id, first_name, last_name, first_name_ar, last_name_ar, phone, email),
+              unit:units(id, unit_number, name, location_id, location:locations(id, name, name_ar))`
+            )
+            .eq('id', id)
+            .maybeSingle()
+          if (data) res = data as PendingReservation
+        }
       }
       if (res) sendReverseNotification(res, 'cancelled')
       queryClient.invalidateQueries({ queryKey: ['pending-reservations'] })

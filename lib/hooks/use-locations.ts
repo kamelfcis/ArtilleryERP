@@ -1,11 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { Location } from '@/lib/types/database'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api/http-client'
 
 export function useLocations() {
   return useQuery({
     queryKey: ['locations'],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<Location[]>('/locations')
+      }
       const { data, error } = await supabase
         .from('locations')
         .select('*')
@@ -24,6 +29,9 @@ export function useLocation(id: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['location', id],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<Location>(`/locations/${id}`)
+      }
       const { data, error } = await supabase
         .from('locations')
         .select('*')
@@ -42,6 +50,9 @@ export function useCreateLocation() {
 
   return useMutation({
     mutationFn: async (location: Partial<Location>) => {
+      if (isApiProvider()) {
+        return apiPost<Location>('/locations', location)
+      }
       const { data, error } = await supabase
         .from('locations')
         .insert(location)
@@ -62,6 +73,9 @@ export function useUpdateLocation() {
 
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Location> & { id: string }) => {
+      if (isApiProvider()) {
+        return apiPatch<Location>(`/locations/${id}`, updates)
+      }
       const { data, error } = await supabase
         .from('locations')
         .update(updates)
@@ -84,6 +98,10 @@ export function useDeleteLocation() {
 
   return useMutation({
     mutationFn: async (id: string) => {
+      if (isApiProvider()) {
+        await apiDelete(`/locations/${id}`)
+        return
+      }
       const { error } = await supabase
         .from('locations')
         .update({ is_active: false })
@@ -96,4 +114,3 @@ export function useDeleteLocation() {
     },
   })
 }
-

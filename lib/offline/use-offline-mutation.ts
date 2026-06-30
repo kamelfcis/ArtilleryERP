@@ -18,6 +18,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiPost, apiPatch, apiDelete } from '@/lib/api/http-client'
 import { db, type OutboxEntry } from '@/lib/offline/db'
 import { calendarWindowKey, fetchCalendarWindow } from '@/lib/hooks/use-reservations'
 import type { CalendarEvent, CalendarWindowArgs } from '@/lib/types/calendar'
@@ -107,7 +109,14 @@ export function useOfflineMutation(calendarArgs: CalendarWindowArgs) {
   const create = useCallback(
     async (payload: NewReservationPayload): Promise<{ id: string; wasOffline: boolean }> => {
       if (isOnline) {
-        // Direct Supabase call — same as useCreateReservation.
+        if (isApiProvider()) {
+          const data = await apiPost<{ id: string }>('/reservations', payload)
+          const fresh = await fetchCalendarWindow(calendarArgs)
+          queryClient.setQueryData(calendarWindowKey(calendarArgs), fresh)
+          queryClient.invalidateQueries({ queryKey: ['reservations'] })
+          queryClient.invalidateQueries({ queryKey: ['reservations-paginated'] })
+          return { id: data.id, wasOffline: false }
+        }
         const { data, error } = await supabase
           .from('reservations')
           .insert(payload)
@@ -180,6 +189,12 @@ export function useOfflineMutation(calendarArgs: CalendarWindowArgs) {
       const { id, ...updates } = payload
 
       if (isOnline) {
+        if (isApiProvider()) {
+          await apiPatch(`/reservations/${id}`, updates)
+          const fresh = await fetchCalendarWindow(calendarArgs)
+          queryClient.setQueryData(calendarWindowKey(calendarArgs), fresh)
+          return { wasOffline: false }
+        }
         const { error } = await supabase
           .from('reservations')
           .update(updates)
@@ -227,6 +242,14 @@ export function useOfflineMutation(calendarArgs: CalendarWindowArgs) {
   const remove = useCallback(
     async (id: string): Promise<{ wasOffline: boolean }> => {
       if (isOnline) {
+        if (isApiProvider()) {
+          await apiDelete(`/reservations/${id}`)
+          patchWindowCache(queryClient, calendarArgs, (prev) =>
+            prev.filter((e) => e.id !== id)
+          )
+          queryClient.invalidateQueries({ queryKey: ['reservations'] })
+          return { wasOffline: false }
+        }
         const { error } = await supabase
           .from('reservations')
           .delete()

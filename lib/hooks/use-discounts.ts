@@ -1,5 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost } from '@/lib/api/http-client'
 
 export interface DiscountCode {
   id: string
@@ -18,15 +20,36 @@ export interface DiscountCode {
   updated_at: string
 }
 
+async function validateDiscountCodeApi(code: string): Promise<DiscountCode> {
+  if (isApiProvider()) {
+    return apiPost<DiscountCode>('/discounts/validate', { code })
+  }
+  const today = new Date().toISOString().split('T')[0]
+  const { data, error } = await supabase
+    .from('discount_codes')
+    .select('*')
+    .eq('code', code.toUpperCase())
+    .eq('is_active', true)
+    .lte('valid_from', today)
+    .gte('valid_to', today)
+    .single()
+  if (error) throw error
+  if (!data) throw new Error('كود الخصم غير صحيح أو منتهي الصلاحية')
+  if (data.max_uses && data.used_count >= data.max_uses) {
+    throw new Error('تم استنفاد عدد مرات استخدام كود الخصم')
+  }
+  return data as DiscountCode
+}
+
 export function useDiscountCodes() {
   return useQuery({
     queryKey: ['discount-codes'],
     queryFn: async () => {
+      if (isApiProvider()) return apiGet<DiscountCode[]>('/discounts')
       const { data, error } = await supabase
         .from('discount_codes')
         .select('*')
         .order('created_at', { ascending: false })
-
       if (error) throw error
       return data as DiscountCode[]
     },
@@ -37,6 +60,7 @@ export function useActiveDiscountCodes() {
   return useQuery({
     queryKey: ['discount-codes', 'active'],
     queryFn: async () => {
+      if (isApiProvider()) return apiGet<DiscountCode[]>('/discounts/active')
       const today = new Date().toISOString().split('T')[0]
       const { data, error } = await supabase
         .from('discount_codes')
@@ -45,7 +69,6 @@ export function useActiveDiscountCodes() {
         .lte('valid_from', today)
         .gte('valid_to', today)
         .order('created_at', { ascending: false })
-
       if (error) throw error
       return data as DiscountCode[]
     },
@@ -54,58 +77,31 @@ export function useActiveDiscountCodes() {
 
 export function useValidateDiscountCode() {
   return useMutation({
-    mutationFn: async (code: string) => {
-      const today = new Date().toISOString().split('T')[0]
-      const { data, error } = await supabase
-        .from('discount_codes')
-        .select('*')
-        .eq('code', code.toUpperCase())
-        .eq('is_active', true)
-        .lte('valid_from', today)
-        .gte('valid_to', today)
-        .single()
-
-      if (error) throw error
-
-      if (!data) {
-        throw new Error('كود الخصم غير صحيح أو منتهي الصلاحية')
-      }
-
-      if (data.max_uses && data.used_count >= data.max_uses) {
-        throw new Error('تم استنفاد عدد مرات استخدام كود الخصم')
-      }
-
-      return data as DiscountCode
-    },
+    mutationFn: (code: string) => validateDiscountCodeApi(code),
   })
 }
 
 export function useCreateDiscountCode() {
   const queryClient = useQueryClient()
-
   return useMutation({
     mutationFn: async (discount: Partial<DiscountCode>) => {
+      if (isApiProvider()) {
+        return apiPost<DiscountCode>('/discounts', discount)
+      }
       const { data, error } = await supabase
         .from('discount_codes')
-        .insert({
-          ...discount,
-          code: discount.code?.toUpperCase(),
-        })
+        .insert({ ...discount, code: discount.code?.toUpperCase() })
         .select()
         .single()
-
       if (error) throw error
       return data as DiscountCode
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['discount-codes'] })
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['discount-codes'] }),
   })
 }
 
 export function useApplyDiscountCode() {
   const queryClient = useQueryClient()
-
   return useMutation({
     mutationFn: async ({
       code,
@@ -116,24 +112,24 @@ export function useApplyDiscountCode() {
       reservationId: string
       totalAmount: number
     }) => {
-      // Validate code
-      const validate = useValidateDiscountCode()
-      const discount = await validate.mutateAsync(code)
-
-      // Calculate discount
-      let discountAmount = 0
-      if (discount.discount_type === 'percentage') {
-        discountAmount = (totalAmount * discount.discount_value) / 100
-      } else {
-        discountAmount = discount.discount_value
+      if (isApiProvider()) {
+        return apiPost<{ discountAmount: number; discount: DiscountCode }>('/discounts/apply', {
+          code,
+          reservationId,
+          totalAmount,
+        })
       }
 
-      // Check minimum amount
+      const discount = await validateDiscountCodeApi(code)
+      let discountAmount =
+        discount.discount_type === 'percentage'
+          ? (totalAmount * discount.discount_value) / 100
+          : discount.discount_value
+
       if (discount.min_amount && totalAmount < discount.min_amount) {
         throw new Error(`الحد الأدنى للطلب: ${discount.min_amount} ر.س`)
       }
 
-      // Apply discount to reservation
       const { data: reservation } = await supabase
         .from('reservations')
         .select('discount_amount')
@@ -141,23 +137,18 @@ export function useApplyDiscountCode() {
         .single()
 
       const newDiscountAmount = (reservation?.discount_amount || 0) + discountAmount
-
       const { error: updateError } = await supabase
         .from('reservations')
         .update({ discount_amount: newDiscountAmount })
         .eq('id', reservationId)
-
       if (updateError) throw updateError
 
-      // Increment usage count
       const { error: usageError } = await supabase
         .from('discount_codes')
         .update({ used_count: discount.used_count + 1 })
         .eq('id', discount.id)
-
       if (usageError) throw usageError
 
-      // Log usage
       const { data: userData } = await supabase.auth.getUser()
       await supabase.from('discount_usage').insert({
         discount_code_id: discount.id,
@@ -174,4 +165,3 @@ export function useApplyDiscountCode() {
     },
   })
 }
-

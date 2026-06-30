@@ -5,6 +5,8 @@ import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase/client'
 import { UserRole } from '@/lib/types/database'
 import { getCachedSession, setCachedSession, clearCachedSession } from '@/lib/auth/cache'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost } from '@/lib/api/http-client'
 
 interface AuthContextType {
   user: User | null
@@ -19,16 +21,182 @@ interface AuthContextType {
   hasAnyRole: (roles: UserRole[]) => boolean
 }
 
+interface ApiMeResponse {
+  user: { id: string; email: string }
+  roles: UserRole[]
+  elevatedOps: boolean
+}
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+function redirectToLoginIfNeeded(): void {
+  if (
+    typeof window !== 'undefined' &&
+    window.location.pathname !== '/login' &&
+    window.location.pathname !== '/modules'
+  ) {
+    window.location.href = '/login'
+  }
+}
+
+function toSupabaseUser(apiUser: { id: string; email: string }): User {
+  return {
+    id: apiUser.id,
+    email: apiUser.email,
+    app_metadata: {},
+    user_metadata: {},
+    aud: 'authenticated',
+    created_at: new Date().toISOString(),
+  } as User
+}
+
+function toSupabaseSession(user: User): Session {
+  return {
+    access_token: 'api-mode',
+    token_type: 'bearer',
+    expires_in: 604800,
+    expires_at: Math.floor(Date.now() / 1000) + 604800,
+    refresh_token: '',
+    user,
+  } as Session
+}
+
+function applyMeToState(
+  me: ApiMeResponse,
+  setUser: (u: User | null) => void,
+  setSession: (s: Session | null) => void,
+  setRoles: (r: UserRole[]) => void,
+  setElevatedOps: (e: boolean) => void
+): { user: User; session: Session } {
+  const user = toSupabaseUser(me.user)
+  const session = toSupabaseSession(user)
+  setUser(user)
+  setSession(session)
+  setRoles(me.roles)
+  setElevatedOps(me.elevatedOps)
+  setCachedSession(session, user, me.roles, me.elevatedOps)
+  return { user, session }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const useApi = isApiProvider()
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [roles, setRoles] = useState<UserRole[]>([])
   const [elevatedOps, setElevatedOps] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  // Restore from cache instantly
+  const fetchUserRoles = useCallback(
+    async (userId: string) => {
+      if (useApi) {
+        try {
+          const me = await apiGet<ApiMeResponse>('/auth/me')
+          if (me.user.id === userId) {
+            setRoles(me.roles)
+            setElevatedOps(me.elevatedOps)
+            const currentSession = session || getCachedSession()?.session
+            const currentUser = user || getCachedSession()?.user
+            if (currentSession && currentUser) {
+              setCachedSession(currentSession, currentUser, me.roles, me.elevatedOps)
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching user roles:', error)
+          setRoles([])
+          setElevatedOps(false)
+        }
+        return
+      }
+
+      try {
+        const cached = getCachedSession()
+
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          if (cached?.user?.id === userId) {
+            setRoles(cached.roles)
+            setElevatedOps(cached.elevatedOps ?? false)
+          }
+          return
+        }
+
+        const { data: privRow } = await supabase
+          .from('user_privileges')
+          .select('elevated_ops')
+          .eq('user_id', userId)
+          .maybeSingle()
+        const elevated = privRow?.elevated_ops === true
+        setElevatedOps(elevated)
+
+        if (cached?.user?.id === userId && cached.roles.length > 0) {
+          setRoles(cached.roles)
+          const currentSession = session || getCachedSession()?.session
+          const currentUser = user || getCachedSession()?.user
+          if (currentSession && currentUser) {
+            setCachedSession(currentSession, currentUser, cached.roles, elevated)
+          }
+          return
+        }
+
+        const { data: userRolesData, error: userRolesError } = await supabase
+          .from('user_roles')
+          .select('role_id')
+          .eq('user_id', userId)
+
+        if (userRolesError) throw userRolesError
+
+        if (!userRolesData || userRolesData.length === 0) {
+          setRoles([])
+          const currentSession = session || getCachedSession()?.session
+          const currentUser = user || getCachedSession()?.user
+          if (currentSession && currentUser) setCachedSession(currentSession, currentUser, [], elevated)
+          return
+        }
+
+        const roleIds = userRolesData.map((item: { role_id: string }) => item.role_id).filter(Boolean)
+
+        if (roleIds.length === 0) {
+          setRoles([])
+          const currentSession = session || getCachedSession()?.session
+          const currentUser = user || getCachedSession()?.user
+          if (currentSession && currentUser) setCachedSession(currentSession, currentUser, [], elevated)
+          return
+        }
+
+        const { data: rolesData, error: rolesError } = await supabase
+          .from('roles')
+          .select('name')
+          .in('id', roleIds)
+
+        if (rolesError) throw rolesError
+
+        const userRoles = (rolesData || [])
+          .map((item: { name: string }) => item.name)
+          .filter(Boolean) as UserRole[]
+
+        setRoles(userRoles)
+
+        const currentSession = session || getCachedSession()?.session
+        const currentUser = user || getCachedSession()?.user
+        if (currentSession && currentUser) {
+          setCachedSession(currentSession, currentUser, userRoles, elevated)
+        }
+      } catch (error) {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          const cached = getCachedSession()
+          if (cached?.user?.id === userId) {
+            setRoles(cached.roles)
+            setElevatedOps(cached.elevatedOps ?? false)
+          }
+          return
+        }
+        console.error('Error fetching user roles:', error)
+        setRoles([])
+        setElevatedOps(false)
+      }
+    },
+    [useApi, session, user]
+  )
+
   useEffect(() => {
     const cached = getCachedSession()
     if (cached) {
@@ -39,47 +207,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false)
     }
 
-    // Then verify with Supabase in background
+    if (useApi) {
+      apiGet<ApiMeResponse>('/auth/me')
+        .then((me) => {
+          applyMeToState(me, setUser, setSession, setRoles, setElevatedOps)
+          setLoading(false)
+        })
+        .catch(() => {
+          clearCachedSession()
+          setSession(null)
+          setUser(null)
+          setRoles([])
+          setElevatedOps(false)
+          setLoading(false)
+          redirectToLoginIfNeeded()
+        })
+      return
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         setSession(session)
         setUser(session.user)
-        // Update cache
         setCachedSession(session, session.user, cached?.roles || [], cached?.elevatedOps ?? false)
-        // Fetch roles in background if not cached (don't block)
         if (!cached?.roles || cached.roles.length === 0) {
           fetchUserRoles(session.user.id).catch(console.error)
         }
       } else {
-        // No session - clear stale cache and redirect to login
         clearCachedSession()
         setSession(null)
         setUser(null)
         setRoles([])
         setElevatedOps(false)
-        if (typeof window !== 'undefined' && window.location.pathname !== '/login' && window.location.pathname !== '/modules') {
-          window.location.href = '/login'
-        }
+        redirectToLoginIfNeeded()
       }
       setLoading(false)
     }).catch(() => {
-      // Auth verification failed (e.g. network error, invalid token)
       clearCachedSession()
       setSession(null)
       setUser(null)
       setRoles([])
       setElevatedOps(false)
       setLoading(false)
-      if (typeof window !== 'undefined' && window.location.pathname !== '/login' && window.location.pathname !== '/modules') {
-        window.location.href = '/login'
-      }
+      redirectToLoginIfNeeded()
     })
 
-    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // Handle failed token refresh - clear stale session and redirect to login
       if (event === 'TOKEN_REFRESHED' && !session) {
         clearCachedSession()
         setSession(null)
@@ -93,7 +268,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      // Handle sign out or session expiry
       if (event === 'SIGNED_OUT' || (!session && !event.startsWith('INITIAL'))) {
         clearCachedSession()
         setSession(null)
@@ -101,19 +275,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setRoles([])
         setElevatedOps(false)
         setLoading(false)
-        if (typeof window !== 'undefined' && window.location.pathname !== '/login' && window.location.pathname !== '/modules') {
-          window.location.href = '/login'
-        }
+        redirectToLoginIfNeeded()
         return
       }
 
       setSession(session)
       setUser(session?.user ?? null)
       if (session?.user) {
-        // Get current roles from state before updating
         const currentRoles = roles.length > 0 ? roles : getCachedSession()?.roles || []
         setCachedSession(session, session.user, currentRoles, getCachedSession()?.elevatedOps ?? false)
-        // Fetch roles in background (non-blocking)
         fetchUserRoles(session.user.id).catch(console.error)
       } else {
         clearCachedSession()
@@ -124,143 +294,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
 
     return () => subscription.unsubscribe()
-  }, [])
+  }, [useApi, fetchUserRoles])
 
-  async function fetchUserRoles(userId: string) {
-    try {
-      const cached = getCachedSession()
-
-      // Offline: trust the cached session entirely and skip network calls.
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        if (cached?.user?.id === userId) {
-          setRoles(cached.roles)
-          setElevatedOps(cached.elevatedOps ?? false)
-        }
-        return
+  const signIn = useCallback(
+    async (email: string, password: string) => {
+      if (useApi) {
+        const me = await apiPost<ApiMeResponse>('/auth/login', {
+          email: email.trim(),
+          password,
+        })
+        const { user: signedInUser, session: signedInSession } = applyMeToState(
+          me,
+          setUser,
+          setSession,
+          setRoles,
+          setElevatedOps
+        )
+        return { session: signedInSession, user: signedInUser }
       }
 
-      const { data: privRow } = await supabase
-        .from('user_privileges')
-        .select('elevated_ops')
-        .eq('user_id', userId)
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      })
+
+      if (error) throw error
+      if (!data.session || !data.user) {
+        throw new Error('فشل في إنشاء الجلسة')
+      }
+
+      const { data: account } = await supabase
+        .from('user_accounts')
+        .select('is_active')
+        .eq('user_id', data.user.id)
         .maybeSingle()
-      const elevated = privRow?.elevated_ops === true
-      setElevatedOps(elevated)
 
-      if (cached?.user?.id === userId && cached.roles.length > 0) {
-        setRoles(cached.roles)
-        const currentSession = session || getCachedSession()?.session
-        const currentUser = user || getCachedSession()?.user
-        if (currentSession && currentUser) {
-          setCachedSession(currentSession, currentUser, cached.roles, elevated)
-        }
-        return
+      if (account && account.is_active === false) {
+        await supabase.auth.signOut()
+        throw new Error('تم تعطيل حسابك. يرجى التواصل مع مدير النظام.')
       }
 
-      const { data: userRolesData, error: userRolesError } = await supabase
-        .from('user_roles')
-        .select('role_id')
-        .eq('user_id', userId)
+      setCachedSession(data.session, data.user, [], false)
+      setSession(data.session)
+      setUser(data.user)
+      await fetchUserRoles(data.user.id)
 
-      if (userRolesError) throw userRolesError
-
-      if (!userRolesData || userRolesData.length === 0) {
-        setRoles([])
-        const currentSession = session || getCachedSession()?.session
-        const currentUser = user || getCachedSession()?.user
-        if (currentSession && currentUser) setCachedSession(currentSession, currentUser, [], elevated)
-        return
-      }
-
-      const roleIds = userRolesData.map((item: any) => item.role_id).filter(Boolean)
-
-      if (roleIds.length === 0) {
-        setRoles([])
-        const currentSession = session || getCachedSession()?.session
-        const currentUser = user || getCachedSession()?.user
-        if (currentSession && currentUser) setCachedSession(currentSession, currentUser, [], elevated)
-        return
-      }
-
-      const { data: rolesData, error: rolesError } = await supabase
-        .from('roles')
-        .select('name')
-        .in('id', roleIds)
-
-      if (rolesError) throw rolesError
-
-      const userRoles = (rolesData || [])
-        .map((item: any) => item.name)
-        .filter(Boolean) as UserRole[]
-
-      setRoles(userRoles)
-
-      const currentSession = session || getCachedSession()?.session
-      const currentUser = user || getCachedSession()?.user
-      if (currentSession && currentUser) {
-        setCachedSession(currentSession, currentUser, userRoles, elevated)
-      }
-    } catch (error) {
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        // Offline — leave cached roles in place if any.
-        const cached = getCachedSession()
-        if (cached?.user?.id === userId) {
-          setRoles(cached.roles)
-          setElevatedOps(cached.elevatedOps ?? false)
-        }
-        return
-      }
-      console.error('Error fetching user roles:', error)
-      setRoles([])
-      setElevatedOps(false)
-    }
-  }
-
-  const signIn = useCallback(async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    })
-
-    if (error) throw error
-    if (!data.session || !data.user) {
-      throw new Error('فشل في إنشاء الجلسة')
-    }
-
-    const { data: account } = await supabase
-      .from('user_accounts')
-      .select('is_active')
-      .eq('user_id', data.user.id)
-      .maybeSingle()
-
-    if (account && account.is_active === false) {
-      await supabase.auth.signOut()
-      throw new Error('تم تعطيل حسابك. يرجى التواصل مع مدير النظام.')
-    }
-
-    // Store in cache immediately
-    setCachedSession(data.session, data.user, [], false)
-    setSession(data.session)
-    setUser(data.user)
-
-    // Fetch roles before redirect so RoleGuard sees Viewer immediately
-    await fetchUserRoles(data.user.id)
-
-    return { session: data.session, user: data.user }
-  }, [])
+      return { session: data.session, user: data.user }
+    },
+    [useApi, fetchUserRoles]
+  )
 
   async function signOut() {
-    // Clear cache and state first
     clearCachedSession()
     setUser(null)
     setSession(null)
     setRoles([])
     setElevatedOps(false)
 
-    // Sign out from Supabase (this will trigger onAuthStateChange)
-    await supabase.auth.signOut()
-    
-    // Redirect to login page only once
+    if (useApi) {
+      try {
+        await apiPost('/auth/logout')
+      } catch {
+        // Cookie cleared server-side if reachable; local state already reset
+      }
+    } else {
+      await supabase.auth.signOut()
+    }
+
     if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
       window.location.href = '/login'
     }
@@ -271,7 +371,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   function hasAnyRole(checkRoles: UserRole[]): boolean {
-    return checkRoles.some(role => roles.includes(role))
+    return checkRoles.some((role) => roles.includes(role))
   }
 
   return (
@@ -300,4 +400,3 @@ export function useAuth() {
   }
   return context
 }
-

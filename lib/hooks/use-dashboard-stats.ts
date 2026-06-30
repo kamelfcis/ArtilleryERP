@@ -1,13 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { RESERVATION_STATUSES } from '@/lib/constants'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 
 const POSTGREST_PAGE_SIZE = 1000
 const EXCLUDED_REVENUE_STATUSES = ['cancelled', 'no_show']
 
 export type DashboardStatsFilters = {
   locationId?: string
-  /** Multi-location scope (e.g. rocket user: Rocket Beach + Nadi). */
   locationIds?: string[]
 }
 
@@ -40,6 +42,13 @@ async function resolveUnitIds(filters?: DashboardStatsFilters): Promise<string[]
         : null
 
   if (!locationIds) return null
+
+  if (isApiProvider()) {
+    const units = await apiGet<Array<{ id: string }>>(
+      `/units${buildQuery({ locationIds, onlyCalendarFields: 'true' })}`
+    )
+    return units.map((u) => u.id)
+  }
 
   const { data, error } = await supabase
     .from('units')
@@ -119,6 +128,15 @@ async function sumRevenue(
 export async function fetchDashboardStats(
   filters?: DashboardStatsFilters
 ): Promise<DashboardStats> {
+  if (isApiProvider()) {
+    return apiGet<DashboardStats>(
+      `/dashboard/stats${buildQuery({
+        locationId: filters?.locationId,
+        locationIds: filters?.locationIds,
+      })}`
+    )
+  }
+
   const unitIds = await resolveUnitIds(filters)
 
   const today = new Date()

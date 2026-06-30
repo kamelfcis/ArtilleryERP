@@ -1,6 +1,9 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { Guest } from '@/lib/types/database'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 
 const POSTGREST_PAGE_SIZE = 1000
 
@@ -78,6 +81,16 @@ export function useGuestsPaginated(params: GuestsPaginatedParams = {}) {
     gcTime: 300_000,
     placeholderData: keepPreviousData,
     queryFn: async (): Promise<GuestsPaginatedResult> => {
+      if (isApiProvider()) {
+        return apiGet<GuestsPaginatedResult>(
+          `/guests${buildQuery({
+            search: normalized || undefined,
+            page,
+            pageSize,
+            guestType: params.guestType,
+          })}`
+        )
+      }
       let query = supabase
         .from('guests')
         .select('*', { count: 'exact' })
@@ -115,6 +128,10 @@ export function useGuestsTotalCount() {
     staleTime: 60_000,
     gcTime: 300_000,
     queryFn: async () => {
+      if (isApiProvider()) {
+        const { count } = await apiGet<{ count: number }>('/guests/count')
+        return count
+      }
       const { count, error } = await supabase
         .from('guests')
         .select('*', { count: 'exact', head: true })
@@ -130,6 +147,15 @@ export async function fetchAllGuests(filters?: {
   search?: string
   guestType?: string
 }): Promise<Guest[]> {
+  if (isApiProvider()) {
+    return apiGet<Guest[]>(
+      `/guests${buildQuery({
+        search: filters?.search,
+        guestType: filters?.guestType,
+        simple: 'true',
+      })}`
+    )
+  }
   const normalized = normalizeSearch(filters?.search)
   const all: Guest[] = []
   let offset = 0
@@ -168,6 +194,11 @@ export function useGuests(search?: string, options?: { enabled?: boolean }) {
     staleTime: 60_000,
     gcTime: 300_000,
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<Guest[]>(
+          `/guests${buildQuery({ search: normalized || undefined, simple: 'true' })}`
+        )
+      }
       let query = supabase
         .from('guests')
         .select('*')
@@ -193,6 +224,9 @@ export function useGuest(id: string) {
   return useQuery({
     queryKey: ['guest', id],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<Guest>(`/guests/${id}`)
+      }
       const { data, error } = await supabase
         .from('guests')
         .select('*')
@@ -216,6 +250,24 @@ export function useCreateGuest() {
       // Ensure required fields are present
       if (!guest.first_name || !guest.last_name || !guest.phone) {
         throw new Error('الاسم الأول والاسم الأخير ورقم الهاتف مطلوبة')
+      }
+
+      if (isApiProvider()) {
+        return apiPost<Guest>('/guests', {
+          first_name: guest.first_name,
+          last_name: guest.last_name,
+          phone: guest.phone,
+          email: guest.email || null,
+          first_name_ar: guest.first_name_ar || null,
+          last_name_ar: guest.last_name_ar || null,
+          national_id: guest.national_id || null,
+          military_rank: guest.military_rank || null,
+          military_rank_ar: guest.military_rank_ar || null,
+          unit: guest.unit || null,
+          unit_ar: guest.unit_ar || null,
+          guest_type: guest.guest_type || 'military',
+          notes: guest.notes || null,
+        })
       }
 
       const { data, error } = await supabase
@@ -258,6 +310,9 @@ export function useUpdateGuest() {
 
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Guest> & { id: string }) => {
+      if (isApiProvider()) {
+        return apiPatch<Guest>(`/guests/${id}`, updates)
+      }
       const { data, error } = await supabase
         .from('guests')
         .update(updates)
@@ -282,6 +337,10 @@ export function useDeleteGuest() {
 
   return useMutation({
     mutationFn: async (id: string) => {
+      if (isApiProvider()) {
+        await apiDelete(`/guests/${id}`)
+        return id
+      }
       const { error } = await supabase
         .from('guests')
         .delete()

@@ -2,6 +2,9 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { supabase } from '@/lib/supabase/client'
 import { Reservation, ReservationStatus } from '@/lib/types/database'
 import type { CalendarEvent, CalendarWindowArgs } from '@/lib/types/calendar'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 
 // PostgREST enforces a server-side max-rows cap (typically 1000). A single
 // .range(0, 9999) still returns at most that cap — paginate when fetchAll is set.
@@ -119,6 +122,16 @@ async function resolveUnitIdsForLocations(
     return cached.ids
   }
 
+  if (isApiProvider()) {
+    const units = await apiGet<Array<{ id: string }>>(
+      `/units${buildQuery({ locationIds: locationFilterIds, onlyCalendarFields: 'true' })}`
+    )
+    const unitIds = units.map((u) => u.id)
+    const resolved = unitIds.length > 0 ? unitIds : []
+    unitIdsByLocationsCache.set(cacheKey, { ids: resolved, at: Date.now() })
+    return resolved
+  }
+
   const { data: units, error: unitsError } = await supabase
     .from('units')
     .select('id')
@@ -185,6 +198,22 @@ function applyReservationFilters(
 }
 
 export async function fetchReservations(filters?: ReservationFilters): Promise<Reservation[]> {
+  if (isApiProvider()) {
+    return apiGet<Reservation[]>(
+      `/reservations/list${buildQuery({
+        locationId: filters?.locationId,
+        locationIds: filters?.locationIds,
+        status: filters?.status,
+        dateFrom: filters?.dateFrom,
+        dateTo: filters?.dateTo,
+        overlapStart: filters?.overlapStart,
+        overlapEnd: filters?.overlapEnd,
+        source: filters?.source,
+        fetchAll: filters?.fetchAll ? 'true' : undefined,
+      })}`
+    )
+  }
+
   const locationFilterIds =
     filters?.locationIds && filters.locationIds.length > 0
       ? filters.locationIds
@@ -243,6 +272,23 @@ export async function fetchReservations(filters?: ReservationFilters): Promise<R
 export async function fetchReservationsPaginated(
   filters: ReservationFilters & { page: number; pageSize: number }
 ): Promise<ReservationPaginatedResult> {
+  if (isApiProvider()) {
+    return apiGet<ReservationPaginatedResult>(
+      `/reservations/page${buildQuery({
+        locationId: filters.locationId,
+        locationIds: filters.locationIds,
+        status: filters.status,
+        dateFrom: filters.dateFrom,
+        dateTo: filters.dateTo,
+        search: filters.search,
+        unitType: filters.unitType,
+        source: filters.source,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      })}`
+    )
+  }
+
   const locationFilterIds =
     filters.locationIds && filters.locationIds.length > 0
       ? filters.locationIds
@@ -304,6 +350,9 @@ export function useReservation(id: string) {
   return useQuery({
     queryKey: ['reservation', id],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<Reservation>(`/reservations/${id}`)
+      }
       const { data, error } = await supabase
         .from('reservations')
         .select(`
@@ -334,6 +383,13 @@ export function useCreateReservation() {
 
   return useMutation({
     mutationFn: async (reservation: Partial<Reservation>) => {
+      if (isApiProvider()) {
+        const data = await apiPost<Reservation>('/reservations', reservation)
+        if (data.unit_id && data.status !== 'cancelled' && data.status !== 'no_show') {
+          queryClient.invalidateQueries({ queryKey: ['units'] })
+        }
+        return data
+      }
       const { data, error } = await supabase
         .from('reservations')
         .insert(reservation)
@@ -378,6 +434,11 @@ export function useUpdateReservation() {
 
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Reservation> & { id: string }) => {
+      if (isApiProvider()) {
+        const data = await apiPatch<Reservation>(`/reservations/${id}`, { id, ...updates })
+        queryClient.invalidateQueries({ queryKey: ['units'] })
+        return data
+      }
       // Get current reservation to check unit_id
       const { data: currentReservation } = await supabase
         .from('reservations')
@@ -473,6 +534,10 @@ export function useDeleteReservation() {
 
   return useMutation({
     mutationFn: async (id: string) => {
+      if (isApiProvider()) {
+        await apiDelete(`/reservations/${id}`)
+        return
+      }
       const { data, error } = await supabase
         .from('reservations')
         .delete()
@@ -506,6 +571,17 @@ export const calendarWindowKey = (a: CalendarWindowArgs) =>
 export async function fetchCalendarWindow(
   a: CalendarWindowArgs
 ): Promise<CalendarEvent[]> {
+  if (isApiProvider()) {
+    return apiGet<CalendarEvent[]>(
+      `/calendar/window${buildQuery({
+        locationId: a.locationId,
+        start: a.start,
+        end: a.end,
+        status: a.status,
+      })}`
+    )
+  }
+
   const all: CalendarEvent[] = []
   let offset = 0
 

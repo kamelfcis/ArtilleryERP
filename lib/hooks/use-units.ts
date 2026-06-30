@@ -2,12 +2,18 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { deleteFromR2 } from '@/lib/storage/upload'
 import { Unit } from '@/lib/types/database'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 
 /** Minimal payload for toolbar type chips — type + location only. */
 export function useUnitTypesByLocation() {
   return useQuery({
     queryKey: ['units-types-map'],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<Array<{ type: string; location_id: string }>>('/units/types-map')
+      }
       const { data, error } = await supabase
         .from('units')
         .select('type, location_id')
@@ -37,6 +43,18 @@ export function useUnits(filters?: {
   return useQuery({
     queryKey: ['units', filters],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<Unit[]>(
+          `/units${buildQuery({
+            locationId: filters?.locationId,
+            locationIds: filters?.locationIds,
+            type: filters?.type,
+            status: filters?.status,
+            onlyCalendarFields: filters?.onlyCalendarFields ? 'true' : undefined,
+          })}`
+        )
+      }
+
       const selectClause = filters?.onlyCalendarFields
         ? 'id, unit_number, name, name_ar, type, location_id, is_active, status, beds, orderno'
         : `
@@ -84,6 +102,9 @@ export function useUnit(id: string) {
   return useQuery({
     queryKey: ['unit', id],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<Unit>(`/units/${id}`)
+      }
       const { data, error } = await supabase
         .from('units')
         .select(`
@@ -110,6 +131,9 @@ export function useCreateUnit() {
 
   return useMutation({
     mutationFn: async (unit: Partial<Unit>) => {
+      if (isApiProvider()) {
+        return apiPost<Unit>('/units', unit)
+      }
       const { data, error } = await supabase
         .from('units')
         .insert(unit)
@@ -130,6 +154,9 @@ export function useUpdateUnit() {
 
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Unit> & { id: string }) => {
+      if (isApiProvider()) {
+        return apiPatch<Unit>(`/units/${id}`, updates)
+      }
       const { data, error } = await supabase
         .from('units')
         .update(updates)
@@ -152,6 +179,10 @@ export function useDeleteUnit() {
 
   return useMutation({
     mutationFn: async (id: string) => {
+      if (isApiProvider()) {
+        await apiDelete(`/units/${id}`)
+        return
+      }
       try {
         // First, delete all related unit images from storage and database
         const { data: unitImages, error: imagesError } = await supabase

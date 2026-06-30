@@ -1,5 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 
 export interface ServiceCategory {
   id: string
@@ -47,12 +50,12 @@ export function useServiceCategories() {
   return useQuery({
     queryKey: ['service-categories'],
     queryFn: async () => {
+      if (isApiProvider()) return apiGet<ServiceCategory[]>('/services/categories')
       const { data, error } = await supabase
         .from('service_categories')
         .select('*')
         .eq('is_active', true)
         .order('name_ar', { ascending: true })
-
       if (error) throw error
       return data as ServiceCategory[]
     },
@@ -63,24 +66,22 @@ export function useServices(filters?: { categoryId?: string; isFood?: boolean })
   return useQuery({
     queryKey: ['services', filters],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<Service[]>(
+          `/services${buildQuery({
+            categoryId: filters?.categoryId,
+            isFood: filters?.isFood,
+          })}`
+        )
+      }
       let query = supabase
         .from('services')
-        .select(`
-          *,
-          category:service_categories (*)
-        `)
+        .select(`*, category:service_categories (*)`)
         .eq('is_active', true)
         .order('name_ar', { ascending: true })
-
-      if (filters?.categoryId) {
-        query = query.eq('category_id', filters.categoryId)
-      }
-      if (filters?.isFood !== undefined) {
-        query = query.eq('is_food', filters.isFood)
-      }
-
+      if (filters?.categoryId) query = query.eq('category_id', filters.categoryId)
+      if (filters?.isFood !== undefined) query = query.eq('is_food', filters.isFood)
       const { data, error } = await query
-
       if (error) throw error
       return data as Service[]
     },
@@ -91,18 +92,14 @@ export function useReservationServices(reservationId: string) {
   return useQuery({
     queryKey: ['reservation-services', reservationId],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<ReservationService[]>(`/services/reservation/${reservationId}`)
+      }
       const { data, error } = await supabase
         .from('reservation_services')
-        .select(`
-          *,
-          service:services (
-            *,
-            category:service_categories (*)
-          )
-        `)
+        .select(`*, service:services (*, category:service_categories (*))`)
         .eq('reservation_id', reservationId)
         .order('created_at', { ascending: false })
-
       if (error) throw error
       return data as ReservationService[]
     },
@@ -112,7 +109,6 @@ export function useReservationServices(reservationId: string) {
 
 export function useAddReservationService() {
   const queryClient = useQueryClient()
-
   return useMutation({
     mutationFn: async ({
       reservationId,
@@ -125,21 +121,24 @@ export function useAddReservationService() {
       quantity: number
       notes?: string
     }) => {
-      // Get service price
+      if (isApiProvider()) {
+        return apiPost<ReservationService>('/services/reservation', {
+          reservationId,
+          serviceId,
+          quantity,
+          notes,
+        })
+      }
       const { data: service, error: serviceError } = await supabase
         .from('services')
         .select('price')
         .eq('id', serviceId)
         .single()
-
       if (serviceError) throw serviceError
       if (!service) throw new Error('الخدمة غير موجودة')
-
       const unitPrice = service.price
       const totalAmount = unitPrice * quantity
-
       const { data: userData } = await supabase.auth.getUser()
-
       const { data, error } = await supabase
         .from('reservation_services')
         .insert({
@@ -153,25 +152,18 @@ export function useAddReservationService() {
         })
         .select()
         .single()
-
       if (error) throw error
-
-      // Update reservation total amount
       const { data: reservation } = await supabase
         .from('reservations')
         .select('total_amount')
         .eq('id', reservationId)
         .single()
-
       if (reservation) {
         await supabase
           .from('reservations')
-          .update({
-            total_amount: reservation.total_amount + totalAmount,
-          })
+          .update({ total_amount: reservation.total_amount + totalAmount })
           .eq('id', reservationId)
       }
-
       return data as ReservationService
     },
     onSuccess: (_, variables) => {
@@ -184,7 +176,6 @@ export function useAddReservationService() {
 
 export function useDeleteReservationService() {
   const queryClient = useQueryClient()
-
   return useMutation({
     mutationFn: async ({
       serviceId,
@@ -193,29 +184,25 @@ export function useDeleteReservationService() {
       serviceId: string
       reservationId: string
     }) => {
-      // Get service total amount
+      if (isApiProvider()) {
+        await apiDelete(
+          `/services/reservation/${serviceId}${buildQuery({ reservationId })}`
+        )
+        return
+      }
       const { data: service } = await supabase
         .from('reservation_services')
         .select('total_amount')
         .eq('id', serviceId)
         .single()
-
-      // Delete service
-      const { error } = await supabase
-        .from('reservation_services')
-        .delete()
-        .eq('id', serviceId)
-
+      const { error } = await supabase.from('reservation_services').delete().eq('id', serviceId)
       if (error) throw error
-
-      // Update reservation total amount
       if (service) {
         const { data: reservation } = await supabase
           .from('reservations')
           .select('total_amount')
           .eq('id', reservationId)
           .single()
-
         if (reservation) {
           await supabase
             .from('reservations')
@@ -236,45 +223,34 @@ export function useDeleteReservationService() {
 
 export function useUpdateService() {
   const queryClient = useQueryClient()
-
   return useMutation({
-    mutationFn: async ({
-      id,
-      ...updates
-    }: Partial<Service> & { id: string }) => {
+    mutationFn: async ({ id, ...updates }: Partial<Service> & { id: string }) => {
+      if (isApiProvider()) return apiPatch<Service>(`/services/${id}`, updates)
       const { data, error } = await supabase
         .from('services')
         .update(updates)
         .eq('id', id)
         .select()
         .single()
-
       if (error) throw error
       return data as Service
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['services'] })
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['services'] }),
   })
 }
 
 export function useDeleteService() {
   const queryClient = useQueryClient()
-
   return useMutation({
     mutationFn: async (id: string) => {
-      // Soft delete by setting is_active to false
-      const { error } = await supabase
-        .from('services')
-        .update({ is_active: false })
-        .eq('id', id)
-
+      if (isApiProvider()) {
+        await apiDelete(`/services/${id}`)
+        return id
+      }
+      const { error } = await supabase.from('services').update({ is_active: false }).eq('id', id)
       if (error) throw error
       return id
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['services'] })
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['services'] }),
   })
 }
-
