@@ -447,3 +447,66 @@ statically confirmed but could not be exercised via a headless cookie.
   built all 55 pages on Linux with no error).
 - Vercel prod deploy **READY**, aliased to `https://artillery-erp-vps.vercel.app`
   (deployment `dpl_3b1TJZh3oQYUNgmBJJfn5Q9uQHZM`).
+
+---
+
+## 4. Final admin-routes parity gap closed (2026-07-02)
+
+The last api-mode parity gap were the call sites that still hit the Supabase-only
+Next.js routes `/api/admin/users` and `/api/admin/user-stats` directly (these
+return 500 in api mode because `@supabase/admin-server` has no service-role config).
+The Next.js routes are **preserved untouched** for supabase mode; each call site now
+branches on `isApiProvider()` to the Express backend.
+
+### New backend endpoint
+| Method + Path | Purpose |
+|---------------|---------|
+| `GET /admin/user-stats?from=YYYY-MM&to=YYYY-MM` | Reservation-creation leaderboard: `requireAuth` + SuperAdmin. Aggregates `reservations` grouped by `created_by` + UTC month (excludes `cancelled`/`no_show`), joins `auth.users` for emails. Returns the exact `{range, months, users[], chartSeries[], summary}` shape the Next.js route produced (`app/api/admin/user-stats/route.ts`). Added to `backend/src/routes/admin.ts`. |
+
+Existing `/admin/users` CRUD (`GET` list, `POST`, `PUT`, `PATCH`, `DELETE`,
+`GET /admin/users/:userId/roles`) was reused for the users-page write handlers.
+
+### Call sites routed (api-mode branch → backend)
+| File | Call site(s) | Routed to |
+|------|--------------|-----------|
+| `app/users/page.tsx` | create (POST), edit (PUT), disable (PATCH), delete (DELETE); users-list `queryFn` now also enriches each user's roles | `apiPost/apiPut/apiPatch/apiDelete('/admin/users')`; `apiGet('/admin/users/:id/roles')` (was `roles: []` no-op) |
+| `lib/hooks/use-user-stats.ts` | `useUserStats` `queryFn` | `apiGet('/admin/user-stats?from=&to=')` |
+| `app/audit-logs/page.tsx` | `auth-users-for-audit` `queryFn` (creator emails/names) | `fetchAdminUsers()` |
+| `components/notifications/InAppNotificationBanner.tsx` | creator-email lookup on new banner | `fetchAdminUsers()` (was fully `!isApiProvider()`-guarded → no creator name in api mode) |
+| `lib/api/admin-users.ts`, `app/staff/page.tsx` | already routed in earlier passes (`fetchAdminUsers` / `apiPost`+`apiDelete('/admin/users')`) | — |
+
+### Browser verification (headless Chromium, live site, SuperAdmin)
+Logged in against `https://artillery-erp-vps.vercel.app` (temporary bcrypt password
+set on the elevated account, then reverted to the exact original hash — revert
+verified byte-identical). Observed network statuses (no console/network 500s; a
+`/staff/schedule?_rsc=…` 404 is a pre-existing Next.js RSC prefetch, unrelated):
+
+| Check | Result |
+|-------|--------|
+| Login `POST /auth/login` | 200 → `/modules` |
+| Users page | list `عرض 8 من 8`; `GET /admin/users` 200; all 8 `GET /admin/users/:id/roles` 200 (role badges/stats now correct) |
+| User statistics | `GET /admin/user-stats?from=2026-01&to=2026-07` **200**; summary rendered |
+| Staff page | `GET /staff` 200, rendered |
+| Audit-logs page | `GET /admin/users` 200 (creator names), `GET /audit-logs` 200, rendered |
+| Create user (UI) | `POST /admin/users` **201** |
+| Edit / Disable / Delete | `PUT` 200, `PATCH` 200, `DELETE` 200 (test user then hard-deleted from DB) |
+| Notifications banner | uses the same `fetchAdminUsers()` (`GET /admin/users`) path proven above |
+| **Same-origin `/api/admin/*` hits in api mode** | **none** (0) — no Supabase-only route reachable |
+
+### Build / deploy (this pass)
+- Backend `npm run build` (tsc): **exit 0**; deployed `dist/routes/admin.js` to
+  `C:\Artillery-ERP\backend-deploy\dist\routes\`, `pm2 restart artillery-api`
+  (online). `GET /admin/user-stats` returns `401` unauthenticated (route present +
+  auth enforced), `200` with SuperAdmin cookie.
+- Frontend `npx tsc --noEmit`: **exit 0**; `npm run build`: **✓ Compiled
+  successfully** (Windows EPERM at static-gen is the known ignorable quirk).
+- Vercel prod deploy **READY**, aliased to `https://artillery-erp-vps.vercel.app`
+  (deployment `dpl_DdacjhUxQqRrzJgjbrGu3EH6W5RS`).
+
+### Residual
+- `UsersPage` → `UserRoleForm` (assign/unassign roles) still uses the Supabase JS
+  client directly (`supabase.from('user_roles'/'roles')`), not an `/api/admin/*`
+  route, so it is out of scope for this route-parity pass and non-functional in api
+  mode (no backend role-write endpoint yet). All other users-page actions
+  (create/edit/disable/delete/list/role display) and the audit-logs, staff,
+  statistics, and notifications paths are fully api-wired.

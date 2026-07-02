@@ -10,6 +10,43 @@ const router = Router()
 
 const INSTANCE_ID = '00000000-0000-0000-0000-000000000000'
 
+const USER_STATS_CHART_COLORS = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#f43f5e']
+const USER_STATS_EXCLUDED_STATUSES = ['cancelled', 'no_show']
+
+function parseMonthParam(value: unknown): string | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}$/.test(value)) return null
+  const [, month] = value.split('-').map(Number)
+  if (month < 1 || month > 12) return null
+  return value
+}
+
+function buildMonthRange(from: string, to: string): string[] {
+  const months: string[] = []
+  const [fromYear, fromMonth] = from.split('-').map(Number)
+  const [toYear, toMonth] = to.split('-').map(Number)
+  let year = fromYear
+  let month = fromMonth
+  while (year < toYear || (year === toYear && month <= toMonth)) {
+    months.push(`${year}-${String(month).padStart(2, '0')}`)
+    month++
+    if (month > 12) {
+      month = 1
+      year++
+    }
+  }
+  return months
+}
+
+function monthToRangeStart(monthKey: string): string {
+  const [year, month] = monthKey.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0)).toISOString()
+}
+
+function monthToRangeEnd(monthKey: string): string {
+  const [year, month] = monthKey.split('-').map(Number)
+  return new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)).toISOString()
+}
+
 async function requireSuperAdmin(req: import('express').Request, res: import('express').Response) {
   if (!req.user) {
     res.status(401).json({ error: 'غير مصرح' })
@@ -224,6 +261,102 @@ router.delete('/users', requireAuth, async (req, res, next) => {
     )
 
     res.json({ success: true, message: 'تم تعطيل المستخدم بنجاح' })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.get('/user-stats', requireAuth, async (req, res, next) => {
+  try {
+    if (!(await requireSuperAdmin(req, res))) return
+
+    const from = parseMonthParam(req.query.from)
+    const to = parseMonthParam(req.query.to)
+
+    if (!from || !to) {
+      res.status(400).json({ error: 'معاملات from و to مطلوبة بصيغة YYYY-MM' })
+      return
+    }
+    if (from > to) {
+      res.status(400).json({ error: 'تاريخ البداية يجب أن يكون قبل تاريخ النهاية' })
+      return
+    }
+
+    const months = buildMonthRange(from, to)
+    const rangeStart = monthToRangeStart(from)
+    const rangeEnd = monthToRangeEnd(to)
+
+    const { rows: aggregates } = await pool.query<{
+      user_id: string
+      month_key: string
+      cnt: string
+    }>(
+      `SELECT created_by::text AS user_id,
+              to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM') AS month_key,
+              COUNT(*)::text AS cnt
+       FROM reservations
+       WHERE created_at >= $1 AND created_at <= $2
+         AND created_by IS NOT NULL
+         AND NOT (status::text = ANY($3::text[]))
+       GROUP BY created_by, month_key`,
+      [rangeStart, rangeEnd, USER_STATS_EXCLUDED_STATUSES]
+    )
+
+    const totalsByUser: Record<string, number> = {}
+    const monthlyByUser: Record<string, Record<string, number>> = {}
+
+    for (const row of aggregates) {
+      const count = parseInt(row.cnt, 10) || 0
+      totalsByUser[row.user_id] = (totalsByUser[row.user_id] ?? 0) + count
+      if (!monthlyByUser[row.user_id]) monthlyByUser[row.user_id] = {}
+      monthlyByUser[row.user_id][row.month_key] = count
+    }
+
+    const { rows: authUsers } = await pool.query<{ id: string; email: string | null }>(
+      `SELECT id::text AS id, email FROM auth.users`
+    )
+    const emailMap = new Map(authUsers.map((u) => [u.id, u.email ?? 'غير معروف']))
+
+    const sortedUserIds = Object.keys(totalsByUser).sort(
+      (a, b) => (totalsByUser[b] ?? 0) - (totalsByUser[a] ?? 0)
+    )
+
+    const users = sortedUserIds.map((userId, index) => ({
+      userId,
+      email: emailMap.get(userId) ?? 'غير معروف',
+      total: totalsByUser[userId] ?? 0,
+      rank: index + 1,
+    }))
+
+    const chartSeries = sortedUserIds.slice(0, 5).map((userId, index) => ({
+      userId,
+      email: emailMap.get(userId) ?? 'غير معروف',
+      color: USER_STATS_CHART_COLORS[index % USER_STATS_CHART_COLORS.length],
+      data: months.map((month) => ({
+        month,
+        count: monthlyByUser[userId]?.[month] ?? 0,
+      })),
+    }))
+
+    const totalReservations = Object.values(totalsByUser).reduce((sum, n) => sum + n, 0)
+    const activeUsers = sortedUserIds.length
+    const topPerformer = users[0]
+    const avgPerUser =
+      activeUsers > 0 ? Math.round((totalReservations / activeUsers) * 10) / 10 : 0
+
+    res.json({
+      range: { from, to },
+      months,
+      users,
+      chartSeries,
+      summary: {
+        totalReservations,
+        activeUsers,
+        topPerformerEmail: topPerformer?.email ?? null,
+        topPerformerCount: topPerformer?.total ?? 0,
+        avgPerUser,
+      },
+    })
   } catch (err) {
     next(err)
   }

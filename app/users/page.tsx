@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase/client'
 import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
 import { isApiProvider } from '@/lib/api/data-provider'
 import { fetchAdminUsers } from '@/lib/api/admin-users'
+import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from '@/lib/api/http-client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -89,12 +90,22 @@ export default function UsersPage() {
     queryFn: async () => {
       if (isApiProvider()) {
         const authUsers = await fetchAdminUsers()
-        return authUsers.map((u) => ({
-          id: u.id,
-          email: u.email || 'N/A',
-          is_active: u.is_active ?? true,
-          roles: [],
-        })) as UserWithRoles[]
+        return Promise.all(
+          authUsers.map(async (u) => {
+            let roleNames: string[] = []
+            try {
+              roleNames = await apiGet<string[]>(`/admin/users/${u.id}/roles`)
+            } catch {
+              roleNames = []
+            }
+            return {
+              id: u.id,
+              email: u.email || 'N/A',
+              is_active: u.is_active ?? true,
+              roles: roleNames.map((name) => ({ role: { name } })),
+            }
+          })
+        ) as Promise<UserWithRoles[]>
       }
 
       const response = await fetchWithSupabaseAuth('/api/admin/users')
@@ -454,14 +465,18 @@ function UserCard({ user }: { user: UserWithRoles }) {
   async function handleLoginToggle(isActive: boolean) {
     try {
       setIsTogglingLogin(true)
-      const response = await fetchWithSupabaseAuth('/api/admin/users', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, isActive }),
-      })
+      if (isApiProvider()) {
+        await apiPatch('/admin/users', { userId: user.id, isActive })
+      } else {
+        const response = await fetchWithSupabaseAuth('/api/admin/users', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id, isActive }),
+        })
 
-      const result = await response.json()
-      if (!response.ok) throw new Error(result.error)
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.error)
+      }
 
       toast({
         title: isActive ? 'تم تفعيل تسجيل الدخول' : 'تم تعطيل تسجيل الدخول',
@@ -490,14 +505,18 @@ function UserCard({ user }: { user: UserWithRoles }) {
   async function handleDelete() {
     try {
       setIsDeleting(true)
-      const response = await fetchWithSupabaseAuth('/api/admin/users', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id }),
-      })
+      if (isApiProvider()) {
+        await apiDelete('/admin/users', { userId: user.id })
+      } else {
+        const response = await fetchWithSupabaseAuth('/api/admin/users', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id }),
+        })
 
-      const result = await response.json()
-      if (!response.ok) throw new Error(result.error)
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.error)
+      }
 
       toast({
         title: '✅ تم التعطيل',
@@ -831,14 +850,18 @@ function UserForm({ onSuccess }: { onSuccess?: () => void }) {
     setIsSubmitting(true)
 
     try {
-      const response = await fetchWithSupabaseAuth('/api/admin/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, role: role || undefined }),
-      })
+      if (isApiProvider()) {
+        await apiPost('/admin/users', { email, password, role: role || undefined })
+      } else {
+        const response = await fetchWithSupabaseAuth('/api/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, role: role || undefined }),
+        })
 
-      const result = await response.json()
-      if (!response.ok) throw new Error(result.error)
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.error)
+      }
 
       toast({
         title: '✅ تم بنجاح',
@@ -989,14 +1012,18 @@ function EditUserForm({
         return
       }
 
-      const response = await fetchWithSupabaseAuth('/api/admin/users', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
+      if (isApiProvider()) {
+        await apiPut('/admin/users', body)
+      } else {
+        const response = await fetchWithSupabaseAuth('/api/admin/users', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
 
-      const result = await response.json()
-      if (!response.ok) throw new Error(result.error)
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.error)
+      }
 
       toast({
         title: '✅ تم التحديث',

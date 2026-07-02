@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase/client'
 import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
 import { isApiProvider } from '@/lib/api/data-provider'
 import { apiGet } from '@/lib/api/http-client'
+import { fetchAdminUsers } from '@/lib/api/admin-users'
 import { buildQuery } from '@/lib/api/build-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { useUpdateReservation } from '@/lib/hooks/use-reservations'
@@ -218,13 +219,18 @@ export function InAppNotificationBanner() {
     }
 
     let creatorEmail: string | undefined
-    if (!isApiProvider() && (typeof navigator === 'undefined' || navigator.onLine)) {
+    if (typeof navigator === 'undefined' || navigator.onLine) {
       try {
-        const res = await fetchWithSupabaseAuth('/api/admin/users')
-        if (res.ok) {
-          const json = await res.json()
-          const foundUser = json.users?.find((u: any) => u.id === notif.created_by)
-          creatorEmail = foundUser?.email
+        if (isApiProvider()) {
+          const users = await fetchAdminUsers()
+          creatorEmail = users.find((u) => u.id === notif.created_by)?.email
+        } else {
+          const res = await fetchWithSupabaseAuth('/api/admin/users')
+          if (res.ok) {
+            const json = await res.json()
+            const foundUser = json.users?.find((u: any) => u.id === notif.created_by)
+            creatorEmail = foundUser?.email
+          }
         }
       } catch {}
     }

@@ -18,6 +18,8 @@ import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from '@/components/ui/use-toast'
 import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { fetchAdminUsers } from '@/lib/api/admin-users'
 import { cn } from '@/lib/utils'
 import {
   Shield, User, Clock, FileText, Plus, Pencil, Trash2, Filter, Mail,
@@ -108,6 +110,9 @@ export default function AuditLogsPage() {
   const { data: authUsers, error: authUsersError } = useQuery({
     queryKey: ['auth-users-for-audit'],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return (await fetchAdminUsers()) as Array<{ id: string; email?: string }>
+      }
       const res = await fetchWithSupabaseAuth('/api/admin/users')
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))

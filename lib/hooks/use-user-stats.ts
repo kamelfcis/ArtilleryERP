@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
 
 export interface UserStatsEntry {
   userId: string
@@ -35,6 +37,12 @@ export function useUserStats(from: string | null, to: string | null) {
   return useQuery({
     queryKey: ['user-stats', from, to],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<UserStatsResponse>(
+          `/admin/user-stats?from=${encodeURIComponent(from!)}&to=${encodeURIComponent(to!)}`
+        )
+      }
+
       const response = await fetchWithSupabaseAuth(
         `/api/admin/user-stats?from=${encodeURIComponent(from!)}&to=${encodeURIComponent(to!)}`
       )
