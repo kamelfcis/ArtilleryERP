@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase/client'
 import { UserRole } from '@/lib/types/database'
@@ -197,6 +197,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [useApi, session, user]
   )
 
+  // Keep the latest fetchUserRoles in a ref so the bootstrap effect below can
+  // call it without listing it as a dependency. `fetchUserRoles` is recreated
+  // whenever `session`/`user` change; in api mode the bootstrap effect calls
+  // `/auth/me` and then sets brand-new `user`/`session` objects, so depending
+  // on `fetchUserRoles` there caused the effect to re-run on every render — an
+  // infinite `/auth/me` polling + re-render loop that silently interrupted
+  // calendar drag interactions. Supabase-mode behavior is unchanged.
+  const fetchUserRolesRef = useRef(fetchUserRoles)
+  useEffect(() => {
+    fetchUserRolesRef.current = fetchUserRoles
+  }, [fetchUserRoles])
+
   useEffect(() => {
     const cached = getCachedSession()
     if (cached) {
@@ -231,7 +243,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(session.user)
         setCachedSession(session, session.user, cached?.roles || [], cached?.elevatedOps ?? false)
         if (!cached?.roles || cached.roles.length === 0) {
-          fetchUserRoles(session.user.id).catch(console.error)
+          fetchUserRolesRef.current(session.user.id).catch(console.error)
         }
       } else {
         clearCachedSession()
@@ -284,7 +296,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (session?.user) {
         const currentRoles = roles.length > 0 ? roles : getCachedSession()?.roles || []
         setCachedSession(session, session.user, currentRoles, getCachedSession()?.elevatedOps ?? false)
-        fetchUserRoles(session.user.id).catch(console.error)
+        fetchUserRolesRef.current(session.user.id).catch(console.error)
       } else {
         clearCachedSession()
         setRoles([])
@@ -294,7 +306,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
 
     return () => subscription.unsubscribe()
-  }, [useApi, fetchUserRoles])
+    // `fetchUserRoles` is intentionally omitted — it is invoked via
+    // `fetchUserRolesRef` to keep this bootstrap effect running once per
+    // provider (see the ref-sync effect above). Including it re-ran the effect
+    // on every render in api mode (infinite `/auth/me` loop).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useApi])
 
   const signIn = useCallback(
     async (email: string, password: string) => {

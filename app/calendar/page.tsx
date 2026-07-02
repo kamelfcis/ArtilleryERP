@@ -29,10 +29,10 @@ import { Button } from '@/components/ui/button'
 import { useCreateBookingNotification } from '@/lib/hooks/use-booking-notifications'
 import { ArrowLeftRight } from 'lucide-react'
 import { useQueryClient, useQuery, useMutation, keepPreviousData } from '@tanstack/react-query'
-import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
 import { supabase } from '@/lib/supabase/client'
 import { isApiProvider } from '@/lib/api/data-provider'
-import { apiGet, apiDelete } from '@/lib/api/http-client'
+import { apiGet, apiDelete, apiPost } from '@/lib/api/http-client'
+import { fetchAdminUsers } from '@/lib/api/admin-users'
 import { formatCurrency } from '@/lib/utils'
 import { useCalendarFilters } from '@/contexts/CalendarFilterContext'
 import '@/app/calendar/calendar-styles.css'
@@ -233,10 +233,9 @@ export default function CalendarPage() {
     queryKey: ['auth-users-for-calendar'],
     queryFn: async () => {
       try {
-        const res = await fetchWithSupabaseAuth('/api/admin/users')
-        if (!res.ok) return []
-        const { users } = await res.json()
-        return users as Array<{ id: string; email?: string }>
+        // Uses the Express backend (`/admin/users`) in api mode and the
+        // Supabase-backed Next route otherwise; both return {id, email}.
+        return (await fetchAdminUsers()) as Array<{ id: string; email?: string }>
       } catch {
         return []
       }
@@ -672,19 +671,28 @@ export default function CalendarPage() {
     }
     try {
       setIsUpdatingStatuses(true)
-      const response = await fetch('/api/admin/update-unit-statuses', {
-        method: 'POST',
-      })
+      let result: { message?: string }
+      if (isApiProvider()) {
+        // Express backend runs the same `update_all_unit_statuses()` sync.
+        // apiPost throws on non-2xx; the catch below honours `options.silent`.
+        result = await apiPost<{ success: boolean; message?: string }>(
+          '/admin/update-unit-statuses'
+        )
+      } else {
+        const response = await fetch('/api/admin/update-unit-statuses', {
+          method: 'POST',
+        })
 
-      if (!response.ok) {
-        if (options?.silent || response.status === 503) {
-          return
+        if (!response.ok) {
+          if (options?.silent || response.status === 503) {
+            return
+          }
+          throw new Error('فشل في تحديث الحالات')
         }
-        throw new Error('فشل في تحديث الحالات')
+
+        result = await response.json()
       }
 
-      const result = await response.json()
-      
       queryClient.invalidateQueries({ queryKey: ['units'] })
       
       if (!options?.silent) {
