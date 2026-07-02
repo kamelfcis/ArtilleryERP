@@ -1122,7 +1122,9 @@ function UserRoleForm({
   const { data: roles } = useQuery({
     queryKey: ['roles'],
     queryFn: async () => {
-      if (isApiProvider()) return []
+      if (isApiProvider()) {
+        return apiGet<Array<{ id: string; name: string; description: string | null }>>('/admin/roles')
+      }
 
       const { data, error } = await supabase
         .from('roles')
@@ -1147,34 +1149,38 @@ function UserRoleForm({
     setIsSubmitting(true)
 
     try {
-      // Remove all existing roles
-      await supabase
-        .from('user_roles')
-        .delete()
-        .eq('user_id', userId)
+      if (isApiProvider()) {
+        await apiPut(`/admin/users/${userId}/roles`, { roles: selectedRoles })
+      } else {
+        // Remove all existing roles
+        await supabase
+          .from('user_roles')
+          .delete()
+          .eq('user_id', userId)
 
-      // Add new roles
-      if (selectedRoles.length > 0) {
-        const roleIds = await Promise.all(
-          selectedRoles.map(async (roleName) => {
-            const role = roles?.find((r: any) => r.name === roleName)
-            return role?.id
-          })
-        )
+        // Add new roles
+        if (selectedRoles.length > 0) {
+          const roleIds = await Promise.all(
+            selectedRoles.map(async (roleName) => {
+              const role = roles?.find((r: any) => r.name === roleName)
+              return role?.id
+            })
+          )
 
-        const validRoleIds = roleIds.filter(Boolean)
+          const validRoleIds = roleIds.filter(Boolean)
 
-        if (validRoleIds.length > 0) {
-          const userRoles = validRoleIds.map(roleId => ({
-            user_id: userId,
-            role_id: roleId,
-          }))
+          if (validRoleIds.length > 0) {
+            const userRoles = validRoleIds.map(roleId => ({
+              user_id: userId,
+              role_id: roleId,
+            }))
 
-          const { error } = await supabase
-            .from('user_roles')
-            .insert(userRoles)
+            const { error } = await supabase
+              .from('user_roles')
+              .insert(userRoles)
 
-          if (error) throw error
+            if (error) throw error
+          }
         }
       }
 

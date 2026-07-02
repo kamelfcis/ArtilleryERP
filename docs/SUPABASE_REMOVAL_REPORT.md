@@ -510,3 +510,62 @@ verified byte-identical). Observed network statuses (no console/network 500s; a
   mode (no backend role-write endpoint yet). All other users-page actions
   (create/edit/disable/delete/list/role display) and the audit-logs, staff,
   statistics, and notifications paths are fully api-wired.
+
+---
+
+## Final wiring — UserRoleForm role read/write (api mode)
+
+This closes the last residual above. `UserRoleForm` (in `app/users/page.tsx`) read
+the assignable-roles list and wrote user↔role assignments through the Supabase JS
+client (`supabase.from('roles')`, `supabase.from('user_roles')`), so it was
+non-functional in api mode. It now branches on `isApiProvider()` to the Express
+backend; **supabase-mode behavior is unchanged** (the original Supabase calls are
+preserved in the `else` branch).
+
+### New backend endpoints (`backend/src/routes/admin.ts`)
+| Method + Path | Purpose |
+|---------------|---------|
+| `GET /admin/roles` | List all assignable roles (`id, name, description`), ordered by name. `requireAuth` + SuperAdmin check. |
+| `PUT /admin/users/:userId/roles` | Full-replace a user's roles. `requireAuth` + SuperAdmin. Body `{ roles: string[] }` (role **names**). Validates the user exists, resolves names → ids, then in a transaction (`BEGIN`/`COMMIT`, `ROLLBACK` on error) deletes all existing `user_roles` for the user and re-inserts the requested set. Returns the updated role-name array. |
+
+### Call site routed (api-mode branch → backend)
+| File | Call site | Routed to |
+|------|-----------|-----------|
+| `app/users/page.tsx` (`UserRoleForm`) | roles-list `queryFn` (was `return []` no-op in api mode) | `apiGet('/admin/roles')` |
+| `app/users/page.tsx` (`UserRoleForm`) | `handleSubmit` (delete-then-insert `user_roles`) | `apiPut('/admin/users/:id/roles', { roles })` |
+
+### Browser verification (headless Chromium, live site, SuperAdmin)
+Playwright (temp dir outside the repo) against `https://artillery-erp-vps.vercel.app`
+after deploy. Logged in as `admin@hospitality.com` via a **temporary bcrypt
+password**, then reverted to the **exact original hash** (verified byte-identical by
+re-reading `encrypted_password`). Target was a **throwaway test user** created just
+for this run; its roles were mutated then the user was **hard-deleted**. No real
+users' roles were touched.
+
+| Step | Result |
+|------|--------|
+| Login `POST /auth/login` | 200 → `/modules` |
+| Users page load | `GET /admin/users` 200; per-user `GET /admin/users/:id/roles` 200; `GET /admin/roles` 200 |
+| Assign roles (Staff + Receptionist) | `PUT /admin/users/:id/roles` **200** → `["Receptionist","Staff"]` |
+| Remove a role (drop Staff) | `PUT /admin/users/:id/roles` **200** → `["Receptionist"]` |
+| Persistence | DB `user_roles` for the test user = `["Receptionist"]` (matches final PUT) |
+| **Same-origin `/api/admin/*` hits in api mode** | **none (0)** |
+| **5xx responses** | **none (0)** |
+| Cleanup | test user hard-deleted; temp admin password reverted to original hash (verified) |
+
+### Build / deploy (this pass)
+- Backend `npm run build` (tsc): **exit 0**; deployed `dist/routes/admin.js` to
+  `C:\Artillery-ERP\backend-deploy\dist\routes\`, `pm2 restart artillery-api`
+  (online). `GET /admin/roles` and `PUT /admin/users/:id/roles` return `401`
+  unauthenticated (routes present + auth enforced), `200` with SuperAdmin cookie.
+- Frontend `npx tsc --noEmit`: **exit 0**; `npm run build`: **✓ Compiled
+  successfully** (Windows EPERM at static-gen is the known ignorable quirk).
+- Vercel prod deploy **READY**, aliased to `https://artillery-erp-vps.vercel.app`
+  (deployment `dpl_1Ex3z3GbHA5SVi1Fr7UtLjmtN8KJ`).
+
+### No Supabase-only path remains reachable in api mode
+Every remaining `supabase.from(...)` / `supabase.rpc(...)` call site under `app/`
+(`app/units/new`, `app/units/[id]/edit`, `app/pending-reservations`,
+`app/system/health`) sits inside an `else` of an `isApiProvider()` branch, i.e. it
+executes **only in supabase mode**. With `UserRoleForm` now wired, there is **no
+unguarded (api-mode-reachable) Supabase data path left** in the application.

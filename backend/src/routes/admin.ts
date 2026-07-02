@@ -110,6 +110,78 @@ router.get('/users/:userId/roles', requireAuth, async (req, res, next) => {
   }
 })
 
+router.get('/roles', requireAuth, async (req, res, next) => {
+  try {
+    if (!(await requireSuperAdmin(req, res))) return
+
+    const { rows } = await pool.query<{ id: string; name: string; description: string | null }>(
+      `SELECT id, name, description FROM roles ORDER BY name`
+    )
+    res.json(rows)
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.put('/users/:userId/roles', requireAuth, async (req, res, next) => {
+  const client = await pool.connect()
+  try {
+    if (!(await requireSuperAdmin(req, res))) return
+
+    const userId = req.params.userId
+    const requested = Array.isArray(req.body?.roles) ? req.body.roles : null
+    if (!requested) {
+      res.status(400).json({ error: 'قائمة الأدوار مطلوبة' })
+      return
+    }
+
+    const roleNames = requested
+      .filter((r: unknown): r is string => typeof r === 'string' && r.trim().length > 0)
+      .map((r: string) => r.trim())
+
+    const { rows: existingUser } = await client.query(`SELECT id FROM auth.users WHERE id = $1`, [
+      userId,
+    ])
+    if (!existingUser[0]) {
+      res.status(404).json({ error: 'المستخدم غير موجود' })
+      return
+    }
+
+    let roleIds: string[] = []
+    if (roleNames.length > 0) {
+      const { rows: roleRows } = await client.query<{ id: string; name: string }>(
+        `SELECT id, name FROM roles WHERE name = ANY($1::text[])`,
+        [roleNames]
+      )
+      roleIds = roleRows.map((r) => r.id)
+    }
+
+    await client.query('BEGIN')
+    await client.query(`DELETE FROM user_roles WHERE user_id = $1`, [userId])
+    for (const roleId of roleIds) {
+      await client.query(
+        `INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [userId, roleId]
+      )
+    }
+    await client.query('COMMIT')
+
+    const { rows: updated } = await client.query<{ name: string }>(
+      `SELECT r.name
+       FROM user_roles ur
+       INNER JOIN roles r ON r.id = ur.role_id
+       WHERE ur.user_id = $1`,
+      [userId]
+    )
+    res.json(updated.map((r) => r.name).filter(Boolean))
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    next(err)
+  } finally {
+    client.release()
+  }
+})
+
 router.post('/users', requireAuth, async (req, res, next) => {
   try {
     if (!(await requireSuperAdmin(req, res))) return
