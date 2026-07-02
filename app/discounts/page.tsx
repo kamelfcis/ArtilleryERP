@@ -15,6 +15,8 @@ import { Plus, Edit, Trash2, Tag, CheckCircle, XCircle } from 'lucide-react'
 import { formatDateShort, formatCurrency } from '@/lib/utils'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiDelete } from '@/lib/api/http-client'
 
 export default function DiscountsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -25,6 +27,10 @@ export default function DiscountsPage() {
   
   const deleteDiscount = useMutation({
     mutationFn: async (id: string) => {
+      if (isApiProvider()) {
+        await apiDelete(`/discounts/${id}`)
+        return
+      }
       const { error } = await supabase
         .from('discount_codes')
         .delete()

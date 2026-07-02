@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 const DEFAULT_FETCH_TIMEOUT_MS = 15_000
 const DEFAULT_RETRY_ATTEMPTS = 2
@@ -146,6 +146,12 @@ function createFetchWithTimeout(timeoutMs = DEFAULT_FETCH_TIMEOUT_MS): typeof fe
 
 export function createAdminClient(): SupabaseClient {
   const { url, serviceRoleKey } = getSupabaseAdminEnv()
+
+  // Loaded lazily so `@supabase/supabase-js` is never imported/initialized in
+  // api mode (NEXT_PUBLIC_DATA_PROVIDER!="supabase"). These admin route
+  // handlers are only exercised by the Supabase provider path.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createClient } = require('@supabase/supabase-js') as typeof import('@supabase/supabase-js')
 
   return createClient(url, serviceRoleKey, {
     auth: {

@@ -565,6 +565,42 @@ export const calendarWindowKey = (a: CalendarWindowArgs) =>
   ['calendar-window', a] as const
 
 /**
+ * Normalize a Postgres `date` value to a pure `YYYY-MM-DD` string.
+ *
+ * The Supabase path (PostgREST) already returns date columns as `YYYY-MM-DD`,
+ * which FullCalendar treats as all-day events that snap to day columns and
+ * pack cleanly into lanes. The API path (node-postgres) parses `date` columns
+ * into JS Date objects that `res.json()` serializes as full ISO timestamps
+ * (e.g. `2026-07-01T00:00:00.000Z`); FullCalendar then treats them as timed
+ * events which render on top of each other instead of lane-packing.
+ *
+ * Rounding the instant to the nearest midnight recovers the intended calendar
+ * day regardless of the API server's timezone (the time component is exactly
+ * the server's UTC offset), so this is TZ-agnostic.
+ */
+function toDateOnly(value: string | null | undefined): string {
+  if (!value) return value as string
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+  const ms = Date.parse(value)
+  if (Number.isNaN(ms)) return value
+  const rounded = Math.round(ms / 86_400_000) * 86_400_000
+  return new Date(rounded).toISOString().slice(0, 10)
+}
+
+/**
+ * Coerce the API-provider calendar window response into the exact shape the
+ * Supabase path returns — specifically date-only `check_in_date` /
+ * `check_out_date` so the calendar layout packs reservations into lanes.
+ */
+export function normalizeCalendarRows(rows: CalendarEvent[]): CalendarEvent[] {
+  return rows.map((row) => ({
+    ...row,
+    check_in_date: toDateOnly(row.check_in_date),
+    check_out_date: toDateOnly(row.check_out_date),
+  }))
+}
+
+/**
  * Bare fetch function exported so callers can pass it directly to
  * queryClient.prefetchQuery without duplicating the RPC call.
  */
@@ -572,7 +608,7 @@ export async function fetchCalendarWindow(
   a: CalendarWindowArgs
 ): Promise<CalendarEvent[]> {
   if (isApiProvider()) {
-    return apiGet<CalendarEvent[]>(
+    const rows = await apiGet<CalendarEvent[]>(
       `/calendar/window${buildQuery({
         locationId: a.locationId,
         start: a.start,
@@ -580,6 +616,7 @@ export async function fetchCalendarWindow(
         status: a.status,
       })}`
     )
+    return normalizeCalendarRows(rows)
   }
 
   const all: CalendarEvent[] = []

@@ -2,6 +2,9 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatCurrency } from '@/lib/utils'
@@ -19,6 +22,12 @@ export function ServicesWidget({ locationId, locationIds }: ServicesWidgetProps 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['services-stats', scopeKey],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<{ totalRevenue: number; foodRevenue: number; serviceRevenue: number; totalOrders: number }>(
+          `/services/today-stats${buildQuery({ locationId, locationIds })}`
+        )
+      }
+
       const today = new Date()
       const startOfDay = new Date(today.setHours(0, 0, 0, 0)).toISOString()
       const endOfDay = new Date(today.setHours(23, 59, 59, 999)).toISOString()

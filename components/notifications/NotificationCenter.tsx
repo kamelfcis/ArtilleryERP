@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -63,6 +66,15 @@ export function NotificationCenter() {
   const { data: legacyNotifications } = useQuery({
     queryKey: ['legacy-notifications', legacyQueryScope],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<LegacyNotification[]>(
+          `/notifications/legacy${buildQuery({
+            restrictedBranchManager: restrictedBranchManager ? 'true' : undefined,
+            rocketUserId: rocketUserId ?? undefined,
+          })}`
+        )
+      }
+
       const tomorrow = new Date()
       tomorrow.setDate(tomorrow.getDate() + 1)
       const today = new Date().toISOString().split('T')[0]

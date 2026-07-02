@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiPatch } from '@/lib/api/http-client'
 import { db, type OutboxEntry } from '@/lib/offline/db'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
@@ -101,11 +103,15 @@ function ConflictCard({ entry, onResolved }: ConflictCardProps) {
     try {
       const { id, ...updates } = localVersion as any
       const targetId = id ?? entry.localId
-      const { error } = await supabase
-        .from('reservations')
-        .update(updates)
-        .eq('id', targetId)
-      if (error) throw error
+      if (isApiProvider()) {
+        await apiPatch(`/reservations/${targetId}`, { id: targetId, ...updates })
+      } else {
+        const { error } = await supabase
+          .from('reservations')
+          .update(updates)
+          .eq('id', targetId)
+        if (error) throw error
+      }
 
       await db.outbox.delete(entry.id!)
       toast({ title: 'تم حفظ نسختك', description: 'تم تطبيق التغييرات المحلية بنجاح.' })

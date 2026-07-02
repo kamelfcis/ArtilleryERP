@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPatch } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,6 +32,10 @@ export default function MaintenancePage() {
   const { data: maintenanceRecords, isLoading } = useQuery({
     queryKey: ['maintenance'],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<any[]>(`/units${buildQuery({ status: 'maintenance' })}`)
+      }
+
       // Get units in maintenance status
       const { data, error } = await supabase
         .from('units')
@@ -43,6 +50,10 @@ export default function MaintenancePage() {
 
   const updateUnitStatus = useMutation({
     mutationFn: async ({ unitId, status }: { unitId: string; status: string }) => {
+      if (isApiProvider()) {
+        await apiPatch(`/units/${unitId}`, { status })
+        return
+      }
       const { error } = await supabase
         .from('units')
         .update({ status })
@@ -530,6 +541,19 @@ function MaintenanceForm({ onSuccess }: { onSuccess?: () => void }) {
 
   const markMaintenance = useMutation({
     mutationFn: async () => {
+      const unit = units?.find(u => u.id === unitId)
+      const descriptionAr = notes && unit
+        ? `${unit.description_ar || ''}\n[صيانة] ${notes}`.trim()
+        : undefined
+
+      if (isApiProvider()) {
+        await apiPatch(`/units/${unitId}`, {
+          status: 'maintenance',
+          ...(descriptionAr ? { description_ar: descriptionAr } : {}),
+        })
+        return
+      }
+
       const { error } = await supabase
         .from('units')
         .update({
@@ -540,16 +564,13 @@ function MaintenanceForm({ onSuccess }: { onSuccess?: () => void }) {
       if (error) throw error
 
       // Add maintenance note
-      if (notes) {
-        const unit = units?.find(u => u.id === unitId)
-        if (unit) {
-          await supabase
-            .from('units')
-            .update({
-              description_ar: `${unit.description_ar || ''}\n[صيانة] ${notes}`.trim(),
-            })
-            .eq('id', unitId)
-        }
+      if (notes && unit) {
+        await supabase
+          .from('units')
+          .update({
+            description_ar: descriptionAr,
+          })
+          .eq('id', unitId)
       }
     },
     onSuccess: () => {

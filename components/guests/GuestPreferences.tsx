@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiPatch } from '@/lib/api/http-client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,14 +31,17 @@ export function GuestPreferences({ guest }: GuestPreferencesProps) {
 
   const updatePreferences = useMutation({
     mutationFn: async () => {
+      const notes = JSON.stringify({
+        ...JSON.parse(guest.notes || '{}'),
+        preferences,
+      })
+      if (isApiProvider()) {
+        await apiPatch(`/guests/${guest.id}`, { notes })
+        return
+      }
       const { error } = await supabase
         .from('guests')
-        .update({
-          notes: JSON.stringify({
-            ...JSON.parse(guest.notes || '{}'),
-            preferences,
-          }),
-        })
+        .update({ notes })
         .eq('id', guest.id)
 
       if (error) throw error

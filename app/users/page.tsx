@@ -4,6 +4,8 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { fetchAdminUsers } from '@/lib/api/admin-users'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -85,6 +87,16 @@ export default function UsersPage() {
   const { data: users, isLoading } = useQuery({
     queryKey: ['users'],
     queryFn: async () => {
+      if (isApiProvider()) {
+        const authUsers = await fetchAdminUsers()
+        return authUsers.map((u) => ({
+          id: u.id,
+          email: u.email || 'N/A',
+          is_active: u.is_active ?? true,
+          roles: [],
+        })) as UserWithRoles[]
+      }
+
       const response = await fetchWithSupabaseAuth('/api/admin/users')
       if (!response.ok) {
         throw new Error('فشل في جلب المستخدمين')
@@ -1083,6 +1095,8 @@ function UserRoleForm({
   const { data: roles } = useQuery({
     queryKey: ['roles'],
     queryFn: async () => {
+      if (isApiProvider()) return []
+
       const { data, error } = await supabase
         .from('roles')
         .select('*')

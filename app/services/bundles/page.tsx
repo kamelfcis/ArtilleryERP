@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost } from '@/lib/api/http-client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,6 +25,8 @@ export default function ServiceBundlesPage() {
   const { data: bundles, isLoading } = useQuery({
     queryKey: ['service-bundles'],
     queryFn: async () => {
+      if (isApiProvider()) return apiGet<any[]>('/services/bundles')
+
       const { data, error } = await supabase
         .from('service_bundles')
         .select('*')
@@ -138,6 +142,20 @@ function ServiceBundleForm({ onSuccess }: { onSuccess?: () => void }) {
 
   const createBundle = useMutation({
     mutationFn: async () => {
+      if (isApiProvider()) {
+        return apiPost('/services/bundles', {
+          name,
+          name_ar: nameAr,
+          description_ar: descriptionAr,
+          price: parseFloat(price),
+          discount_percentage: parseFloat(discount) || 0,
+          is_active: isActive,
+          items: selectedServices.map((item) => ({
+            service_id: item.serviceId,
+            quantity: item.quantity,
+          })),
+        })
+      }
       const { data: bundle, error: bundleError } = await supabase
         .from('service_bundles')
         .insert({

@@ -57,11 +57,11 @@ async function countReservations(
   }
   if (filters?.status) {
     params.push(filters.status)
-    conditions.push(`status = $${params.length}`)
+    conditions.push(`status::text = $${params.length}`)
   }
   if (filters?.excludeStatuses?.length) {
     params.push(filters.excludeStatuses)
-    conditions.push(`NOT (status = ANY($${params.length}::text[]))`)
+    conditions.push(`NOT (status::text = ANY($${params.length}::text[]))`)
   }
   if (filters?.checkInFrom) {
     params.push(filters.checkInFrom)
@@ -91,7 +91,7 @@ async function sumRevenue(
   }
   if (filters?.excludeStatuses?.length) {
     params.push(filters.excludeStatuses)
-    conditions.push(`NOT (status = ANY($${params.length}::text[]))`)
+    conditions.push(`NOT (status::text = ANY($${params.length}::text[]))`)
   }
   if (filters?.checkInFrom) {
     params.push(filters.checkInFrom)

@@ -7,6 +7,8 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { UserRole } from '@/lib/types/database'
 import { getCachedSession } from '@/lib/auth/cache'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
 
 export function useUserRoles(userId: string | undefined) {
   return useQuery({
@@ -18,6 +20,17 @@ export function useUserRoles(userId: string | undefined) {
       const cached = getCachedSession()
       if (cached?.user?.id === userId && cached.roles.length > 0) {
         return cached.roles
+      }
+
+      // In api mode roles for the current user come from the cached session;
+      // for other users fetch from the admin roles endpoint.
+      if (isApiProvider()) {
+        if (cached?.user?.id === userId) return cached.roles
+        try {
+          return await apiGet<UserRole[]>(`/admin/users/${userId}/roles`)
+        } catch {
+          return []
+        }
       }
 
       // Fetch from database

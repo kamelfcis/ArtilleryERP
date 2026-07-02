@@ -1,0 +1,21 @@
+{
+  "name": "artillery-database-sync",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Re-runnable delta synchronization + verification toolkit: syncs the VPS PostgreSQL (artillery_erp_staging) to match Supabase (source of truth). INSERT missing + UPDATE changed only; never deletes/alters.",
+  "scripts": {
+    "compare": "tsx compare_databases.ts",
+    "generate": "tsx generateDelta.ts",
+    "verify": "tsx verifySync.ts"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

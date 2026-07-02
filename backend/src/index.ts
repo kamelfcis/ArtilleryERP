@@ -23,6 +23,10 @@ import servicesRouter from './routes/services.js'
 import paymentsRouter from './routes/payments.js'
 import roomBlocksRouter from './routes/room-blocks.js'
 import adminRouter from './routes/admin.js'
+import inventoryRouter from './routes/inventory.js'
+import reportsRouter from './routes/reports.js'
+import activityRouter from './routes/activity.js'
+import attachmentsRouter from './routes/attachments.js'
 
 const app = express()
 
@@ -55,6 +59,10 @@ app.use('/services', servicesRouter)
 app.use('/payments', paymentsRouter)
 app.use('/room-blocks', roomBlocksRouter)
 app.use('/admin', adminRouter)
+app.use('/inventory', inventoryRouter)
+app.use('/reports', reportsRouter)
+app.use('/activity', activityRouter)
+app.use('/attachments', attachmentsRouter)
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' })

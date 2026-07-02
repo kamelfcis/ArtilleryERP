@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiPatch } from '@/lib/api/http-client'
 import { usePaymentTransactions, useCreatePaymentTransaction, useDeletePaymentTransaction } from '@/lib/hooks/use-payments'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -315,10 +317,14 @@ export function PaymentTracker({ reservation }: PaymentTrackerProps) {
                 onClick={async () => {
                   setDiscountSaving(true)
                   try {
-                    await supabase
-                      .from('reservations')
-                      .update({ discount_amount: 0 })
-                      .eq('id', reservation.id)
+                    if (isApiProvider()) {
+                      await apiPatch(`/reservations/${reservation.id}`, { discount_amount: 0 })
+                    } else {
+                      await supabase
+                        .from('reservations')
+                        .update({ discount_amount: 0 })
+                        .eq('id', reservation.id)
+                    }
                     queryClient.invalidateQueries({ queryKey: ['reservation', reservation.id] })
                     toast({ title: 'نجح', description: 'تم حذف الخصم' })
                     setDiscountPercent('')
@@ -359,10 +365,14 @@ export function PaymentTracker({ reservation }: PaymentTrackerProps) {
                     const discountAmount = Math.round((reservation.total_amount * pct / 100) * 100) / 100
                     setDiscountSaving(true)
                     try {
-                      await supabase
-                        .from('reservations')
-                        .update({ discount_amount: discountAmount })
-                        .eq('id', reservation.id)
+                      if (isApiProvider()) {
+                        await apiPatch(`/reservations/${reservation.id}`, { discount_amount: discountAmount })
+                      } else {
+                        await supabase
+                          .from('reservations')
+                          .update({ discount_amount: discountAmount })
+                          .eq('id', reservation.id)
+                      }
                       queryClient.invalidateQueries({ queryKey: ['reservation', reservation.id] })
                       toast({ title: 'نجح', description: `تم تطبيق خصم ${pct}% = ${formatCurrency(discountAmount)}` })
                       setDiscountPercent('')

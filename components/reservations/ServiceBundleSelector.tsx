@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost } from '@/lib/api/http-client'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Card, CardContent } from '@/components/ui/card'
@@ -23,6 +25,8 @@ export function ServiceBundleSelector({ reservationId }: ServiceBundleSelectorPr
   const { data: bundles } = useQuery({
     queryKey: ['service-bundles', 'active'],
     queryFn: async () => {
+      if (isApiProvider()) return apiGet<any[]>('/services/bundles/active')
+
       const { data, error } = await supabase
         .from('service_bundles')
         .select(`
@@ -42,6 +46,18 @@ export function ServiceBundleSelector({ reservationId }: ServiceBundleSelectorPr
 
   async function handleApplyBundle(bundle: any) {
     try {
+      if (isApiProvider()) {
+        await apiPost(`/services/bundles/${bundle.id}/apply`, { reservationId })
+        queryClient.invalidateQueries({ queryKey: ['reservation-services', reservationId] })
+        queryClient.invalidateQueries({ queryKey: ['reservation', reservationId] })
+        toast({
+          title: 'نجح',
+          description: `تم تطبيق الباقة "${bundle.name_ar || bundle.name}" بنجاح`,
+        })
+        setOpen(false)
+        return
+      }
+
       // Add all services from bundle
       for (const item of bundle.items || []) {
         await addService.mutateAsync({

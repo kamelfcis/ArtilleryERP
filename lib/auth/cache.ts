@@ -3,7 +3,7 @@
  * Stores session in memory + localStorage for instant restoration
  */
 
-import { Session, User } from '@supabase/supabase-js'
+import type { Session, User } from '@supabase/supabase-js'
 import { UserRole } from '@/lib/types/database'
 
 const SESSION_CACHE_KEY = 'auth_session_cache'

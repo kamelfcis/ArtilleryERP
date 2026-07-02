@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,6 +31,16 @@ export function AvailabilityChecker({ onUnitSelect }: AvailabilityCheckerProps) 
     queryKey: ['availability', checkIn, checkOut, locationId, unitType],
     queryFn: async () => {
       if (!checkIn || !checkOut) return []
+      if (isApiProvider()) {
+        return apiGet<any[]>(
+          `/units/available${buildQuery({
+            checkIn,
+            checkOut,
+            locationId: locationId !== 'all' ? locationId : undefined,
+            unitType: unitType !== 'all' ? unitType : undefined,
+          })}`
+        )
+      }
 
       const checkInDate = new Date(checkIn)
       const checkOutDate = new Date(checkOut)

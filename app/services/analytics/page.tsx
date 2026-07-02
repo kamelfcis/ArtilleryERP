@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -22,23 +25,29 @@ export default function ServiceAnalyticsPage() {
     queryFn: async () => {
       if (!dateFrom || !dateTo) return null
 
-      let query = supabase
-        .from('reservation_services')
-        .select(`
-          *,
-          service:services (*)
-        `)
-        .gte('created_at', dateFrom)
-        .lte('created_at', dateTo)
+      let services: any[]
+      if (isApiProvider()) {
+        services = await apiGet<any[]>(
+          `/services/usage${buildQuery({ dateFrom, dateTo, serviceId: serviceId !== 'all' ? serviceId : undefined })}`
+        )
+      } else {
+        let query = supabase
+          .from('reservation_services')
+          .select(`
+            *,
+            service:services (*)
+          `)
+          .gte('created_at', dateFrom)
+          .lte('created_at', dateTo)
 
-      if (serviceId !== 'all') {
-        query = query.eq('service_id', serviceId)
+        if (serviceId !== 'all') {
+          query = query.eq('service_id', serviceId)
+        }
+
+        const { data, error } = await query
+        if (error) throw error
+        services = data || []
       }
-
-      const { data, error } = await query
-      if (error) throw error
-
-      const services = data || []
 
       // Calculate metrics
       const totalRevenue = services.reduce((sum, s: any) => sum + s.total_amount, 0)

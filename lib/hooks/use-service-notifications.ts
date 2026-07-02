@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
 
 export interface ServiceNotification {
   id: string
@@ -18,6 +19,10 @@ export function useServiceNotifications() {
   return useQuery({
     queryKey: ['service-notifications'],
     queryFn: async () => {
+      // Service notifications are a Supabase-only widget; there is no api-mode
+      // equivalent yet, so skip the query entirely to avoid touching Supabase.
+      if (isApiProvider()) return [] as ServiceNotification[]
+
       // Check for low stock services (filter in JavaScript since Supabase doesn't support column comparison)
       const { data: allStock, error: stockError } = await supabase
         .from('service_stock')

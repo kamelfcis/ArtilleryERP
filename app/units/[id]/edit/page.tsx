@@ -16,6 +16,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/components/ui/use-toast'
 import { Skeleton } from '@/components/ui/skeleton'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiPost, apiPatch, apiDelete } from '@/lib/api/http-client'
 import { uploadToR2, deleteFromR2 } from '@/lib/storage/upload'
 import { useEffect, useState, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -123,43 +125,69 @@ export default function EditUnitPage() {
       })
 
       // Update facilities
-      await supabase
-        .from('unit_facilities')
-        .delete()
-        .eq('unit_id', id)
+      if (isApiProvider()) {
+        await apiPost(`/units/${id}/facilities`, {
+          facilityIds: selectedFacilities,
+          replace: true,
+        })
+      } else {
+        await supabase
+          .from('unit_facilities')
+          .delete()
+          .eq('unit_id', id)
 
-      if (selectedFacilities.length > 0) {
-        const facilityLinks = selectedFacilities.map(facilityId => ({
-          unit_id: id,
-          facility_id: facilityId,
-        }))
-        await supabase.from('unit_facilities').insert(facilityLinks)
+        if (selectedFacilities.length > 0) {
+          const facilityLinks = selectedFacilities.map(facilityId => ({
+            unit_id: id,
+            facility_id: facilityId,
+          }))
+          await supabase.from('unit_facilities').insert(facilityLinks)
+        }
       }
 
       // Delete removed images from storage and database
       if (deletedImageIds.length > 0) {
-        // Get image paths before deleting from database
-        const { data: imagesToDelete } = await supabase
-          .from('unit_images')
-          .select('image_path')
-          .in('id', deletedImageIds)
-
-        if (imagesToDelete && imagesToDelete.length > 0) {
-          const imagePaths = imagesToDelete.map(img => img.image_path)
-          for (const imagePath of imagePaths) {
+        if (isApiProvider()) {
+          for (const imageId of deletedImageIds) {
             try {
-              await deleteFromR2('unit-images', imagePath)
+              const result = await apiDelete<{ image_path?: string | null }>(
+                `/units/${id}/images/${imageId}`
+              )
+              if (result?.image_path) {
+                try {
+                  await deleteFromR2('unit-images', result.image_path)
+                } catch (err) {
+                  console.error('Error deleting image from storage:', err)
+                }
+              }
             } catch (err) {
-              console.error('Error deleting image from storage:', err)
+              console.error('Error deleting image record:', err)
             }
           }
-        }
+        } else {
+          // Get image paths before deleting from database
+          const { data: imagesToDelete } = await supabase
+            .from('unit_images')
+            .select('image_path')
+            .in('id', deletedImageIds)
 
-        // Delete from database
-        await supabase
-          .from('unit_images')
-          .delete()
-          .in('id', deletedImageIds)
+          if (imagesToDelete && imagesToDelete.length > 0) {
+            const imagePaths = imagesToDelete.map(img => img.image_path)
+            for (const imagePath of imagePaths) {
+              try {
+                await deleteFromR2('unit-images', imagePath)
+              } catch (err) {
+                console.error('Error deleting image from storage:', err)
+              }
+            }
+          }
+
+          // Delete from database
+          await supabase
+            .from('unit_images')
+            .delete()
+            .in('id', deletedImageIds)
+        }
       }
 
       // Upload new images to unit folder
@@ -179,12 +207,20 @@ export default function EditUnitPage() {
           try {
             const publicUrl = await uploadToR2('unit-images', filePath, file)
 
-            await supabase.from('unit_images').insert({
-              unit_id: id,
-              image_url: publicUrl,
-              image_path: filePath,
-              is_primary: isFirstImage && i === 0,
-            })
+            if (isApiProvider()) {
+              await apiPost(`/units/${id}/images`, {
+                image_url: publicUrl,
+                image_path: filePath,
+                is_primary: isFirstImage && i === 0,
+              })
+            } else {
+              await supabase.from('unit_images').insert({
+                unit_id: id,
+                image_url: publicUrl,
+                image_path: filePath,
+                is_primary: isFirstImage && i === 0,
+              })
+            }
           } catch (error) {
             console.error('Error processing image:', error)
           }
@@ -240,17 +276,21 @@ export default function EditUnitPage() {
   async function handleSetPrimaryImage(imageId: string) {
     // Update in database
     try {
-      // Remove primary from all images
-      await supabase
-        .from('unit_images')
-        .update({ is_primary: false })
-        .eq('unit_id', id)
-      
-      // Set new primary
-      await supabase
-        .from('unit_images')
-        .update({ is_primary: true })
-        .eq('id', imageId)
+      if (isApiProvider()) {
+        await apiPatch(`/units/${id}/primary-image`, { imageId })
+      } else {
+        // Remove primary from all images
+        await supabase
+          .from('unit_images')
+          .update({ is_primary: false })
+          .eq('unit_id', id)
+
+        // Set new primary
+        await supabase
+          .from('unit_images')
+          .update({ is_primary: true })
+          .eq('id', imageId)
+      }
     } catch (error) {
       console.error('Error updating primary image:', error)
     }

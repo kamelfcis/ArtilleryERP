@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,6 +29,12 @@ export default function ServiceStockPage() {
   const { data: stock, isLoading } = useQuery({
     queryKey: ['service-stock', locationFilter],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<any[]>(
+          `/services/stock${buildQuery({ locationId: locationFilter !== 'all' ? locationFilter : undefined })}`
+        )
+      }
+
       let query = supabase
         .from('service_stock')
         .select(`
@@ -191,16 +200,20 @@ function ServiceStockForm({ onSuccess }: { onSuccess?: () => void }) {
 
   const createStock = useMutation({
     mutationFn: async () => {
+      const payload = {
+        service_id: serviceId,
+        location_id: locationId || null,
+        current_stock: parseFloat(currentStock) || 0,
+        min_stock: parseFloat(minStock) || 0,
+        max_stock: maxStock ? parseFloat(maxStock) : null,
+        unit,
+      }
+      if (isApiProvider()) {
+        return apiPost('/services/stock', payload)
+      }
       const { data, error } = await supabase
         .from('service_stock')
-        .insert({
-          service_id: serviceId,
-          location_id: locationId || null,
-          current_stock: parseFloat(currentStock) || 0,
-          min_stock: parseFloat(minStock) || 0,
-          max_stock: maxStock ? parseFloat(maxStock) : null,
-          unit,
-        })
+        .insert(payload)
         .select()
         .single()
 

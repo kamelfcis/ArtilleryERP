@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import {
   createAdminClient,
@@ -23,6 +22,10 @@ export async function getVerifiedAuthUser(request: NextRequest): Promise<{ id: s
 
   try {
     const cookieStore = cookies()
+    // Loaded lazily so `@supabase/auth-helpers-nextjs` is never imported in api mode.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { createRouteHandlerClient } =
+      require('@supabase/auth-helpers-nextjs') as typeof import('@supabase/auth-helpers-nextjs')
     const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore })
     const {
       data: { session },

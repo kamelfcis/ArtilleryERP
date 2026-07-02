@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import {
+  changeUserPassword,
   clearAuthCookie,
   loginWithPassword,
   setAuthCookie,
@@ -13,6 +14,11 @@ const router = Router()
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+})
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(6),
 })
 
 router.post('/login', async (req, res, next) => {
@@ -40,6 +46,28 @@ router.post('/login', async (req, res, next) => {
 router.post('/logout', (_req, res) => {
   clearAuthCookie(res)
   res.json({ success: true })
+})
+
+router.post('/change-password', requireAuth, async (req, res, next) => {
+  try {
+    const parsed = changePasswordSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({ error: 'بيانات غير صالحة' })
+      return
+    }
+    const result = await changeUserPassword(
+      req.user!.id,
+      parsed.data.currentPassword,
+      parsed.data.newPassword
+    )
+    if (result === 'invalid') {
+      res.status(400).json({ error: 'كلمة المرور الحالية غير صحيحة' })
+      return
+    }
+    res.json({ success: true })
+  } catch (err) {
+    next(err)
+  }
 })
 
 router.get('/me', requireAuth, (req, res) => {

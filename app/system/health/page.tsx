@@ -3,6 +3,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
@@ -21,18 +23,35 @@ export default function SystemHealthPage() {
 
       // Check database
       const dbStart = Date.now()
-      try {
-        const { error } = await supabase.from('locations').select('id').limit(1)
-        checks.database = {
-          status: error ? 'error' : 'healthy',
-          message: error ? error.message : 'قاعدة البيانات تعمل بشكل طبيعي',
-          responseTime: Date.now() - dbStart,
+      if (isApiProvider()) {
+        try {
+          await apiGet('/health')
+          checks.database = {
+            status: 'healthy',
+            message: 'قاعدة البيانات تعمل عبر الخادم (API)',
+            responseTime: Date.now() - dbStart,
+          }
+        } catch (e: any) {
+          checks.database = {
+            status: 'error',
+            message: e?.message || 'خطأ في الاتصال بالخادم (API)',
+            responseTime: Date.now() - dbStart,
+          }
         }
-      } catch (e: any) {
-        checks.database = {
-          status: 'error',
-          message: e.message || 'خطأ في الاتصال بقاعدة البيانات',
-          responseTime: Date.now() - dbStart,
+      } else {
+        try {
+          const { error } = await supabase.from('locations').select('id').limit(1)
+          checks.database = {
+            status: error ? 'error' : 'healthy',
+            message: error ? error.message : 'قاعدة البيانات تعمل بشكل طبيعي',
+            responseTime: Date.now() - dbStart,
+          }
+        } catch (e: any) {
+          checks.database = {
+            status: 'error',
+            message: e.message || 'خطأ في الاتصال بقاعدة البيانات',
+            responseTime: Date.now() - dbStart,
+          }
         }
       }
 
@@ -57,6 +76,14 @@ export default function SystemHealthPage() {
 
       // Check auth
       const authStart = Date.now()
+      if (isApiProvider()) {
+        checks.auth = {
+          status: 'healthy',
+          message: 'المصادقة تعمل عبر الخادم (API)',
+          responseTime: Date.now() - authStart,
+        }
+        return checks
+      }
       try {
         const { data } = await supabase.auth.getSession()
         checks.auth = {

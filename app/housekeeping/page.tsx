@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiPatch } from '@/lib/api/http-client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -48,6 +50,11 @@ export default function HousekeepingPage() {
         dirty: 'maintenance',
         inspected: 'available',
         maintenance: 'maintenance',
+      }
+
+      if (isApiProvider()) {
+        await apiPatch(`/units/${unitId}`, { status: statusMap[status] })
+        return
       }
 
       const { error } = await supabase

@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -62,6 +64,10 @@ export function AttachmentsPreview({ reservationId, maxDisplay = 3 }: Attachment
   const { data: attachments, isLoading } = useQuery({
     queryKey: ['reservation-attachments', reservationId],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<any[]>(`/attachments/reservation/${reservationId}?limit=${maxDisplay + 1}`)
+      }
+
       const { data, error } = await supabase
         .from('reservation_attachments')
         .select('*')

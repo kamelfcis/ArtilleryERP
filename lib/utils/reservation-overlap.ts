@@ -1,4 +1,7 @@
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 
 /** Hotel-style overlap: [checkIn, checkOut) intervals — checkout day is exclusive. */
 export function reservationRangesOverlap(
@@ -17,6 +20,12 @@ export async function findConflictingReservations(
   checkOut: string,
   excludeId?: string
 ): Promise<{ id: string }[]> {
+  if (isApiProvider()) {
+    return apiGet<{ id: string }[]>(
+      `/reservations/conflicts${buildQuery({ unitId, checkIn, checkOut, excludeId })}`
+    )
+  }
+
   let query = supabase
     .from('reservations')
     .select('id')

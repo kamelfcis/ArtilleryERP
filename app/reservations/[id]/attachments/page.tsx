@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost, apiDelete } from '@/lib/api/http-client'
 import { deleteFromR2 } from '@/lib/storage/upload'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -25,6 +27,10 @@ export default function ReservationAttachmentsPage() {
   const { data: attachments, isLoading } = useQuery({
     queryKey: ['reservation-attachments', id],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<any[]>(`/attachments/reservation/${id}`)
+      }
+
       const { data, error } = await supabase
         .from('reservation_attachments')
         .select('*')
@@ -42,6 +48,11 @@ export default function ReservationAttachmentsPage() {
       if (!attachment) return
 
       await deleteFromR2('reservation-files', attachment.file_path)
+
+      if (isApiProvider()) {
+        await apiDelete(`/attachments/${attachmentId}`)
+        return
+      }
 
       // Delete from database
       const { error: dbError } = await supabase
@@ -69,29 +80,32 @@ export default function ReservationAttachmentsPage() {
 
   async function handleUploadComplete(files: Array<{ url: string; path: string; name: string; size?: number }>) {
     try {
-      const { data: userData } = await supabase.auth.getUser()
-      const userId = userData?.user?.id
+      const mappedFiles = files.map((file) => ({
+        file_url: file.url,
+        file_path: file.path,
+        file_name: file.name,
+        file_type: file.name.split('.').pop()?.toLowerCase() || '',
+        file_size: file.size || 0,
+      }))
 
-      const attachmentsToInsert = files.map((file) => {
-        const fileSize = file.size || 0
-        const fileType = file.name.split('.').pop()?.toLowerCase() || ''
+      if (isApiProvider()) {
+        await apiPost('/attachments', { reservation_id: id, files: mappedFiles })
+      } else {
+        const { data: userData } = await supabase.auth.getUser()
+        const userId = userData?.user?.id
 
-        return {
+        const attachmentsToInsert = mappedFiles.map((file) => ({
           reservation_id: id,
-          file_url: file.url,
-          file_path: file.path,
-          file_name: file.name,
-          file_type: fileType,
-          file_size: fileSize,
+          ...file,
           uploaded_by: userId,
-        }
-      })
+        }))
 
-      const { error } = await supabase
-        .from('reservation_attachments')
-        .insert(attachmentsToInsert)
+        const { error } = await supabase
+          .from('reservation_attachments')
+          .insert(attachmentsToInsert)
 
-      if (error) throw error
+        if (error) throw error
+      }
 
       queryClient.invalidateQueries({ queryKey: ['reservation-attachments', id] })
       toast({

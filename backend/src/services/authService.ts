@@ -91,3 +91,28 @@ export function clearAuthCookie(res: Response): void {
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, BCRYPT_ROUNDS)
 }
+
+/**
+ * Verify the user's current password and set a new one.
+ * Returns 'invalid' when the current password does not match.
+ */
+export async function changeUserPassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<'ok' | 'invalid'> {
+  const { rows } = await pool.query<{ encrypted_password: string | null }>(
+    `SELECT encrypted_password FROM auth.users WHERE id = $1 LIMIT 1`,
+    [userId]
+  )
+  const enc = rows[0]?.encrypted_password
+  if (!enc) return 'invalid'
+  const valid = await bcrypt.compare(currentPassword, enc)
+  if (!valid) return 'invalid'
+  const hashed = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
+  await pool.query(
+    `UPDATE auth.users SET encrypted_password = $1, updated_at = now() WHERE id = $2`,
+    [hashed, userId]
+  )
+  return 'ok'
+}

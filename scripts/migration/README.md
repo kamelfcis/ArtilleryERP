@@ -1,10 +1,10 @@
-# Supabase → VPS Database Migration
+﻿# Supabase أ¢â€ â€™ VPS Database Migration
 
 Step-by-step guide to export data from Supabase and import into a self-hosted PostgreSQL instance on your VPS.
 
 ## Prerequisites
 
-- Supabase project dashboard access (Database settings → connection string)
+- Supabase project dashboard access (Database settings أ¢â€ â€™ connection string)
 - PostgreSQL client tools (`pg_dump`, `pg_restore`, `psql`) installed locally
 - VPS with PostgreSQL 14+ (see `setup-vps.sh`)
 - **Never commit** connection strings, service keys, or SSH passwords to git
@@ -21,7 +21,7 @@ Run `verify-counts.sql` after import to confirm.
 
 ---
 
-## Step 1 — Export from Supabase
+## Step 1 أ¢â‚¬â€‌ Export from Supabase
 
 ### Option A: Windows (PowerShell)
 
@@ -46,8 +46,8 @@ export SUPABASE_DB_URL="postgresql://postgres.[ref]:[PASSWORD]@aws-0-[region].po
 
 ### What gets exported
 
-1. **Public schema** — all tables, views, functions, indexes (custom format dump)
-2. **Auth users** — `auth.users` rows needed for login (bcrypt passwords preserved)
+1. **Public schema** أ¢â‚¬â€‌ all tables, views, functions, indexes (custom format dump)
+2. **Auth users** أ¢â‚¬â€‌ `auth.users` rows needed for login (bcrypt passwords preserved)
 
 ### Option C: One-command local export (Windows)
 
@@ -60,17 +60,17 @@ Writes to `migration-dumps/` (gitignored): full SQL, `public_schema_*.dump`, and
 
 ---
 
-## Step 2 — Prepare VPS database
+## Step 2 أ¢â‚¬â€‌ Prepare VPS database
 
-### Windows Server (Hetzner `95.216.63.81`)
+### Windows Server (Hetzner `95.217.137.18`)
 
-This VPS runs **Windows Server** with OpenSSH — the Linux `setup-vps.sh` cannot run directly on the host OS.
+This VPS runs **Windows Server** with OpenSSH أ¢â‚¬â€‌ the Linux `setup-vps.sh` cannot run directly on the host OS.
 
-**Option A — WSL2 + Ubuntu (recommended, matches Linux scripts):**
+**Option A أ¢â‚¬â€‌ WSL2 + Ubuntu (recommended, matches Linux scripts):**
 
 ```powershell
-# On VPS (interactive SSH — password prompt):
-ssh Administrator@95.216.63.81
+# On VPS (interactive SSH أ¢â‚¬â€‌ password prompt):
+ssh Administrator@95.217.137.18
 
 $env:ARTILLERY_DB_PASSWORD = 'YOUR_SECURE_PASSWORD'
 $env:ARTILLERY_READONLY_PASSWORD = 'YOUR_READONLY_PASSWORD'
@@ -86,7 +86,7 @@ export ARTILLERY_READONLY_PASSWORD='...'
 sudo -E bash scripts/migration/setup-wsl-postgres.sh
 ```
 
-**Option B — Native PostgreSQL 16 on Windows:** see output of `setup-vps-windows.ps1 -SkipWslInstall`.
+**Option B أ¢â‚¬â€‌ Native PostgreSQL 16 on Windows:** see output of `setup-vps-windows.ps1 -SkipWslInstall`.
 
 ### Linux VPS
 
@@ -108,13 +108,31 @@ EOF
 
 ---
 
-## Step 3 — Import to VPS
+
+### Windows PostgreSQL 18 (extensions schema fix)
+
+If `pg_restore` as `artillery_app` fails with **schema "extensions" does not exist**, run on the VPS as **postgres**:
+
+```powershell
+$env:POSTGRES_SUPERUSER_PASSWORD = 'postgres-superuser-password'
+Set-ExecutionPolicy Bypass -Scope Process -Force
+cd C:\Artillery-ERP\scripts\migration
+.\bootstrap-staging-windows.ps1 ``
+  -PublicDump 'C:\Temp\migration-dumps\public_schema.dump' ``
+  -AuthSql 'C:\Temp\migration-dumps\auth_users.sql'
+```
+
+Dev machine (env vars only, never commit): `run-bootstrap-on-vps.ps1`. SQL-only: `bootstrap-staging-pre-restore.sql`.
+
+---
+
+## Step 3 أ¢â‚¬â€‌ Import to VPS
 
 Copy dump files to the VPS:
 
 ```bash
-scp backups/public_schema.dump Administrator@95.216.63.81:/tmp/
-scp backups/auth_users.sql Administrator@95.216.63.81:/tmp/
+scp backups/public_schema.dump Administrator@95.217.137.18:/tmp/
+scp backups/auth_users.sql Administrator@95.217.137.18:/tmp/
 ```
 
 On the VPS:
@@ -133,17 +151,17 @@ psql "$VPS_DB_URL" -f /tmp/auth_users.sql
 
 ---
 
-## Step 4 — Verify
+## Step 4 أ¢â‚¬â€‌ Verify
 
 ```bash
 psql "$VPS_DB_URL" -f verify-counts.sql
 ```
 
-All counts should match the expected values above (±0).
+All counts should match the expected values above (ط¢آ±0).
 
 ---
 
-## Step 5 — Configure backend API
+## Step 5 أ¢â‚¬â€‌ Configure backend API
 
 On the VPS (or locally pointing at staging DB):
 
@@ -164,7 +182,7 @@ curl http://localhost:4001/health
 
 ---
 
-## Step 6 — Switch frontend (optional, gradual)
+## Step 6 أ¢â‚¬â€‌ Switch frontend (optional, gradual)
 
 In the Next.js `.env.local`:
 
@@ -185,6 +203,7 @@ Keep `supabase` as default until all hooks are migrated.
 | Auth login fails after import | Ensure `auth.users` import ran; check `encrypted_password` is not null |
 | RPC not found | Re-run `supabase/migrations/*.sql` on VPS if dump missed functions |
 | SSH connection refused | Use Hetzner console; configure SSH keys (see `backend/README.md`) |
+| `schema "extensions" does not exist` | Run `bootstrap-staging-windows.ps1` or `bootstrap-staging-pre-restore.sql` as postgres before `pg_restore`  |
 | Row count mismatch | Compare export date vs live Supabase; re-export if data changed |
 
 ---
@@ -195,3 +214,5 @@ Keep `supabase` as default until all hooks are migrated.
 - [ ] VPS firewall allows PostgreSQL only from localhost (or VPN)
 - [ ] `COOKIE_SECURE=true` on production API
 - [ ] Supabase service role key removed from frontend before cutover
+
+

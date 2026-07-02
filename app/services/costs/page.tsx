@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost } from '@/lib/api/http-client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,6 +26,8 @@ export default function ServiceCostsPage() {
   const { data: costs, isLoading } = useQuery({
     queryKey: ['service-costs'],
     queryFn: async () => {
+      if (isApiProvider()) return apiGet<any[]>('/services/costs')
+
       const { data, error } = await supabase
         .from('service_costs')
         .select(`
@@ -144,15 +148,19 @@ function ServiceCostForm({ onSuccess }: { onSuccess?: () => void }) {
 
   const createCost = useMutation({
     mutationFn: async () => {
+      const payload = {
+        service_id: serviceId,
+        cost_per_unit: parseFloat(cost),
+        effective_from: effectiveFrom,
+        effective_to: effectiveTo || null,
+        notes_ar: notes || null,
+      }
+      if (isApiProvider()) {
+        return apiPost('/services/costs', payload)
+      }
       const { data, error } = await supabase
         .from('service_costs')
-        .insert({
-          service_id: serviceId,
-          cost_per_unit: parseFloat(cost),
-          effective_from: effectiveFrom,
-          effective_to: effectiveTo || null,
-          notes_ar: notes || null,
-        })
+        .insert(payload)
         .select()
         .single()
 

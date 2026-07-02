@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiPost } from '@/lib/api/http-client'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import {
@@ -48,6 +50,19 @@ export function ChangePasswordDialog() {
 
     setSubmitting(true)
     try {
+      if (isApiProvider()) {
+        try {
+          await apiPost('/auth/change-password', { currentPassword, newPassword })
+        } catch (err: any) {
+          toast({ title: 'فشل التحديث', description: err?.message || 'كلمة المرور الحالية غير صحيحة', variant: 'destructive' })
+          return
+        }
+        toast({ title: 'تم بنجاح', description: 'تم تغيير كلمة المرور' })
+        resetForm()
+        setOpen(false)
+        return
+      }
+
       const { error: signErr } = await supabase.auth.signInWithPassword({
         email: user.email,
         password: currentPassword,

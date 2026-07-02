@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { useQueryClient } from '@tanstack/react-query'
-import { RealtimeChannel } from '@supabase/supabase-js'
+import type { RealtimeChannel } from '@supabase/supabase-js'
 import type { CalendarEvent, CalendarWindowArgs } from '@/lib/types/calendar'
+import { isApiProvider } from '@/lib/api/data-provider'
 import { calendarWindowKey, fetchCalendarWindow } from '@/lib/hooks/use-reservations'
 
 /** Coalesce rapid realtime bursts into a single window refetch. */
@@ -44,6 +45,10 @@ export function useRealtimeSubscription(
   const queryClient = useQueryClient()
 
   useEffect(() => {
+    // Supabase Realtime is only available in the supabase provider. In api mode
+    // the app relies on the Express API + query refetching instead.
+    if (isApiProvider()) return
+
     let active: RealtimeChannel | null = null
 
     const subscribe = () => {
@@ -146,6 +151,9 @@ export function useReservationsRealtime(window: CalendarWindowArgs) {
   windowRef.current = window
 
   useEffect(() => {
+    // Supabase Realtime is only available in the supabase provider. In api mode
+    // the app relies on the Express API + query refetching instead.
+    if (isApiProvider()) return
     if (!window.start || !window.end) return
 
     const channelName = `cal-reservations-${window.start}-${window.end}-${window.locationId ?? 'all'}-${window.status ?? 'all'}`

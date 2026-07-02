@@ -17,6 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/components/ui/use-toast'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiPost } from '@/lib/api/http-client'
 import { uploadToR2 } from '@/lib/storage/upload'
 import Image from 'next/image'
 import { X, ImageIcon, Home, Plus, Sparkles } from 'lucide-react'
@@ -67,15 +69,23 @@ export default function NewUnitPage() {
           try {
             const publicUrl = await uploadToR2('unit-images', filePath, file)
 
-            const { error: imageError } = await supabase.from('unit_images').insert({
-              unit_id: unit.id,
-              image_url: publicUrl,
-              image_path: filePath,
-              is_primary: i === 0,
-            })
+            if (isApiProvider()) {
+              await apiPost(`/units/${unit.id}/images`, {
+                image_url: publicUrl,
+                image_path: filePath,
+                is_primary: i === 0,
+              })
+            } else {
+              const { error: imageError } = await supabase.from('unit_images').insert({
+                unit_id: unit.id,
+                image_url: publicUrl,
+                image_path: filePath,
+                is_primary: i === 0,
+              })
 
-            if (imageError) {
-              console.error('Error inserting image:', imageError)
+              if (imageError) {
+                console.error('Error inserting image:', imageError)
+              }
             }
           } catch (error) {
             console.error('Error processing image:', error)
@@ -85,15 +95,19 @@ export default function NewUnitPage() {
 
       // Link facilities
       if (selectedFacilities.length > 0) {
-        const facilityLinks = selectedFacilities.map(facilityId => ({
-          unit_id: unit.id,
-          facility_id: facilityId,
-        }))
-        const { error: facilityError } = await supabase.from('unit_facilities').insert(facilityLinks)
-        
-        if (facilityError) {
-          console.error('Error linking facilities:', facilityError)
-          // Continue even if facilities fail
+        if (isApiProvider()) {
+          await apiPost(`/units/${unit.id}/facilities`, { facilityIds: selectedFacilities })
+        } else {
+          const facilityLinks = selectedFacilities.map(facilityId => ({
+            unit_id: unit.id,
+            facility_id: facilityId,
+          }))
+          const { error: facilityError } = await supabase.from('unit_facilities').insert(facilityLinks)
+
+          if (facilityError) {
+            console.error('Error linking facilities:', facilityError)
+            // Continue even if facilities fail
+          }
         }
       }
 

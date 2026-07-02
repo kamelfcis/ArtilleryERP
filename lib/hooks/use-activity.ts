@@ -1,5 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 
 export interface ActivityLog {
   id: string
@@ -26,6 +29,17 @@ export function useActivityFeed(filters?: {
   return useQuery({
     queryKey: ['activity-feed', filters],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<ActivityLog[]>(
+          `/activity${buildQuery({
+            resourceType: filters?.resourceType,
+            resourceId: filters?.resourceId,
+            userId: filters?.userId,
+            limit: filters?.limit,
+          })}`
+        )
+      }
+
       let query = supabase
         .from('activity_logs')
         .select('*')
@@ -60,6 +74,22 @@ export async function logActivity(
     metadata?: any
   }
 ) {
+  if (isApiProvider()) {
+    try {
+      await apiPost('/activity', {
+        action,
+        resource_type: resourceType,
+        resource_id: options?.resourceId || null,
+        description: options?.description || null,
+        description_ar: options?.descriptionAr || null,
+        metadata: options?.metadata || null,
+      })
+    } catch (err) {
+      console.error('Failed to log activity:', err)
+    }
+    return
+  }
+
   const { data, error } = await supabase.rpc('log_activity', {
     p_action: action,
     p_resource_type: resourceType,

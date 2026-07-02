@@ -5,6 +5,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api/http-client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -58,6 +60,8 @@ export default function StaffPage() {
   const { data: staff, isLoading } = useQuery({
     queryKey: ['staff'],
     queryFn: async () => {
+      if (isApiProvider()) return apiGet<StaffMember[]>('/staff')
+
       const { data, error } = await supabase
         .from('staff')
         .select(`
@@ -74,6 +78,14 @@ export default function StaffPage() {
   // Delete staff mutation - also deletes from auth
   const deleteStaff = useMutation({
     mutationFn: async (staffMember: StaffMember) => {
+      if (isApiProvider()) {
+        if (staffMember.user_id) {
+          await apiDelete('/admin/users', { userId: staffMember.user_id })
+        }
+        await apiDelete(`/staff/${staffMember.id}`)
+        return
+      }
+
       // Delete user from auth if exists
       if (staffMember.user_id) {
         const response = await fetch('/api/admin/users', {
@@ -501,21 +513,27 @@ function StaffForm({ staff, onSuccess }: { staff?: StaffMember; onSuccess?: () =
   const saveStaff = useMutation({
     mutationFn: async () => {
       if (isEdit) {
+        const updatePayload = {
+          first_name: firstName,
+          last_name: lastName,
+          first_name_ar: firstNameAr,
+          last_name_ar: lastNameAr,
+          email,
+          phone,
+          position,
+          position_ar: positionAr,
+          location_id: locationId || null,
+          is_active: isActive,
+        }
+
+        if (isApiProvider()) {
+          return apiPatch(`/staff/${staff.id}`, updatePayload)
+        }
+
         // Update existing staff
         const { data, error } = await supabase
           .from('staff')
-          .update({
-            first_name: firstName,
-            last_name: lastName,
-            first_name_ar: firstNameAr,
-            last_name_ar: lastNameAr,
-            email,
-            phone,
-            position,
-            position_ar: positionAr,
-            location_id: locationId || null,
-            is_active: isActive,
-          })
+          .update(updatePayload)
           .eq('id', staff.id)
           .select()
           .single()
@@ -525,6 +543,31 @@ function StaffForm({ staff, onSuccess }: { staff?: StaffMember; onSuccess?: () =
       } else {
         // Create new staff
         let userId: string | null = null
+
+        if (isApiProvider()) {
+          if (createUserAccount && email && password) {
+            const userData = await apiPost<{ user?: { id: string } }>('/admin/users', {
+              email,
+              password,
+              role: 'Staff',
+            })
+            userId = userData.user?.id || null
+          }
+
+          return apiPost('/staff', {
+            first_name: firstName,
+            last_name: lastName,
+            first_name_ar: firstNameAr,
+            last_name_ar: lastNameAr,
+            email,
+            phone,
+            position,
+            position_ar: positionAr,
+            location_id: locationId || null,
+            user_id: userId,
+            is_active: true,
+          })
+        }
 
         // Create user account if requested
         if (createUserAccount && email && password) {

@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,6 +28,12 @@ export default function InventoryPage() {
   const { data: items, isLoading } = useQuery({
     queryKey: ['inventory-items', locationFilter],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<any[]>(
+          `/inventory/items${buildQuery({ locationId: locationFilter !== 'all' ? locationFilter : undefined })}`
+        )
+      }
+
       let query = supabase
         .from('inventory_items')
         .select(`
@@ -194,6 +203,8 @@ function InventoryItemForm({ onSuccess }: { onSuccess?: () => void }) {
   const { data: categories } = useQuery({
     queryKey: ['inventory-categories'],
     queryFn: async () => {
+      if (isApiProvider()) return apiGet<any[]>('/inventory/categories')
+
       const { data, error } = await supabase
         .from('inventory_categories')
         .select('*')
@@ -206,20 +217,24 @@ function InventoryItemForm({ onSuccess }: { onSuccess?: () => void }) {
 
   const createItem = useMutation({
     mutationFn: async () => {
+      const payload = {
+        name,
+        name_ar: nameAr,
+        sku: sku || null,
+        category_id: categoryId || null,
+        location_id: locationId || null,
+        unit,
+        current_stock: parseFloat(currentStock) || 0,
+        min_stock: parseFloat(minStock) || 0,
+        max_stock: maxStock ? parseFloat(maxStock) : null,
+        unit_price: unitPrice ? parseFloat(unitPrice) : null,
+      }
+      if (isApiProvider()) {
+        return apiPost('/inventory/items', payload)
+      }
       const { data, error } = await supabase
         .from('inventory_items')
-        .insert({
-          name,
-          name_ar: nameAr,
-          sku: sku || null,
-          category_id: categoryId || null,
-          location_id: locationId || null,
-          unit,
-          current_stock: parseFloat(currentStock) || 0,
-          min_stock: parseFloat(minStock) || 0,
-          max_stock: maxStock ? parseFloat(maxStock) : null,
-          unit_price: unitPrice ? parseFloat(unitPrice) : null,
-        })
+        .insert(payload)
         .select()
         .single()
 

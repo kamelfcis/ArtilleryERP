@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost, apiPatch } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -34,6 +37,9 @@ export default function ServiceAvailabilityPage() {
     queryKey: ['service-availability', selectedService],
     queryFn: async () => {
       if (!selectedService) return []
+      if (isApiProvider()) {
+        return apiGet<any[]>(`/services/availability${buildQuery({ serviceId: selectedService })}`)
+      }
 
       const { data, error } = await supabase
         .from('service_availability')
@@ -126,29 +132,36 @@ function DayAvailabilityRow({
 
   const updateAvailability = useMutation({
     mutationFn: async () => {
+      const values = {
+        is_available: isAvailable,
+        start_time: isAvailable ? startTime : null,
+        end_time: isAvailable ? endTime : null,
+        max_quantity_per_day: maxQuantity ? parseInt(maxQuantity) : null,
+      }
       if (availability) {
+        if (isApiProvider()) {
+          await apiPatch(`/services/availability/${availability.id}`, values)
+          return
+        }
         const { error } = await supabase
           .from('service_availability')
-          .update({
-            is_available: isAvailable,
-            start_time: isAvailable ? startTime : null,
-            end_time: isAvailable ? endTime : null,
-            max_quantity_per_day: maxQuantity ? parseInt(maxQuantity) : null,
-          })
+          .update(values)
           .eq('id', availability.id)
 
         if (error) throw error
       } else {
+        const insertValues = {
+          service_id: serviceId,
+          day_of_week: day.value,
+          ...values,
+        }
+        if (isApiProvider()) {
+          await apiPost('/services/availability', insertValues)
+          return
+        }
         const { error } = await supabase
           .from('service_availability')
-          .insert({
-            service_id: serviceId,
-            day_of_week: day.value,
-            is_available: isAvailable,
-            start_time: isAvailable ? startTime : null,
-            end_time: isAvailable ? endTime : null,
-            max_quantity_per_day: maxQuantity ? parseInt(maxQuantity) : null,
-          })
+          .insert(insertValues)
 
         if (error) throw error
       }

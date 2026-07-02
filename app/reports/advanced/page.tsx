@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,34 +28,45 @@ export default function AdvancedReportsPage() {
   const { data: reportData, isLoading } = useQuery({
     queryKey: ['advanced-reports', dateFrom, dateTo, locationId, statusFilter],
     queryFn: async () => {
-      let query = supabase
-        .from('reservations')
-        .select(`
-          *,
-          unit:units (
+      let reservations: any[]
+      if (isApiProvider()) {
+        reservations = await apiGet<any[]>(
+          `/reports/reservations${buildQuery({
+            dateFrom: dateFrom || undefined,
+            dateTo: dateTo || undefined,
+            locationId: locationId !== 'all' ? locationId : undefined,
+            status: statusFilter !== 'all' ? statusFilter : undefined,
+          })}`
+        )
+      } else {
+        let query = supabase
+          .from('reservations')
+          .select(`
             *,
-            location:locations (*)
-          ),
-          guest:guests (*)
-        `)
+            unit:units (
+              *,
+              location:locations (*)
+            ),
+            guest:guests (*)
+          `)
 
-      if (dateFrom) {
-        query = query.gte('check_in_date', dateFrom)
-      }
-      if (dateTo) {
-        query = query.lte('check_out_date', dateTo)
-      }
-      if (locationId !== 'all') {
-        query = query.eq('unit.location_id', locationId)
-      }
-      if (statusFilter !== 'all') {
-        query = query.eq('status', statusFilter)
-      }
+        if (dateFrom) {
+          query = query.gte('check_in_date', dateFrom)
+        }
+        if (dateTo) {
+          query = query.lte('check_out_date', dateTo)
+        }
+        if (locationId !== 'all') {
+          query = query.eq('unit.location_id', locationId)
+        }
+        if (statusFilter !== 'all') {
+          query = query.eq('status', statusFilter)
+        }
 
-      const { data, error } = await query
-      if (error) throw error
-
-      const reservations = data || []
+        const { data, error } = await query
+        if (error) throw error
+        reservations = data || []
+      }
 
       // Calculate statistics
       const totalReservations = reservations.length

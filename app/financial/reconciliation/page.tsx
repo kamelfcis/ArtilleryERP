@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,15 +24,23 @@ export default function FinancialReconciliationPage() {
     queryFn: async () => {
       if (!dateFrom || !dateTo) return null
 
-      let query = supabase
-        .from('reservations')
-        .select('*')
-        .gte('check_in_date', dateFrom)
-        .lte('check_out_date', dateTo)
-        .neq('status', 'cancelled')
+      let reservations: any[]
+      if (isApiProvider()) {
+        reservations = await apiGet<any[]>(
+          `/reports/reconciliation${buildQuery({ dateFrom, dateTo })}`
+        )
+      } else {
+        let query = supabase
+          .from('reservations')
+          .select('*')
+          .gte('check_in_date', dateFrom)
+          .lte('check_out_date', dateTo)
+          .neq('status', 'cancelled')
 
-      const { data: reservations, error } = await query
-      if (error) throw error
+        const { data, error } = await query
+        if (error) throw error
+        reservations = data || []
+      }
 
       const totalRevenue = reservations?.reduce((sum, r) => sum + r.total_amount, 0) || 0
       const totalPaid = reservations?.reduce((sum, r) => sum + r.paid_amount, 0) || 0

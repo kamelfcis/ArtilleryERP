@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import { User, Session } from '@supabase/supabase-js'
+import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase/client'
 import { UserRole } from '@/lib/types/database'
 import { getCachedSession, setCachedSession, clearCachedSession } from '@/lib/auth/cache'

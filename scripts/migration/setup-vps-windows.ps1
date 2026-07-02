@@ -26,7 +26,7 @@ $ErrorActionPreference = 'Stop'
 function Write-Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 
 Write-Step 'Artillery ERP — Windows Server VPS bootstrap'
-Write-Host 'Target: Windows Server with OpenSSH (Administrator@95.216.63.81)'
+Write-Host 'Target: Windows Server with OpenSSH (Administrator@95.217.137.18)'
 Write-Host 'Passwords must be set via env vars — never commit them.'
 
 if (-not $env:ARTILLERY_DB_PASSWORD -or -not $env:ARTILLERY_READONLY_PASSWORD) {

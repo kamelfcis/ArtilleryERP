@@ -29,7 +29,7 @@ import {
   setLastSync,
   type OutboxEntry,
 } from '@/lib/offline/db'
-import { calendarWindowKey, fetchCalendarWindow } from '@/lib/hooks/use-reservations'
+import { calendarWindowKey, fetchCalendarWindow, normalizeCalendarRows } from '@/lib/hooks/use-reservations'
 import type { CalendarEvent, CalendarWindowArgs } from '@/lib/types/calendar'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -129,8 +129,10 @@ async function deltaPull(
 
   let changed: CalendarEvent[]
   if (isApiProvider()) {
-    changed = await apiGet<CalendarEvent[]>(
-      `/calendar/changes${buildQuery({ since })}`
+    // Normalize API date columns (ISO timestamps) back to date-only strings so
+    // merged rows match the Supabase shape and pack into calendar lanes.
+    changed = normalizeCalendarRows(
+      await apiGet<CalendarEvent[]>(`/calendar/changes${buildQuery({ since })}`)
     )
   } else {
     const { data, error } = await supabase.rpc('reservations_changed_since', {

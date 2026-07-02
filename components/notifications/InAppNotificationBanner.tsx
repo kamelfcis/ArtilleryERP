@@ -6,6 +6,9 @@ import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { useUpdateReservation } from '@/lib/hooks/use-reservations'
 import { useMarkNotificationRead, useCreateBookingNotification } from '@/lib/hooks/use-booking-notifications'
@@ -28,7 +31,7 @@ import {
   Clock,
   Sparkles,
 } from 'lucide-react'
-import { RealtimeChannel } from '@supabase/supabase-js'
+import type { RealtimeChannel } from '@supabase/supabase-js'
 
 interface NotificationPayload {
   id: string
@@ -194,7 +197,7 @@ export function InAppNotificationBanner() {
     playSound()
 
     let reservation: ReservationDetail | undefined
-    if (typeof navigator === 'undefined' || navigator.onLine) {
+    if (!isApiProvider() && (typeof navigator === 'undefined' || navigator.onLine)) {
       try {
         const { data } = await supabase
           .from('reservations')
@@ -215,7 +218,7 @@ export function InAppNotificationBanner() {
     }
 
     let creatorEmail: string | undefined
-    if (typeof navigator === 'undefined' || navigator.onLine) {
+    if (!isApiProvider() && (typeof navigator === 'undefined' || navigator.onLine)) {
       try {
         const res = await fetchWithSupabaseAuth('/api/admin/users')
         if (res.ok) {
@@ -249,8 +252,12 @@ export function InAppNotificationBanner() {
     setTimeout(() => dismiss(notif.id), AUTO_DISMISS_MS)
   }, [playSound, showBrowserNotification, queryClient, dismiss, restrictedBranchManager, user?.id, rocketUserId])
 
-  // Realtime subscription for instant notifications — only when online
+  // Realtime subscription for instant notifications — only when online.
+  // Supabase Realtime is supabase-provider only; in api mode we rely on the
+  // polled useBookingNotifications query instead, so skip the subscription.
   useEffect(() => {
+    if (isApiProvider()) return
+
     let activeChannel: ReturnType<typeof supabase.channel> | null = null
 
     const subscribe = () => {
@@ -293,6 +300,10 @@ export function InAppNotificationBanner() {
   // Polling fallback: check for new unread notifications every 15 seconds.
   // Skips entirely when the browser is offline to avoid console error spam.
   useEffect(() => {
+    // Polling uses the supabase client directly; no-op in api mode. The API
+    // provider surfaces pending notifications through useBookingNotifications.
+    if (isApiProvider()) return
+
     const lastCheckedRef = { current: new Date().toISOString() }
 
     const poll = async () => {
@@ -327,6 +338,71 @@ export function InAppNotificationBanner() {
     const interval = setInterval(poll, 15000)
     return () => clearInterval(interval)
   }, [handleNewNotification, restrictedBranchManager, rocketUserId, user?.id])
+
+  // API-mode polling: the Express /notifications endpoint returns enriched rows
+  // (reservation + guest + unit + location), so build banners directly.
+  useEffect(() => {
+    if (!isApiProvider()) return
+    if (!restrictedBranchManager && !rocketUserId) return
+
+    const lastCheckedRef = { current: new Date().toISOString() }
+    let cancelled = false
+
+    const poll = async () => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return
+      try {
+        const rows = await apiGet<any[]>(
+          `/notifications${buildQuery({
+            restrictedBranchManager: restrictedBranchManager ? 'true' : undefined,
+            rocketUserId: rocketUserId ?? undefined,
+          })}`
+        )
+        if (cancelled) return
+        const fresh = (rows ?? [])
+          .filter((n) => !n.is_read && n.created_at > lastCheckedRef.current)
+          .sort((a, b) => a.created_at.localeCompare(b.created_at))
+
+        if (fresh.length === 0) return
+        lastCheckedRef.current = fresh[fresh.length - 1].created_at
+
+        for (const notif of fresh) {
+          if (processedIdsRef.current.has(notif.id)) continue
+          processedIdsRef.current.add(notif.id)
+          playSound()
+          const banner: BannerNotification = {
+            notifId: notif.id,
+            reservationId: notif.reservation_id,
+            createdBy: notif.created_by,
+            notifyUserId: notif.notify_user_id,
+            message: notif.message,
+            createdAt: notif.created_at,
+            reservation: notif.reservation
+              ? {
+                  ...notif.reservation,
+                  guest: notif.reservation.guest,
+                  unit: notif.reservation.unit,
+                }
+              : undefined,
+          }
+          showBrowserNotification(banner)
+          setBanners((prev) => [banner, ...prev])
+          const notifId = notif.id
+          setTimeout(() => dismiss(notifId), AUTO_DISMISS_MS)
+        }
+        queryClient.invalidateQueries({ queryKey: ['booking-notifications'] })
+        queryClient.invalidateQueries({ queryKey: ['booking-notifications-count'] })
+        if (restrictedBranchManager) {
+          queryClient.invalidateQueries({ queryKey: ['reservations'] })
+        }
+      } catch {}
+    }
+
+    const interval = setInterval(poll, 15000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [restrictedBranchManager, rocketUserId, playSound, showBrowserNotification, dismiss, queryClient])
 
   return (
     <div className="fixed top-4 left-4 z-[9999] flex flex-col gap-3 max-w-md w-full pointer-events-none" dir="rtl">

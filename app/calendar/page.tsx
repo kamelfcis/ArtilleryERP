@@ -31,6 +31,8 @@ import { ArrowLeftRight } from 'lucide-react'
 import { useQueryClient, useQuery, useMutation, keepPreviousData } from '@tanstack/react-query'
 import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiDelete } from '@/lib/api/http-client'
 import { formatCurrency } from '@/lib/utils'
 import { useCalendarFilters } from '@/contexts/CalendarFilterContext'
 import '@/app/calendar/calendar-styles.css'
@@ -426,6 +428,10 @@ export default function CalendarPage() {
   // Room block delete mutation
   const deleteRoomBlock = useMutation({
     mutationFn: async (id: string) => {
+      if (isApiProvider()) {
+        await apiDelete(`/room-blocks/${id}`)
+        return
+      }
       const { error } = await supabase
         .from('room_blocks')
         .delete()
@@ -458,6 +464,10 @@ export default function CalendarPage() {
     staleTime: 60_000,
     gcTime: 300_000,
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<any[]>('/room-blocks')
+      }
+
       const { data, error } = await supabase
         .from('room_blocks')
         .select(`
@@ -920,9 +930,11 @@ export default function CalendarPage() {
         const unit = unitMap.get(unitId)
         if (!unit) throw new Error(`الوحدة ${unitId} غير موجودة`)
 
-        // Fetch pricing only when online; offline falls back to unit base price
+        // Fetch pricing only when online; offline falls back to unit base price.
+        // In api mode there is no supabase pricing access here, so fall back to
+        // the unit base price (server can still recompute on create).
         let pricingData: any[] | null = null
-        if (isOnline) {
+        if (isOnline && !isApiProvider()) {
           const { data, error: pricingError } = await supabase
             .from('pricing')
             .select('*')
@@ -1128,7 +1140,7 @@ export default function CalendarPage() {
     const unitChanged = newUnitId && newUnitId !== reservation.unit_id
 
     try {
-      if (unitChanged && newUnitId) {
+      if (unitChanged && newUnitId && !isApiProvider()) {
         const { data: conflictingReservations, error: checkError } = await supabase
           .from('reservations')
           .select('id')
@@ -1354,24 +1366,26 @@ export default function CalendarPage() {
     const newUnit = units?.find(u => u.id === newUnitId)
 
     try {
-      const { data: conflictingReservations, error: checkError } = await supabase
-        .from('reservations')
-        .select('id')
-        .eq('unit_id', newUnitId)
-        .neq('id', res.id)
-        .neq('status', 'cancelled')
-        .neq('status', 'no_show')
-        .or(`and(check_in_date.lt.${res.check_out_date},check_out_date.gt.${res.check_in_date})`)
+      if (!isApiProvider()) {
+        const { data: conflictingReservations, error: checkError } = await supabase
+          .from('reservations')
+          .select('id')
+          .eq('unit_id', newUnitId)
+          .neq('id', res.id)
+          .neq('status', 'cancelled')
+          .neq('status', 'no_show')
+          .or(`and(check_in_date.lt.${res.check_out_date},check_out_date.gt.${res.check_in_date})`)
 
-      if (checkError) throw checkError
+        if (checkError) throw checkError
 
-      if (conflictingReservations && conflictingReservations.length > 0) {
-        toast({
-          title: 'الوحدة غير متاحة',
-          description: 'يوجد حجز آخر في هذه الوحدة خلال الفترة المحددة',
-          variant: 'destructive',
-        })
-        return
+        if (conflictingReservations && conflictingReservations.length > 0) {
+          toast({
+            title: 'الوحدة غير متاحة',
+            description: 'يوجد حجز آخر في هذه الوحدة خلال الفترة المحددة',
+            variant: 'destructive',
+          })
+          return
+        }
       }
 
       await updateReservation.mutateAsync({

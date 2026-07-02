@@ -2,6 +2,9 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -16,6 +19,12 @@ export default function ServiceHistoryPage() {
   const { data: history, isLoading } = useQuery({
     queryKey: ['service-history', actionFilter],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<any[]>(
+          `/services/history${buildQuery({ action: actionFilter !== 'all' ? actionFilter : undefined })}`
+        )
+      }
+
       let query = supabase
         .from('service_history')
         .select(`

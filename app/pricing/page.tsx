@@ -3,6 +3,9 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet, apiPost, apiPatch } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { useUnits } from '@/lib/hooks/use-units'
 import { useLocations } from '@/lib/hooks/use-locations'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -41,6 +44,15 @@ export default function PricingPage() {
   const { data: pricing, isLoading } = useQuery({
     queryKey: ['pricing', selectedUnit],
     queryFn: async () => {
+      if (isApiProvider()) {
+        return apiGet<PricingWithUnit[]>(
+          `/pricing${buildQuery({
+            isActive: true,
+            unitId: selectedUnit !== 'all' ? selectedUnit : undefined,
+          })}`
+        )
+      }
+
       let query = supabase
         .from('pricing')
         .select(`
@@ -67,6 +79,10 @@ export default function PricingPage() {
 
   const deletePrice = useMutation({
     mutationFn: async (id: string) => {
+      if (isApiProvider()) {
+        await apiPatch(`/pricing/${id}`, { is_active: false })
+        return
+      }
       const { error } = await supabase
         .from('pricing')
         .update({ is_active: false })
@@ -347,6 +363,7 @@ function PricingForm({
     queryKey: ['pricing', priceId],
     queryFn: async () => {
       if (!priceId) return null
+      if (isApiProvider()) return apiGet<any>(`/pricing/${priceId}`)
       const { data, error } = await supabase
         .from('pricing')
         .select('*')
@@ -435,40 +452,53 @@ function PricingForm({
       if (priceId) {
         // Editing: update the original record with the first selected unit
         const firstUnitId = selectedUnitIds[0]
-
-        const { error: updateError } = await supabase
-          .from('pricing')
-          .update({ ...basePriceData, unit_id: firstUnitId })
-          .eq('id', priceId)
-
-        if (updateError) throw updateError
-
-        // If additional units were selected beyond the first, create new records for them
         const additionalUnitIds = selectedUnitIds.slice(1)
-        if (additionalUnitIds.length > 0) {
-          const newRecords = additionalUnitIds.map(uid => ({
+
+        if (isApiProvider()) {
+          await apiPatch(`/pricing/${priceId}`, { ...basePriceData, unit_id: firstUnitId })
+          for (const uid of additionalUnitIds) {
+            await apiPost('/pricing', { ...basePriceData, unit_id: uid })
+          }
+        } else {
+          const { error: updateError } = await supabase
+            .from('pricing')
+            .update({ ...basePriceData, unit_id: firstUnitId })
+            .eq('id', priceId)
+
+          if (updateError) throw updateError
+
+          // If additional units were selected beyond the first, create new records for them
+          if (additionalUnitIds.length > 0) {
+            const newRecords = additionalUnitIds.map(uid => ({
+              ...basePriceData,
+              unit_id: uid,
+            }))
+
+            const { error: insertError } = await supabase
+              .from('pricing')
+              .insert(newRecords)
+
+            if (insertError) throw insertError
+          }
+        }
+      } else {
+        if (isApiProvider()) {
+          for (const uid of selectedUnitIds) {
+            await apiPost('/pricing', { ...basePriceData, unit_id: uid })
+          }
+        } else {
+          // Batch insert for all selected units
+          const records = selectedUnitIds.map(uid => ({
             ...basePriceData,
             unit_id: uid,
           }))
 
-          const { error: insertError } = await supabase
+          const { error } = await supabase
             .from('pricing')
-            .insert(newRecords)
+            .insert(records)
 
-          if (insertError) throw insertError
+          if (error) throw error
         }
-      } else {
-        // Batch insert for all selected units
-        const records = selectedUnitIds.map(uid => ({
-          ...basePriceData,
-          unit_id: uid,
-        }))
-
-        const { error } = await supabase
-          .from('pricing')
-          .insert(records)
-
-        if (error) throw error
       }
     },
     onSuccess: () => {
