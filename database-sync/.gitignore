@@ -1,8 +1,12 @@
-# Never commit dependencies, generated SQL, reports, backups, or any env files.
+# Never commit dependencies, generated SQL, reports, backups, logs, or env files.
 node_modules/
 delta_sync.sql
+delta_sync.sql.body
 reports/
+backups/
+logs/
 *.dump
 *.log
+*.lock
 .env
 .env.*
