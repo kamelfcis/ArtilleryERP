@@ -83,7 +83,11 @@ function Add-CommandOutput {
   param([object[]]$Output)
   if ($null -eq $Output) { return }
   foreach ($o in $Output) {
-    $s = ($o | Out-String).TrimEnd()
+    # Native-command stderr comes through as ErrorRecords; render just the plain
+    # text (the tools use stderr for normal progress) so logs aren't polluted
+    # with PowerShell "NativeCommandError" noise on successful runs.
+    if ($o -is [System.Management.Automation.ErrorRecord]) { $s = $o.ToString() }
+    else { $s = ($o | Out-String).TrimEnd() }
     if ($s.Length) { Add-Content -Path $LogFile -Value $s }
   }
 }
