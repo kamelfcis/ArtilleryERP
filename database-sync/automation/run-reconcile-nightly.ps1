@@ -191,7 +191,7 @@ try {
   Write-Log ("apply committed. Rows skipped this run: {0}" -f $summary.applySkips)
 
   if ($summary.applySkips -gt 0) {
-    Write-Log 'apply had skips (likely FK child rows after parent purge) — retrying generate+apply once.' 'WARN'
+    Write-Log 'apply had skips (likely FK child rows after parent purge) - retrying generate+apply once.' 'WARN'
     Remove-Item $DeltaFile, (Join-Path $ReportDir 'delta_summary.json') -Force -ErrorAction SilentlyContinue
     $out = Invoke-Native { & $npm run --silent generate }; $rc = $LASTEXITCODE
     Add-CommandOutput $out
@@ -201,7 +201,7 @@ try {
     Write-Log ("retry apply committed. Additional skips: {0} (total {1})." -f $retrySkips, $summary.applySkips)
   }
 
-  # ---------------------------------------------------------------- 6) VERIFY (strict — databases should be equal)
+  # ---------------------------------------------------------------- 6) VERIFY (strict - databases should be equal)
   Write-Log '----- STEP 6/6: verify (strict equality) -----'
   $verifyReport = Join-Path $ReportDir 'verify_report.json'
   Remove-Item $verifyReport -Force -ErrorAction SilentlyContinue
@@ -226,11 +226,11 @@ try {
     $overallExit = 1
   }
   elseif ($failed.Count -gt 0) {
-    Write-Log ("verify minor divergence ({0} row(s) missing, within live-churn tolerance {1}) — will catch up next run." -f `
+    Write-Log ("verify minor divergence ({0} row(s) missing, within live-churn tolerance {1}) - will catch up next run." -f `
         [int]$summary.verifyMissing, $LiveChurnTolerance) 'WARN'
   }
   else {
-    Write-Log 'verify PASS — Supabase and VPS are equal.'
+    Write-Log 'verify PASS - Supabase and VPS are equal.'
   }
 }
 catch {
