@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase/client'
 import { UserRole } from '@/lib/types/database'
@@ -383,28 +383,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  function hasRole(role: UserRole): boolean {
-    return roles.includes(role)
-  }
+  const hasRoleStable = useCallback((role: UserRole) => roles.includes(role), [roles])
+  const hasAnyRoleStable = useCallback(
+    (checkRoles: UserRole[]) => checkRoles.some((role) => roles.includes(role)),
+    [roles]
+  )
 
-  function hasAnyRole(checkRoles: UserRole[]): boolean {
-    return checkRoles.some((role) => roles.includes(role))
-  }
+  const contextValue = useMemo(
+    () => ({
+      user,
+      session,
+      roles,
+      elevatedOps,
+      loading,
+      signIn,
+      signOut,
+      hasRole: hasRoleStable,
+      hasAnyRole: hasAnyRoleStable,
+    }),
+    [user, session, roles, elevatedOps, loading, signIn, signOut, hasRoleStable, hasAnyRoleStable]
+  )
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        session,
-        roles,
-        elevatedOps,
-        loading,
-        signIn,
-        signOut,
-        hasRole,
-        hasAnyRole,
-      }}
-    >
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   )

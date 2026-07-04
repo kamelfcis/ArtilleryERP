@@ -423,7 +423,7 @@ export function useCreateReservation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
       queryClient.invalidateQueries({ queryKey: ['reservations-paginated'] })
-      queryClient.invalidateQueries({ queryKey: ['calendar-window'] })
+      // Calendar page patches calendar-window via offlineMutation / setQueryData.
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
     },
   })
@@ -523,7 +523,6 @@ export function useUpdateReservation() {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
       queryClient.invalidateQueries({ queryKey: ['reservations-paginated'] })
       queryClient.invalidateQueries({ queryKey: ['reservation', data.id] })
-      queryClient.invalidateQueries({ queryKey: ['calendar-window'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
     },
   })
@@ -550,7 +549,6 @@ export function useDeleteReservation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
       queryClient.invalidateQueries({ queryKey: ['reservations-paginated'] })
-      queryClient.invalidateQueries({ queryKey: ['calendar-window'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
     },
   })
@@ -560,9 +558,9 @@ export function useDeleteReservation() {
 // Calendar-specific fast-path: single RPC returning flat rows
 // ─────────────────────────────────────────────────────────────
 
-/** Stable query key for a calendar window. */
+/** Stable query key for a calendar window (primitives only — avoids object identity churn). */
 export const calendarWindowKey = (a: CalendarWindowArgs) =>
-  ['calendar-window', a] as const
+  ['calendar-window', a.locationId ?? null, a.start, a.end, a.status ?? null] as const
 
 /**
  * Normalize a Postgres `date` value to a pure `YYYY-MM-DD` string.
@@ -655,6 +653,8 @@ export function useCalendarReservations(a: CalendarWindowArgs) {
     placeholderData: keepPreviousData,
     staleTime: 60_000,
     gcTime: 300_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   })
 }
 

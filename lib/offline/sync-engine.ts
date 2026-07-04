@@ -253,9 +253,21 @@ export function useSyncEngine(
 
     window.addEventListener('online', handleOnline)
 
-    // Run immediately if already online (e.g. page load after brief outage).
+    // Run immediately if already online — defer so initial calendar/window load wins.
     if (navigator.onLine) {
-      runSync(queryClient, argsRef.current)
+      const runDeferred = () => runSync(queryClient, argsRef.current)
+      if (typeof requestIdleCallback !== 'undefined') {
+        const id = requestIdleCallback(runDeferred, { timeout: 4000 })
+        return () => {
+          cancelIdleCallback(id)
+          window.removeEventListener('online', handleOnline)
+        }
+      }
+      const timer = setTimeout(runDeferred, 1500)
+      return () => {
+        clearTimeout(timer)
+        window.removeEventListener('online', handleOnline)
+      }
     }
 
     return () => {

@@ -12,7 +12,15 @@ const router = Router()
 
 
 
-async function fetchBlocks() {
+async function fetchBlocks(start?: string, end?: string) {
+
+  const params: unknown[] = []
+  let where = ''
+
+  if (start && end) {
+    params.push(end, start)
+    where = `WHERE rb.start_date <= $1::date AND rb.end_date >= $2::date`
+  }
 
   const { rows } = await pool.query(
 
@@ -38,7 +46,11 @@ async function fetchBlocks() {
 
      FROM room_blocks rb
 
-     ORDER BY rb.start_date DESC`
+     ${where}
+
+     ORDER BY rb.start_date DESC`,
+
+    params
 
   )
 
@@ -48,11 +60,15 @@ async function fetchBlocks() {
 
 
 
-router.get('/', requireAuth, async (_req, res, next) => {
+router.get('/', requireAuth, async (req, res, next) => {
 
   try {
 
-    res.json(await fetchBlocks())
+    const start = req.query.start as string | undefined
+
+    const end = req.query.end as string | undefined
+
+    res.json(await fetchBlocks(start, end))
 
   } catch (err) {
 

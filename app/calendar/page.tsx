@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic'
 import { motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import type FullCalendar from '@fullcalendar/react'
-import { useCalendarReservations, fetchCalendarWindow, calendarWindowKey, useCreateReservation, useUpdateReservation, useDeleteReservation } from '@/lib/hooks/use-reservations'
+import { useCalendarReservations, fetchCalendarWindow, calendarWindowKey } from '@/lib/hooks/use-reservations'
 import type { CalendarEvent as CalendarEventRow, CalendarWindowArgs } from '@/lib/types/calendar'
 import { useOfflineMutation, useIsOnline } from '@/lib/offline/use-offline-mutation'
 import { useSyncEngine } from '@/lib/offline/sync-engine'
@@ -32,6 +32,7 @@ import { useQueryClient, useQuery, useMutation, keepPreviousData } from '@tansta
 import { supabase } from '@/lib/supabase/client'
 import { isApiProvider } from '@/lib/api/data-provider'
 import { apiGet, apiDelete, apiPost } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { fetchAdminUsers } from '@/lib/api/admin-users'
 import { formatCurrency } from '@/lib/utils'
 import { useCalendarFilters } from '@/contexts/CalendarFilterContext'
@@ -39,6 +40,7 @@ import '@/app/calendar/calendar-styles.css'
 import { CalendarFilterSheet } from '@/components/calendar/CalendarFilterSheet'
 import FullCalendarWidget from '@/components/calendar/FullCalendarWidget'
 import { getStatusColor } from '@/lib/utils/calendar-helpers'
+import { guestTypeShowsRank } from '@/lib/validations/guest'
 import { isUnconfirmedReservationAlarm } from '@/lib/utils/reservation-alerts'
 import {
   getRoomBlockConflicts,
@@ -329,7 +331,7 @@ export default function CalendarPage() {
   useEffect(() => {
     if (!rangeStart || !rangeEnd) return
     if (!navigator.onLine) return
-    if (reservationsLoading && reservations === undefined) return
+    if (reservations === undefined) return
 
     const startDate = new Date(rangeStart)
     const endDate = new Date(rangeEnd)
@@ -343,7 +345,12 @@ export default function CalendarPage() {
       const e = new Date(rangeEnd)
       s.setDate(s.getDate() + dir * durationDays)
       e.setDate(e.getDate() + dir * durationDays)
-      return { ...calendarArgs, start: fmt(s), end: fmt(e) }
+      return {
+        locationId: effectiveLocationId,
+        start: fmt(s),
+        end: fmt(e),
+        status: selectedStatus !== 'all' ? selectedStatus : undefined,
+      }
     }
 
     const runPrefetch = () => {
@@ -368,14 +375,11 @@ export default function CalendarPage() {
 
     const timer = setTimeout(runPrefetch, 500)
     return () => clearTimeout(timer)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rangeStart, rangeEnd, effectiveLocationId, selectedStatus, reservationsLoading, reservations])
+  }, [rangeStart, rangeEnd, effectiveLocationId, selectedStatus, reservations, queryClient])
   const { data: guests } = useGuests(undefined, { enabled: guestDialogOpen })
-  const createReservation = useCreateReservation()
+  const [isDeletingReservation, setIsDeletingReservation] = useState(false)
   const createBookingNotif = useCreateBookingNotification()
   const createGuest = useCreateGuest()
-  const updateReservation = useUpdateReservation()
-  const deleteReservation = useDeleteReservation()
 
   // ── Offline / PWA ─────────────────────────────────────────────────────────
   const isOnline = useIsOnline()
@@ -398,7 +402,11 @@ export default function CalendarPage() {
       try {
         const entries = await db.outbox.toArray()
         if (mounted) {
-          setPendingIds(new Set(entries.map(e => e.localId)))
+          const next = new Set(entries.map(e => e.localId))
+          setPendingIds(prev => {
+            if (prev.size === next.size && [...prev].every(id => next.has(id))) return prev
+            return next
+          })
           const hasConflicts = entries.some(e => e.conflict)
           if (hasConflicts) setConflictSheetOpen(true)
         }
@@ -464,7 +472,9 @@ export default function CalendarPage() {
     gcTime: 300_000,
     queryFn: async () => {
       if (isApiProvider()) {
-        return apiGet<any[]>('/room-blocks')
+        return apiGet<any[]>(
+          `/room-blocks${buildQuery({ start: rangeStart, end: rangeEnd })}`
+        )
       }
 
       const { data, error } = await supabase
@@ -542,13 +552,26 @@ export default function CalendarPage() {
             const unitNumber = reservation.unit_number || ''
             const guestName = `${reservation.guest_first_name_ar || reservation.guest_first_name || ''} ${reservation.guest_last_name_ar || reservation.guest_last_name || ''}`.trim() || ''
             const guestPhone = reservation.guest_phone || ''
-            // FullCalendar eventContent renders rich HTML; keep title minimal to avoid duplicate locale work.
             const eventTitle = guestName || unitNumber || reservation.id.substring(0, 8)
             const showAlarm = isUnconfirmedReservationAlarm(
               reservation.status,
               reservation.created_at,
-              { locationId: reservation.location_id, locations: locations ?? [] }
+              { locationId: reservation.location_id }
             )
+            const showRank = guestTypeShowsRank(reservation.guest_type)
+            const rank = reservation.guest_military_rank_ar || ''
+            const displayName = showRank && rank ? `${rank} / ${guestName}` : guestName
+            const checkIn = new Date(reservation.check_in_date)
+            const checkOut = new Date(reservation.check_out_date)
+            const diffDays = Math.round((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24))
+            const isSingleDay = diffDays <= 1
+            const alarmPrefix = showAlarm ? '⚠ ' : ''
+            const eventContentHtml = `
+              <div class="cal-event-content ${isSingleDay ? 'single-day-event' : ''}">
+                <div class="cal-event-name">${alarmPrefix}${displayName || eventTitle}</div>
+                ${guestPhone ? `<div class="cal-event-phone">📞 ${guestPhone}</div>` : ''}
+              </div>
+            `
 
             return {
               id: reservation.id,
@@ -569,10 +592,11 @@ export default function CalendarPage() {
                 unitNumber,
                 guestPhone,
                 showAlarm,
+                eventContentHtml,
               },
             }
           })
-      }, [reservations, filteredUnitIds, locations])
+      }, [reservations, filteredUnitIds])
 
       // Create events for room blocks with black color
       const roomBlockEvents = useMemo(() => {
@@ -804,23 +828,24 @@ export default function CalendarPage() {
       return
     }
 
-    deleteReservation.mutate(reservationToDelete.id, {
-      onSuccess: () => {
-        toast({
-          title: 'نجح',
-          description: 'تم حذف الحجز بنجاح',
-        })
-        setDeleteDialogOpen(false)
-        setReservationToDelete(null)
-      },
-      onError: (error: any) => {
-        toast({
-          title: 'خطأ',
-          description: error.message || 'فشل في حذف الحجز',
-          variant: 'destructive',
-        })
-      },
-    })
+    try {
+      setIsDeletingReservation(true)
+      await offlineMutation.remove(reservationToDelete.id)
+      toast({
+        title: 'نجح',
+        description: 'تم حذف الحجز بنجاح',
+      })
+      setDeleteDialogOpen(false)
+      setReservationToDelete(null)
+    } catch (error: any) {
+      toast({
+        title: 'خطأ',
+        description: error.message || 'فشل في حذف الحجز',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsDeletingReservation(false)
+    }
   }
 
   const handleDateSelect = useCallback(async function handleDateSelect(selectInfo: any) {
@@ -983,7 +1008,7 @@ export default function CalendarPage() {
           children: 0,
           notes: notes || null,
           ...(user?.id ? { created_by: user.id } : {}),
-        } as any)
+        } as any, { skipWindowRefresh: true })
 
         // Fire-and-forget booking notification for restricted branch managers
         if (isRestrictedBM && user?.id && result?.id && isOnline) {
@@ -1023,7 +1048,7 @@ export default function CalendarPage() {
             : `تم إنشاء ${successCount} حجوزات بنجاح. المبلغ الإجمالي: ${formatCurrency(totalAmountSum)}`),
       })
 
-      // Ensure the visible fetch window includes the new stay dates, then refresh cache.
+      // Single window refresh after all units are created (avoids N parallel fetches).
       if (!offline) {
         let nextStart = rangeStart
         let nextEnd = rangeEnd
@@ -1035,14 +1060,13 @@ export default function CalendarPage() {
           nextEnd = checkOut
           setRangeEnd(checkOut)
         }
-        // New calendar bookings are always pending — widen status filter if it would hide them.
         let statusFilter = calendarArgs.status
         if (selectedStatus !== 'all' && selectedStatus !== 'pending') {
           setSelectedStatus('all')
           statusFilter = undefined
         }
         const refreshedArgs: CalendarWindowArgs = {
-          ...calendarArgs,
+          locationId: effectiveLocationId,
           start: nextStart,
           end: nextEnd,
           status: statusFilter,
@@ -1187,7 +1211,7 @@ export default function CalendarPage() {
             : 'سيُحدَّث الحجز عند الاتصال.',
         })
       } else {
-        await updateReservation.mutateAsync({
+        await offlineMutation.update({
           id: reservationId,
           check_in_date: newStartDate,
           check_out_date: newEndDate,
@@ -1227,7 +1251,7 @@ export default function CalendarPage() {
         })
         toast({ title: 'محفوظ للمزامنة', description: 'سيُحدَّث الحجز عند استعادة الاتصال.' })
       } else {
-        await updateReservation.mutateAsync({
+        await offlineMutation.update({
           id: reservationId,
           check_in_date: newStartDate,
           check_out_date: newEndDate,
@@ -1396,7 +1420,7 @@ export default function CalendarPage() {
         }
       }
 
-      await updateReservation.mutateAsync({
+      await offlineMutation.update({
         id: res.id,
         unit_id: newUnitId,
       })
@@ -1576,7 +1600,7 @@ export default function CalendarPage() {
         onOpenChange={setDeleteDialogOpen}
         reservation={reservationToDelete}
         onDelete={handleDeleteReservation}
-        isPending={deleteReservation.isPending}
+        isPending={isDeletingReservation}
       />
 
       {/* Room Block Detail & Delete Dialog */}

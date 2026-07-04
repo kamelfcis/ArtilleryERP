@@ -19,6 +19,88 @@ const RESOURCE_AREA_HEADER = (
   <div className="text-center w-full font-bold text-2xl">الوحدة</div>
 )
 
+const STATUS_MAP: Record<string, string> = {
+  pending: 'قيد الانتظار',
+  confirmed: 'مؤكد',
+  checked_in: 'تم تسجيل الدخول',
+  checked_out: 'تم تسجيل الخروج',
+  cancelled: 'ملغي',
+  no_show: 'لم يحضر',
+}
+
+const GUEST_TYPE_MAP: Record<string, string> = {
+  military: 'عسكري',
+  civilian: 'مدني',
+  club_member: 'عضو دار',
+  artillery_family: 'ابناء مدفعية',
+}
+
+function buildReservationTooltipHTML(
+  res: CalendarEventRow,
+  staffByUserId: Map<string, string>
+): string {
+  const gName = `${res.guest_first_name_ar || res.guest_first_name || ''} ${res.guest_last_name_ar || res.guest_last_name || ''}`.trim()
+  const gType = res.guest_type || ''
+  const rank = res.guest_military_rank_ar || ''
+  const headerName = guestTypeShowsRank(gType) && rank
+    ? `${rank} / ${gName || res.id.substring(0, 8)}`
+    : (gName || res.id.substring(0, 8))
+  const ph = res.guest_phone || ''
+  const cIn = res.check_in_date ? new Date(res.check_in_date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
+  const cOut = res.check_out_date ? new Date(res.check_out_date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
+  const cAt = res.created_at ? new Date(res.created_at).toLocaleString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : ''
+  const st = res.status || ''
+  const notes = res.notes || ''
+  const creatorUserId = res.created_by_user_id
+  const creatorName = creatorUserId ? (staffByUserId.get(creatorUserId) || creatorUserId.substring(0, 8) + '...') : null
+  return `
+    <button class="fc-tooltip-close" style="position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2);color:#f1f5f9;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background 0.15s;">&times;</button>
+    <div style="font-weight: 700; font-size: 15px; margin-bottom: 8px; color: #60a5fa; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
+      👤 ${headerName}
+    </div>
+    ${ph ? `<div style="margin-bottom: 4px;">📞 <span style="color: #a5b4fc;">${ph}</span></div>` : ''}
+    ${gType ? `<div style="margin-bottom: 4px;">🏷️ نوع الضيف: <span style="color: #38bdf8;">${GUEST_TYPE_MAP[gType] || gType}</span></div>` : ''}
+    <div style="margin-bottom: 4px;">📅 الدخول: <span style="color: #34d399;">${cIn}</span></div>
+    <div style="margin-bottom: 4px;">📅 الخروج: <span style="color: #fb923c;">${cOut}</span></div>
+    ${st ? `<div style="margin-bottom: 4px;">📌 الحالة: <span style="color: #c084fc;">${STATUS_MAP[st] || st}</span></div>` : ''}
+    ${notes ? `<div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">📝 ملاحظات: <span style="color: #fde68a;">${notes}</span></div>` : ''}
+    <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">👷 بواسطة: <span style="color: #67e8f9;">${creatorName || 'غير محدد'}</span></div>
+    ${cAt ? `<div style="margin-top: 4px; font-size: 11px; color: #94a3b8;">🕐 تاريخ الإنشاء: ${cAt}</div>` : ''}
+  `
+}
+
+const TOOLTIP_BASE_STYLE = `
+  display: none;
+  position: fixed;
+  z-index: 99999;
+  border-radius: 12px;
+  padding: 14px 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  min-width: 240px;
+  max-width: 320px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.1);
+  pointer-events: auto;
+  direction: rtl;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.1);
+`
+
+function positionTooltip(tooltip: HTMLElement, clientX: number, clientY: number) {
+  tooltip.style.display = 'block'
+  const x = clientX + 12
+  const y = clientY + 12
+  const rect = tooltip.getBoundingClientRect()
+  tooltip.style.left = (x + rect.width > window.innerWidth ? clientX - rect.width - 12 : x) + 'px'
+  tooltip.style.top = (y + rect.height > window.innerHeight ? clientY - rect.height - 12 : y) + 'px'
+}
+
+function hideAllTooltips() {
+  document.querySelectorAll('.fc-event-tooltip').forEach(el => {
+    (el as HTMLElement).style.display = 'none'
+  })
+}
+
 interface Props {
   resources: any[]
   events: any[]
@@ -43,7 +125,7 @@ interface Props {
   setChangeUnitDialogOpen: (open: boolean) => void
 }
 
-const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(function FullCalendarWidget({
+const FullCalendarWidget = React.forwardRef<FullCalendar, Props>(function FullCalendarWidget({
   resources,
   events,
   rangeStart,
@@ -68,65 +150,92 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
 }, ref) {
   const hostRef = useRef<HTMLDivElement>(null)
   const calendarContainerRef = useRef<HTMLDivElement>(null)
+  const didInitialScroll = useRef(false)
   const [fcHeight, setFcHeight] = useState(() =>
     typeof window !== 'undefined' ? Math.floor(window.innerHeight * 0.75) : 600
   )
 
-  const saveScrollPosition = () => {
+  // Stable refs for eventDidMount — avoids recreating FC callbacks when auth/pending state changes.
+  const actionRef = useRef({
+    hasRole,
+    elevatedOps,
+    readOnly,
+    pendingIds,
+    staffByUserId,
+    onEventClick,
+    setReservationToDelete,
+    setDeleteDialogOpen,
+    setBlockToDelete,
+    setBlockDeleteDialogOpen,
+    setChangeUnitReservation,
+    setChangeUnitDialogOpen,
+  })
+  actionRef.current = {
+    hasRole,
+    elevatedOps,
+    readOnly,
+    pendingIds,
+    staffByUserId,
+    onEventClick,
+    setReservationToDelete,
+    setDeleteDialogOpen,
+    setBlockToDelete,
+    setBlockDeleteDialogOpen,
+    setChangeUnitReservation,
+    setChangeUnitDialogOpen,
+  }
+
+  const saveScrollPosition = useCallback(() => {
     const container = calendarContainerRef.current
     if (!container) return
     const scroller = container.querySelector('.fc-scroller-liquid-absolute, .fc-scroller')
     if (scroller) {
       sessionStorage.setItem('calendar-scroll-left', String((scroller as HTMLElement).scrollLeft))
     }
-  }
+  }, [])
 
-  // Scroll to today (or restore saved position) when calendar mounts
+  // Scroll to today (or restore saved position) once when resources first load.
   useEffect(() => {
-    const scrollToToday = () => {
-      const calendarEl = (ref as React.RefObject<FullCalendar>)?.current
-      if (!calendarEl) return
+    if (didInitialScroll.current || resources.length === 0) return
+    didInitialScroll.current = true
 
-      setTimeout(() => {
-        const container = calendarContainerRef.current
-        if (!container) return
+    const timer = setTimeout(() => {
+      const container = calendarContainerRef.current
+      if (!container) return
 
-        const scrollers = container.querySelectorAll('.fc-scroller-liquid-absolute, .fc-scroller')
-
-        const savedScroll = sessionStorage.getItem('calendar-scroll-left')
-        if (savedScroll !== null) {
-          sessionStorage.removeItem('calendar-scroll-left')
-          const scrollLeft = parseFloat(savedScroll)
-          scrollers.forEach(el => {
-            const scroller = el as HTMLElement
-            if (scroller.scrollWidth > scroller.clientWidth) {
-              scroller.scrollLeft = scrollLeft
-            }
-          })
-          return
-        }
-
-        const today = new Date()
-        const viewStart = new Date(rangeStart)
-        const viewEnd = new Date(rangeEnd)
-        const totalDays = Math.round((viewEnd.getTime() - viewStart.getTime()) / (1000 * 60 * 60 * 24))
-        if (totalDays <= 0) return
-
-        const dayOffset = Math.round((today.getTime() - viewStart.getTime()) / (1000 * 60 * 60 * 24))
-        const fraction = Math.max(0, Math.min(1, dayOffset / totalDays))
-
+      const scrollers = container.querySelectorAll('.fc-scroller-liquid-absolute, .fc-scroller')
+      const savedScroll = sessionStorage.getItem('calendar-scroll-left')
+      if (savedScroll !== null) {
+        sessionStorage.removeItem('calendar-scroll-left')
+        const scrollLeft = parseFloat(savedScroll)
         scrollers.forEach(el => {
           const scroller = el as HTMLElement
-          if (scroller.scrollWidth <= scroller.clientWidth) return
-          const target = fraction * scroller.scrollWidth - scroller.clientWidth * 0.25
-          scroller.scrollLeft = Math.max(0, target)
+          if (scroller.scrollWidth > scroller.clientWidth) {
+            scroller.scrollLeft = scrollLeft
+          }
         })
-      }, 400)
-    }
+        return
+      }
 
-    const timer = setTimeout(scrollToToday, 200)
+      const today = new Date()
+      const viewStart = new Date(rangeStart)
+      const viewEnd = new Date(rangeEnd)
+      const totalDays = Math.round((viewEnd.getTime() - viewStart.getTime()) / (1000 * 60 * 60 * 24))
+      if (totalDays <= 0) return
+
+      const dayOffset = Math.round((today.getTime() - viewStart.getTime()) / (1000 * 60 * 60 * 24))
+      const fraction = Math.max(0, Math.min(1, dayOffset / totalDays))
+
+      scrollers.forEach(el => {
+        const scroller = el as HTMLElement
+        if (scroller.scrollWidth <= scroller.clientWidth) return
+        const target = fraction * scroller.scrollWidth - scroller.clientWidth * 0.25
+        scroller.scrollLeft = Math.max(0, target)
+      })
+    }, 200)
+
     return () => clearTimeout(timer)
-  }, [resources.length, rangeStart, rangeEnd, ref])
+  }, [resources.length, rangeStart, rangeEnd])
 
   const isResourceTimeline = currentView === 'resourceTimeline' || currentView === 'timeline'
 
@@ -187,10 +296,223 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
     }
   }, [])
 
-  const handleEventClickWithScroll = (info: any) => {
+  const handleEventClickWithScroll = useCallback((info: any) => {
     saveScrollPosition()
-    onEventClick(info)
-  }
+    actionRef.current.onEventClick(info)
+  }, [saveScrollPosition])
+
+  const renderEventContent = useCallback((arg: any) => {
+    const prebuilt = arg.event.extendedProps.eventContentHtml as string | undefined
+    if (prebuilt) return { html: prebuilt }
+    if (arg.event.extendedProps.isMaintenance) {
+      return { html: `<div class="cal-event-content"><div class="cal-event-name" style="color: #78350f;">🔧 صيانة</div></div>` }
+    }
+    return { html: `<div class="cal-event-content"><div class="cal-event-name">${arg.event.title}</div></div>` }
+  }, [])
+
+  const handleEventDidMount = useCallback((arg: any) => {
+    const actions = actionRef.current
+
+    if (arg.event.extendedProps.isMaintenance) {
+      arg.el.setAttribute('title', 'هذه الوحدة قيد الصيانة')
+      return
+    }
+
+    if (arg.event.extendedProps.showAlarm) {
+      arg.el.setAttribute('title', 'حجز غير مؤكد — مر 3 أيام منذ الإنشاء')
+      const alarmBase =
+        (typeof arg.event.extendedProps.statusColor === 'string' && arg.event.extendedProps.statusColor) ||
+        (typeof arg.event.backgroundColor === 'string' && arg.event.backgroundColor) ||
+        arg.el.style.backgroundColor
+      if (alarmBase) {
+        arg.el.style.setProperty('--alarm-base', alarmBase)
+        arg.el.style.setProperty('--alarm-status-bg', alarmBase)
+      }
+    }
+
+    arg.el.classList.add('group', 'relative')
+    arg.el.style.position = 'relative'
+
+    const isRestrictedBM =
+      actions.hasRole('BranchManager' as any) && !actions.hasRole('SuperAdmin' as any) && !actions.elevatedOps
+    const canDelete =
+      !actions.readOnly &&
+      (actions.hasRole('SuperAdmin' as any) ||
+      actions.hasRole('Receptionist' as any) ||
+      actions.elevatedOps ||
+      (actions.hasRole('BranchManager' as any) && !isRestrictedBM))
+
+    if (canDelete && !arg.el.querySelector('.fc-event-delete-btn')) {
+      const deleteBtn = document.createElement('button')
+      deleteBtn.innerHTML = '🗑️'
+      deleteBtn.className = 'fc-event-delete-btn'
+      const isRoomBlock = !!arg.event.extendedProps.roomBlock
+      deleteBtn.setAttribute('title', isRoomBlock ? 'حذف الحظر' : 'حذف الحجز (أو اضغط Ctrl+Click)')
+      deleteBtn.style.cssText = `
+        position: absolute; left: 2px; top: 2px; z-index: 50;
+        width: 22px; height: 22px; border-radius: 50%;
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        color: white; border: 2px solid white; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 11px; box-shadow: 0 2px 6px rgba(239, 68, 68, 0.4);
+      `
+      deleteBtn.onclick = (e) => {
+        e.stopPropagation()
+        e.preventDefault()
+        const roomBlock = arg.event.extendedProps.roomBlock
+        if (roomBlock) {
+          actions.setBlockToDelete(roomBlock)
+          actions.setBlockDeleteDialogOpen(true)
+          return
+        }
+        const reservation = arg.event.extendedProps.reservation as CalendarEventRow
+        if (reservation) {
+          actions.setReservationToDelete(reservation)
+          actions.setDeleteDialogOpen(true)
+        }
+      }
+      arg.el.appendChild(deleteBtn)
+    }
+
+    const isReservationEvent = !!arg.event.extendedProps.reservation && !arg.event.extendedProps.roomBlock
+    if (!actions.readOnly && isReservationEvent && !arg.el.querySelector('.fc-event-change-unit-btn')) {
+      const changeUnitBtn = document.createElement('button')
+      changeUnitBtn.innerHTML = '🔄'
+      changeUnitBtn.className = 'fc-event-change-unit-btn'
+      changeUnitBtn.setAttribute('title', 'نقل إلى وحدة أخرى')
+      changeUnitBtn.style.cssText = `
+        position: absolute; left: 26px; top: 2px; z-index: 50;
+        width: 22px; height: 22px; border-radius: 50%;
+        background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+        color: white; border: 2px solid white; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 11px; box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4);
+      `
+      changeUnitBtn.onclick = (e) => {
+        e.stopPropagation()
+        e.preventDefault()
+        const res = arg.event.extendedProps.reservation as CalendarEventRow
+        if (res) {
+          actions.setChangeUnitReservation(res)
+          actions.setChangeUnitDialogOpen(true)
+        }
+      }
+      arg.el.appendChild(changeUnitBtn)
+    }
+
+    if (isReservationEvent && !arg.el.querySelector('.fc-event-open-tab-btn')) {
+      const openTabBtn = document.createElement('button')
+      openTabBtn.innerHTML = '↗'
+      openTabBtn.className = 'fc-event-open-tab-btn'
+      openTabBtn.setAttribute('title', 'فتح في تبويب جديد')
+      openTabBtn.style.cssText = `
+        position: absolute; left: 50px; top: 2px; z-index: 50;
+        width: 22px; height: 22px; border-radius: 50%;
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: white; border: 2px solid white; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 13px; font-weight: 900;
+        box-shadow: 0 2px 6px rgba(16, 185, 129, 0.4);
+      `
+      openTabBtn.onclick = (e) => {
+        e.stopPropagation()
+        e.preventDefault()
+        const res = arg.event.extendedProps.reservation as CalendarEventRow
+        if (res?.id) window.open(`/reservations/${res.id}`, '_blank')
+      }
+      arg.el.appendChild(openTabBtn)
+    }
+
+    if (isReservationEvent) {
+      const res = arg.event.extendedProps.reservation as CalendarEventRow
+      if (res?.id && actions.pendingIds.has(res.id) && !arg.el.querySelector('.fc-event-pending-badge')) {
+        const badge = document.createElement('span')
+        badge.className = 'fc-event-pending-badge'
+        badge.setAttribute('title', 'معلق — سيُزامن عند الاتصال')
+        badge.style.cssText = `
+          position: absolute; top: -4px; right: -4px; z-index: 60;
+          width: 14px; height: 14px; border-radius: 50%;
+          background: #f59e0b; border: 2px solid white;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 8px; color: white; font-weight: 900; pointer-events: none;
+        `
+        badge.textContent = '⏱'
+        arg.el.appendChild(badge)
+      }
+
+      // Lazy tooltip: DOM is created on first right-click, not on every event mount.
+      arg.el.addEventListener('contextmenu', (e: MouseEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        let tooltip = (arg.el as any)._fcTooltip as HTMLElement | undefined
+        if (!tooltip) {
+          tooltip = document.createElement('div')
+          tooltip.className = 'fc-event-tooltip'
+          tooltip.style.cssText = TOOLTIP_BASE_STYLE + 'background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #f1f5f9;'
+          document.body.appendChild(tooltip)
+          ;(arg.el as any)._fcTooltip = tooltip
+          const observer = new MutationObserver(() => {
+            if (!document.body.contains(arg.el)) {
+              tooltip?.remove()
+              observer.disconnect()
+            }
+          })
+          observer.observe(arg.el.parentNode || document.body, { childList: true })
+        }
+        if (tooltip.style.display === 'block') {
+          tooltip.style.display = 'none'
+          return
+        }
+        hideAllTooltips()
+        const latestRes = arg.event.extendedProps.reservation as CalendarEventRow
+        tooltip.innerHTML = buildReservationTooltipHTML(latestRes, actions.staffByUserId)
+        const closeBtn = tooltip.querySelector('.fc-tooltip-close') as HTMLElement
+        if (closeBtn) {
+          closeBtn.onclick = (ev) => { ev.stopPropagation(); tooltip!.style.display = 'none' }
+        }
+        positionTooltip(tooltip, e.clientX, e.clientY)
+      })
+    } else if (arg.event.extendedProps.roomBlock) {
+      arg.el.style.pointerEvents = 'none'
+      arg.el.addEventListener('contextmenu', (e: MouseEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        const block = arg.event.extendedProps.roomBlock
+        let tooltip = (arg.el as any)._fcBlockTooltip as HTMLElement | undefined
+        if (!tooltip) {
+          tooltip = document.createElement('div')
+          tooltip.className = 'fc-event-tooltip'
+          tooltip.style.cssText = TOOLTIP_BASE_STYLE + 'background: linear-gradient(135deg, #1a1a1a 0%, #000000 100%); color: #f1f5f9; max-width: 340px;'
+          document.body.appendChild(tooltip)
+          ;(arg.el as any)._fcBlockTooltip = tooltip
+        }
+        if (tooltip.style.display === 'block') {
+          tooltip.style.display = 'none'
+          return
+        }
+        hideAllTooltips()
+        const blockName = block.name_ar || block.name || ''
+        const startDate = block.start_date ? new Date(block.start_date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
+        const endDate = block.end_date ? new Date(block.end_date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
+        const reason = block.reason_ar || block.reason || ''
+        const blockUnits = block.units?.map((u: any) => {
+          const unit = u.unit
+          return unit ? `${unit.unit_number} - ${unit.name_ar || unit.name || ''}` : ''
+        }).filter(Boolean) || []
+        tooltip.innerHTML = `
+          <button class="fc-tooltip-close" style="position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2);color:#f1f5f9;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">&times;</button>
+          <div style="font-weight: 700; font-size: 15px; margin-bottom: 8px; color: #f87171; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">🚫 ${blockName}</div>
+          <div style="margin-bottom: 4px;">📅 من: <span style="color: #34d399;">${startDate}</span></div>
+          <div style="margin-bottom: 4px;">📅 إلى: <span style="color: #fb923c;">${endDate}</span></div>
+          ${reason ? `<div style="margin-bottom: 4px; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">📋 السبب: <span style="color: #fbbf24;">${reason}</span></div>` : ''}
+          ${blockUnits.length > 0 ? `<div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);"><div style="margin-bottom: 4px; color: #a5b4fc;">🏠 الوحدات المحظورة (${blockUnits.length}):</div>${blockUnits.map((u: string) => `<div style="margin-right: 12px; font-size: 12px; color: #cbd5e1;">• ${u}</div>`).join('')}</div>` : ''}
+        `
+        const closeBtn = tooltip.querySelector('.fc-tooltip-close') as HTMLElement
+        if (closeBtn) closeBtn.onclick = (ev) => { ev.stopPropagation(); tooltip!.style.display = 'none' }
+        positionTooltip(tooltip, e.clientX, e.clientY)
+      })
+    }
+  }, [])
 
   return (
     <motion.div
@@ -329,387 +651,8 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
                 `
               }
             }}
-            eventContent={(arg) => {
-              const reservation = arg.event.extendedProps.reservation as CalendarEventRow | undefined
-              if (reservation) {
-                const guestName = `${reservation.guest_first_name_ar || reservation.guest_first_name || ''} ${reservation.guest_last_name_ar || reservation.guest_last_name || ''}`.trim() || reservation.id.substring(0, 8)
-                const phone = reservation.guest_phone || ''
-                const showAlarm = !!arg.event.extendedProps.showAlarm
-                const alarmPrefix = showAlarm ? '⚠ ' : ''
-                const showRank = guestTypeShowsRank(reservation.guest_type)
-                const rank = reservation.guest_military_rank_ar || ''
-                const displayName = showRank && rank ? `${rank} / ${guestName}` : guestName
-
-                const checkIn = new Date(reservation.check_in_date)
-                const checkOut = new Date(reservation.check_out_date)
-                const diffDays = Math.round((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24))
-                const isSingleDay = diffDays <= 1
-
-                return {
-                  html: `
-                    <div class="cal-event-content ${isSingleDay ? 'single-day-event' : ''}">
-                      <div class="cal-event-name">${alarmPrefix}${displayName}</div>
-                      ${phone ? `<div class="cal-event-phone">📞 ${phone}</div>` : ''}
-                    </div>
-                  `
-                }
-              }
-              if (arg.event.extendedProps.isMaintenance) {
-                return { html: `<div class="cal-event-content"><div class="cal-event-name" style="color: #78350f;">🔧 صيانة</div></div>` }
-              }
-              return { html: `<div class="cal-event-content"><div class="cal-event-name">${arg.event.title}</div></div>` }
-            }}
-            eventDidMount={(arg) => {
-              if (arg.event.extendedProps.isMaintenance) {
-                arg.el.setAttribute('title', 'هذه الوحدة قيد الصيانة')
-                return
-              }
-
-              if (arg.event.extendedProps.showAlarm) {
-                arg.el.setAttribute('title', 'حجز غير مؤكد — مر 3 أيام منذ الإنشاء')
-                const alarmBase =
-                  (typeof arg.event.extendedProps.statusColor === 'string' && arg.event.extendedProps.statusColor) ||
-                  (typeof arg.event.backgroundColor === 'string' && arg.event.backgroundColor) ||
-                  arg.el.style.backgroundColor
-                if (alarmBase) {
-                  arg.el.style.setProperty('--alarm-base', alarmBase)
-                  arg.el.style.setProperty('--alarm-status-bg', alarmBase)
-                }
-              }
-
-              arg.el.classList.add('group', 'relative')
-              arg.el.style.position = 'relative'
-
-              const isRestrictedBM =
-                hasRole('BranchManager' as any) && !hasRole('SuperAdmin' as any) && !elevatedOps
-              const canDelete =
-                !readOnly &&
-                (hasRole('SuperAdmin' as any) ||
-                hasRole('Receptionist' as any) ||
-                elevatedOps ||
-                (hasRole('BranchManager' as any) && !isRestrictedBM))
-              if (canDelete && !arg.el.querySelector('.fc-event-delete-btn')) {
-                const deleteBtn = document.createElement('button')
-                deleteBtn.innerHTML = '🗑️'
-                deleteBtn.className = 'fc-event-delete-btn'
-                const isRoomBlock = !!arg.event.extendedProps.roomBlock
-                deleteBtn.setAttribute('title', isRoomBlock ? 'حذف الحظر' : 'حذف الحجز (أو اضغط Ctrl+Click)')
-                deleteBtn.style.cssText = `
-                  position: absolute;
-                  left: 2px;
-                  top: 2px;
-                  z-index: 50;
-                  width: 22px;
-                  height: 22px;
-                  border-radius: 50%;
-                  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-                  color: white;
-                  border: 2px solid white;
-                  cursor: pointer;
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  font-size: 11px;
-                  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.4);
-                `
-
-                deleteBtn.onclick = (e) => {
-                  e.stopPropagation()
-                  e.preventDefault()
-                  const roomBlock = arg.event.extendedProps.roomBlock
-                  if (roomBlock) {
-                    setBlockToDelete(roomBlock)
-                    setBlockDeleteDialogOpen(true)
-                    return
-                  }
-                  const reservation = arg.event.extendedProps.reservation as CalendarEventRow
-                  if (reservation) {
-                    setReservationToDelete(reservation)
-                    setDeleteDialogOpen(true)
-                  }
-                }
-
-                arg.el.appendChild(deleteBtn)
-              }
-
-              const isReservationEvent = !!arg.event.extendedProps.reservation && !arg.event.extendedProps.roomBlock
-              if (!readOnly && isReservationEvent && !arg.el.querySelector('.fc-event-change-unit-btn')) {
-                const changeUnitBtn = document.createElement('button')
-                changeUnitBtn.innerHTML = '🔄'
-                changeUnitBtn.className = 'fc-event-change-unit-btn'
-                changeUnitBtn.setAttribute('title', 'نقل إلى وحدة أخرى')
-                changeUnitBtn.style.cssText = `
-                  position: absolute;
-                  left: 26px;
-                  top: 2px;
-                  z-index: 50;
-                  width: 22px;
-                  height: 22px;
-                  border-radius: 50%;
-                  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-                  color: white;
-                  border: 2px solid white;
-                  cursor: pointer;
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  font-size: 11px;
-                  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4);
-                `
-
-                changeUnitBtn.onclick = (e) => {
-                  e.stopPropagation()
-                  e.preventDefault()
-                  const res = arg.event.extendedProps.reservation as CalendarEventRow
-                  if (res) {
-                    setChangeUnitReservation(res)
-                    setChangeUnitDialogOpen(true)
-                  }
-                }
-
-                arg.el.appendChild(changeUnitBtn)
-              }
-
-              if (isReservationEvent && !arg.el.querySelector('.fc-event-open-tab-btn')) {
-                const openTabBtn = document.createElement('button')
-                openTabBtn.innerHTML = '↗'
-                openTabBtn.className = 'fc-event-open-tab-btn'
-                openTabBtn.setAttribute('title', 'فتح في تبويب جديد')
-                openTabBtn.style.cssText = `
-                  position: absolute;
-                  left: 50px;
-                  top: 2px;
-                  z-index: 50;
-                  width: 22px;
-                  height: 22px;
-                  border-radius: 50%;
-                  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-                  color: white;
-                  border: 2px solid white;
-                  cursor: pointer;
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  font-size: 13px;
-                  font-weight: 900;
-                  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.4);
-                `
-
-                openTabBtn.onclick = (e) => {
-                  e.stopPropagation()
-                  e.preventDefault()
-                  const res = arg.event.extendedProps.reservation as CalendarEventRow
-                  if (res?.id) {
-                    window.open(`/reservations/${res.id}`, '_blank')
-                  }
-                }
-
-                arg.el.appendChild(openTabBtn)
-              }
-
-              if (isReservationEvent) {
-                const res = arg.event.extendedProps.reservation as CalendarEventRow
-                if (res?.id && pendingIds.has(res.id) && !arg.el.querySelector('.fc-event-pending-badge')) {
-                  const badge = document.createElement('span')
-                  badge.className = 'fc-event-pending-badge'
-                  badge.setAttribute('title', 'معلق — سيُزامن عند الاتصال')
-                  badge.style.cssText = `
-                    position: absolute;
-                    top: -4px;
-                    right: -4px;
-                    z-index: 60;
-                    width: 14px;
-                    height: 14px;
-                    border-radius: 50%;
-                    background: #f59e0b;
-                    border: 2px solid white;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 8px;
-                    color: white;
-                    font-weight: 900;
-                    pointer-events: none;
-                  `
-                  badge.textContent = '⏱'
-                  arg.el.style.position = 'relative'
-                  arg.el.appendChild(badge)
-                }
-              }
-
-              const reservation = arg.event.extendedProps.reservation as CalendarEventRow | undefined
-              if (reservation) {
-                const statusMap: Record<string, string> = { pending: 'قيد الانتظار', confirmed: 'مؤكد', checked_in: 'تم تسجيل الدخول', checked_out: 'تم تسجيل الخروج', cancelled: 'ملغي', no_show: 'لم يحضر' }
-                const guestTypeMap: Record<string, string> = { military: 'عسكري', civilian: 'مدني', club_member: 'عضو دار', artillery_family: 'ابناء مدفعية' }
-
-                function buildTooltipHTML(res: CalendarEventRow): string {
-                  const gName = `${res.guest_first_name_ar || res.guest_first_name || ''} ${res.guest_last_name_ar || res.guest_last_name || ''}`.trim()
-                  const gType = res.guest_type || ''
-                  const rank = res.guest_military_rank_ar || ''
-                  const headerName = guestTypeShowsRank(gType) && rank
-                    ? `${rank} / ${gName || res.id.substring(0, 8)}`
-                    : (gName || res.id.substring(0, 8))
-                  const ph = res.guest_phone || ''
-                  const cIn = res.check_in_date ? new Date(res.check_in_date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
-                  const cOut = res.check_out_date ? new Date(res.check_out_date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
-                  const cAt = res.created_at ? new Date(res.created_at).toLocaleString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : ''
-                  const st = res.status || ''
-                  const notes = res.notes || ''
-                  const creatorUserId = res.created_by_user_id
-                  const creatorName = creatorUserId ? (staffByUserId.get(creatorUserId) || creatorUserId.substring(0, 8) + '...') : null
-                  return `
-                    <button class="fc-tooltip-close" style="position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2);color:#f1f5f9;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background 0.15s;">&times;</button>
-                    <div style="font-weight: 700; font-size: 15px; margin-bottom: 8px; color: #60a5fa; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
-                      👤 ${headerName}
-                    </div>
-                    ${ph ? `<div style="margin-bottom: 4px;">📞 <span style="color: #a5b4fc;">${ph}</span></div>` : ''}
-                    ${gType ? `<div style="margin-bottom: 4px;">🏷️ نوع الضيف: <span style="color: #38bdf8;">${guestTypeMap[gType] || gType}</span></div>` : ''}
-                    <div style="margin-bottom: 4px;">📅 الدخول: <span style="color: #34d399;">${cIn}</span></div>
-                    <div style="margin-bottom: 4px;">📅 الخروج: <span style="color: #fb923c;">${cOut}</span></div>
-                    ${st ? `<div style="margin-bottom: 4px;">📌 الحالة: <span style="color: #c084fc;">${statusMap[st] || st}</span></div>` : ''}
-                    ${notes ? `<div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">📝 ملاحظات: <span style="color: #fde68a;">${notes}</span></div>` : ''}
-                    <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">👷 بواسطة: <span style="color: #67e8f9;">${creatorName || 'غير محدد'}</span></div>
-                    ${cAt ? `<div style="margin-top: 4px; font-size: 11px; color: #94a3b8;">🕐 تاريخ الإنشاء: ${cAt}</div>` : ''}
-                  `
-                }
-
-                const tooltip = document.createElement('div')
-                tooltip.className = 'fc-event-tooltip'
-                tooltip.style.cssText = `
-                  display: none;
-                  position: fixed;
-                  z-index: 99999;
-                  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-                  color: #f1f5f9;
-                  border-radius: 12px;
-                  padding: 14px 18px;
-                  font-size: 13px;
-                  line-height: 1.7;
-                  min-width: 240px;
-                  max-width: 320px;
-                  box-shadow: 0 20px 40px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.1);
-                  pointer-events: auto;
-                  direction: rtl;
-                  backdrop-filter: blur(10px);
-                  border: 1px solid rgba(255,255,255,0.1);
-                `
-                document.body.appendChild(tooltip)
-
-                arg.el.addEventListener('contextmenu', (e: MouseEvent) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  if (tooltip.style.display === 'block') {
-                    tooltip.style.display = 'none'
-                    return
-                  }
-                  document.querySelectorAll('.fc-event-tooltip').forEach(el => {
-                    (el as HTMLElement).style.display = 'none'
-                  })
-                  const latestRes = arg.event.extendedProps.reservation as CalendarEventRow
-                  tooltip.innerHTML = buildTooltipHTML(latestRes)
-                  const closeBtn = tooltip.querySelector('.fc-tooltip-close') as HTMLElement
-                  if (closeBtn) {
-                    closeBtn.addEventListener('click', (ev) => { ev.stopPropagation(); tooltip.style.display = 'none' })
-                    closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = 'rgba(239,68,68,0.6)' })
-                    closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = 'rgba(255,255,255,0.15)' })
-                  }
-                  tooltip.style.display = 'block'
-                  const x = e.clientX + 12
-                  const y = e.clientY + 12
-                  const rect = tooltip.getBoundingClientRect()
-                  tooltip.style.left = (x + rect.width > window.innerWidth ? e.clientX - rect.width - 12 : x) + 'px'
-                  tooltip.style.top = (y + rect.height > window.innerHeight ? e.clientY - rect.height - 12 : y) + 'px'
-                })
-
-                const observer = new MutationObserver(() => {
-                  if (!document.body.contains(arg.el)) {
-                    tooltip.remove()
-                    observer.disconnect()
-                  }
-                })
-                observer.observe(arg.el.parentNode || document.body, { childList: true })
-              } else if (arg.event.extendedProps.roomBlock) {
-                arg.el.style.pointerEvents = 'none'
-                const block = arg.event.extendedProps.roomBlock
-                const blockName = block.name_ar || block.name || ''
-                const startDate = block.start_date ? new Date(block.start_date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
-                const endDate = block.end_date ? new Date(block.end_date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
-                const reason = block.reason_ar || block.reason || ''
-                const blockUnits = block.units?.map((u: any) => {
-                  const unit = u.unit
-                  return unit ? `${unit.unit_number} - ${unit.name_ar || unit.name || ''}` : ''
-                }).filter(Boolean) || []
-
-                const blockTooltip = document.createElement('div')
-                blockTooltip.className = 'fc-event-tooltip'
-                blockTooltip.style.cssText = `
-                  display: none;
-                  position: fixed;
-                  z-index: 99999;
-                  background: linear-gradient(135deg, #1a1a1a 0%, #000000 100%);
-                  color: #f1f5f9;
-                  border-radius: 12px;
-                  padding: 14px 18px;
-                  font-size: 13px;
-                  line-height: 1.7;
-                  min-width: 240px;
-                  max-width: 340px;
-                  box-shadow: 0 20px 40px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.15);
-                  pointer-events: auto;
-                  direction: rtl;
-                  backdrop-filter: blur(10px);
-                  border: 1px solid rgba(255,255,255,0.15);
-                `
-                blockTooltip.innerHTML = `
-                  <button class="fc-tooltip-close" style="position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2);color:#f1f5f9;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background 0.15s;">&times;</button>
-                  <div style="font-weight: 700; font-size: 15px; margin-bottom: 8px; color: #f87171; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
-                    🚫 ${blockName}
-                  </div>
-                  <div style="margin-bottom: 4px;">📅 من: <span style="color: #34d399;">${startDate}</span></div>
-                  <div style="margin-bottom: 4px;">📅 إلى: <span style="color: #fb923c;">${endDate}</span></div>
-                  ${reason ? `<div style="margin-bottom: 4px; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">📋 السبب: <span style="color: #fbbf24;">${reason}</span></div>` : ''}
-                  ${blockUnits.length > 0 ? `
-                    <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">
-                      <div style="margin-bottom: 4px; color: #a5b4fc;">🏠 الوحدات المحظورة (${blockUnits.length}):</div>
-                      ${blockUnits.map((u: string) => `<div style="margin-right: 12px; font-size: 12px; color: #cbd5e1;">• ${u}</div>`).join('')}
-                    </div>
-                  ` : ''}
-                `
-                const blockCloseBtn = blockTooltip.querySelector('.fc-tooltip-close') as HTMLElement
-                if (blockCloseBtn) {
-                  blockCloseBtn.addEventListener('click', (ev) => { ev.stopPropagation(); blockTooltip.style.display = 'none' })
-                  blockCloseBtn.addEventListener('mouseenter', () => { blockCloseBtn.style.background = 'rgba(239,68,68,0.6)' })
-                  blockCloseBtn.addEventListener('mouseleave', () => { blockCloseBtn.style.background = 'rgba(255,255,255,0.15)' })
-                }
-                document.body.appendChild(blockTooltip)
-
-                arg.el.addEventListener('contextmenu', (e: MouseEvent) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  if (blockTooltip.style.display === 'block') {
-                    blockTooltip.style.display = 'none'
-                    return
-                  }
-                  document.querySelectorAll('.fc-event-tooltip').forEach(el => {
-                    (el as HTMLElement).style.display = 'none'
-                  })
-                  blockTooltip.style.display = 'block'
-                  const x = e.clientX + 12
-                  const y = e.clientY + 12
-                  const rect = blockTooltip.getBoundingClientRect()
-                  blockTooltip.style.left = (x + rect.width > window.innerWidth ? e.clientX - rect.width - 12 : x) + 'px'
-                  blockTooltip.style.top = (y + rect.height > window.innerHeight ? e.clientY - rect.height - 12 : y) + 'px'
-                })
-
-                const blockObserver = new MutationObserver(() => {
-                  if (!document.body.contains(arg.el)) {
-                    blockTooltip.remove()
-                    blockObserver.disconnect()
-                  }
-                })
-                blockObserver.observe(arg.el.parentNode || document.body, { childList: true })
-              }
-            }}
+            eventContent={renderEventContent}
+            eventDidMount={handleEventDidMount}
             eventDrop={onEventDrop}
             eventResize={onEventResize}
             height={fcHeight}
@@ -733,6 +676,22 @@ const FullCalendarWidget = React.memo(React.forwardRef<FullCalendar, Props>(func
       </div>
     </motion.div>
   )
-}))
+})
 
-export default FullCalendarWidget
+// Re-render only when calendar data or layout changes — auth/tooltip props flow through actionRef.
+function calendarWidgetPropsEqual(prev: Props, next: Props): boolean {
+  return (
+    prev.events === next.events &&
+    prev.resources === next.resources &&
+    prev.rangeStart === next.rangeStart &&
+    prev.rangeEnd === next.rangeEnd &&
+    prev.calendarDirection === next.calendarDirection &&
+    prev.currentView === next.currentView &&
+    prev.readOnly === next.readOnly &&
+    prev.onDateSelect === next.onDateSelect &&
+    prev.onEventDrop === next.onEventDrop &&
+    prev.onEventResize === next.onEventResize
+  )
+}
+
+export default React.memo(FullCalendarWidget, calendarWidgetPropsEqual)

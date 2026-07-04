@@ -107,12 +107,17 @@ export function useOfflineMutation(calendarArgs: CalendarWindowArgs) {
 
   // ── CREATE ──────────────────────────────────────────────────────────────────
   const create = useCallback(
-    async (payload: NewReservationPayload): Promise<{ id: string; wasOffline: boolean }> => {
+    async (
+      payload: NewReservationPayload,
+      options?: { skipWindowRefresh?: boolean }
+    ): Promise<{ id: string; wasOffline: boolean }> => {
       if (isOnline) {
         if (isApiProvider()) {
           const data = await apiPost<{ id: string }>('/reservations', payload)
-          const fresh = await fetchCalendarWindow(calendarArgs)
-          queryClient.setQueryData(calendarWindowKey(calendarArgs), fresh)
+          if (!options?.skipWindowRefresh) {
+            const fresh = await fetchCalendarWindow(calendarArgs)
+            queryClient.setQueryData(calendarWindowKey(calendarArgs), fresh)
+          }
           queryClient.invalidateQueries({ queryKey: ['reservations'] })
           queryClient.invalidateQueries({ queryKey: ['reservations-paginated'] })
           return { id: data.id, wasOffline: false }
@@ -130,9 +135,10 @@ export function useOfflineMutation(calendarArgs: CalendarWindowArgs) {
           )
         }
 
-        // Re-fetch the window (paginated) so the new row appears immediately.
-        const fresh = await fetchCalendarWindow(calendarArgs)
-        queryClient.setQueryData(calendarWindowKey(calendarArgs), fresh)
+        if (!options?.skipWindowRefresh) {
+          const fresh = await fetchCalendarWindow(calendarArgs)
+          queryClient.setQueryData(calendarWindowKey(calendarArgs), fresh)
+        }
         queryClient.invalidateQueries({ queryKey: ['reservations'] })
         queryClient.invalidateQueries({ queryKey: ['reservations-paginated'] })
         return { id: data.id, wasOffline: false }
@@ -185,14 +191,19 @@ export function useOfflineMutation(calendarArgs: CalendarWindowArgs) {
 
   // ── UPDATE ──────────────────────────────────────────────────────────────────
   const update = useCallback(
-    async (payload: UpdateReservationPayload): Promise<{ wasOffline: boolean }> => {
+    async (
+      payload: UpdateReservationPayload,
+      options?: { skipWindowRefresh?: boolean }
+    ): Promise<{ wasOffline: boolean }> => {
       const { id, ...updates } = payload
 
       if (isOnline) {
         if (isApiProvider()) {
           await apiPatch(`/reservations/${id}`, updates)
-          const fresh = await fetchCalendarWindow(calendarArgs)
-          queryClient.setQueryData(calendarWindowKey(calendarArgs), fresh)
+          if (!options?.skipWindowRefresh) {
+            const fresh = await fetchCalendarWindow(calendarArgs)
+            queryClient.setQueryData(calendarWindowKey(calendarArgs), fresh)
+          }
           return { wasOffline: false }
         }
         const { error } = await supabase
@@ -201,9 +212,10 @@ export function useOfflineMutation(calendarArgs: CalendarWindowArgs) {
           .eq('id', id)
         if (error) throw error
 
-        // Re-fetch the window so view columns (guest name, etc.) stay fresh.
-        const fresh = await fetchCalendarWindow(calendarArgs)
-        queryClient.setQueryData(calendarWindowKey(calendarArgs), fresh)
+        if (!options?.skipWindowRefresh) {
+          const fresh = await fetchCalendarWindow(calendarArgs)
+          queryClient.setQueryData(calendarWindowKey(calendarArgs), fresh)
+        }
         return { wasOffline: false }
       }
 
