@@ -1,32 +1,35 @@
-# Artillery ERP — Scheduled Delta-Sync (Supabase → VPS)
+# Artillery ERP — Nightly Reconcile (Supabase → VPS)
 
-Automation that keeps the VPS PostgreSQL (`artillery_erp_staging`) continuously
-caught up with **Supabase (source of truth)** by running the
-[`../README.md`](../README.md) delta-sync pipeline **twice daily**, unattended.
+Automation that keeps the VPS PostgreSQL (`artillery_erp_staging`) **equal** to
+**Supabase (source of truth)** by running a full reconcile pipeline **once daily
+at midnight (UTC+3)**, unattended.
 
-Each run does: **compare → backup (`pg_dump -Fc`) → generate → apply (resilient)
-→ verify**, writes a timestamped log, and prunes old logs/backups.
+Each run does: **compare → backup (`pg_dump -Fc`) → purge VPS-only rows →
+generate → apply (resilient) → verify**, writes a timestamped log, and prunes
+old logs/backups.
 
-> One-way sync only. It **INSERTs missing** + **UPDATEs changed** rows
-> (`ON CONFLICT`-safe) and **never** deletes/overwrites VPS-only live rows or
-> alters the schema.
+> **Destructive one-way reconcile.** Unlike the old safe sync (`run-sync.ps1`),
+> this **deletes** rows on the VPS whose primary keys are absent from Supabase,
+> then INSERTs missing + UPDATEs changed rows so both databases match.
 
 ## Files
 
 | File | What it does |
 |------|--------------|
-| `run-sync.ps1` | The runner. Loads creds from the secrets file, runs the 5-step pipeline, logs to `..\logs\`, backs up to `..\backups\`, prunes old files, uses a lock file to prevent overlap. Exit `0` on success (incl. expected conflict skips), non-zero only on a real failure. |
-| `register-tasks.ps1` | Creates/updates (or `-Unregister`s) the Windows Scheduled Task with the two daily triggers. |
+| `run-reconcile-nightly.ps1` | The scheduled runner. Loads creds, runs the 6-step reconcile pipeline, logs to `..\logs\`, backs up to `..\backups\`, prunes old files, uses a lock file. Exit `0` on success. |
+| `run-sync.ps1` | Legacy safe sync (insert/update only, never deletes). Kept for manual use. |
+| `run-reconcile.ps1` | Interactive/manual full reconcile (same steps, console output). |
+| `register-tasks.ps1` | Creates/updates (or `-Unregister`s) the Windows Scheduled Task. Removes the legacy twice-daily task on register. |
 | `README.md` | This file. |
 
 ## Install location (durable)
 
 ```
 C:\Artillery-ERP\database-sync\              <- git working tree (git pull to update)
-  ├─ automation\   run-sync.ps1, register-tasks.ps1, README.md   (committed)
-  ├─ logs\         sync_<stamp>.log, run-sync.lock                (gitignored)
-  ├─ backups\      pre-sync_<stamp>.dump                          (gitignored)
-  └─ reports\      compare/delta/verify reports                   (gitignored)
+  ├─ automation\   run-reconcile-nightly.ps1, register-tasks.ps1, …   (committed)
+  ├─ logs\         reconcile_<stamp>.log, run-reconcile.lock           (gitignored)
+  ├─ backups\      pre-reconcile_<stamp>.dump                         (gitignored)
+  └─ reports\      compare/delta/purge/verify reports                 (gitignored)
 ```
 
 Set up once on the VPS:
@@ -36,30 +39,22 @@ cd C:\Artillery-ERP
 git pull
 cd C:\Artillery-ERP\database-sync
 npm install
+powershell -ExecutionPolicy Bypass -File automation\register-tasks.ps1
 ```
 
 ## Credentials & non-interactive DB auth (no secrets in git)
 
-`run-sync.ps1` reads everything at runtime from the VPS-only secrets file
+`run-reconcile-nightly.ps1` reads everything at runtime from the VPS-only secrets file
 `C:\Temp\artillery-db-secrets.txt`:
 
 - `SOURCE_DATABASE_URL` — Supabase session pooler (source of truth).
-- `DATABASE_URL_STAGING` — VPS target (`artillery_app`) — used for compare/generate/verify.
+- `DATABASE_URL_STAGING` — VPS target (`artillery_app`) — used for compare/generate/purge/verify.
 - `POSTGRES_SUPERUSER_PASSWORD` — the `postgres` role password (see below).
 
 The **apply** step must run as a superuser because the generated delta uses
-`ALTER TABLE … DISABLE TRIGGER USER` (all tables are owned by `postgres`). This
-is set up **once, durably** — no per-run `pg_hba.conf` flipping:
+`ALTER TABLE … DISABLE TRIGGER USER`. Auth is via the secured pgpass file
+`C:\Temp\artillery-pgpass.conf` (ACL: Administrators + SYSTEM only).
 
-1. The `postgres` role has a strong password (stored as
-   `POSTGRES_SUPERUSER_PASSWORD` in the secrets file).
-2. A secured **pgpass** file `C:\Temp\artillery-pgpass.conf`
-   (`127.0.0.1:5432:*:postgres:<pw>`, ACL: Administrators + SYSTEM only) lets
-   `psql`/`pg_dump` authenticate non-interactively.
-3. `pg_hba.conf` already permits `host all all 127.0.0.1/32 scram-sha-256`, so
-   the superuser connects over loopback with no config change.
-
-`run-sync.ps1` points `PGPASSFILE` at that pgpass file for the backup + apply.
 **Nothing sensitive is committed.**
 
 ## Schedule & timezone
@@ -69,81 +64,65 @@ Windows fires triggers at the **VPS local wall-clock time**. This VPS runs on
 
 | Operator intent (UTC+3) | VPS-local trigger (PDT / summer) | VPS-local trigger (PST / winter) |
 |---|---|---|
-| 16:00 (4 PM) | **06:00** | 05:00 |
-| 00:00 (12 AM) | **14:00** | 13:00 |
+| **00:00 (midnight)** | **06:00** | 05:00 |
 
-The default triggers are **06:00** and **14:00** VPS-local, which match the
-operator's 16:00 / 00:00 UTC+3 **while Pacific is on PDT (UTC-7)**. When Pacific
-switches to PST (UTC-8, ~early November) those same VPS-local times drift to
-15:00 / 23:00 UTC+3 — re-align with:
+The default trigger is **06:00** VPS-local, which matches midnight UTC+3
+**while Pacific is on PDT (UTC-7)**. When Pacific switches to PST (UTC-8,
+~early November) that same VPS-local time drifts to 23:00 UTC+3 — re-align with:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File register-tasks.ps1 -Times '05:00','13:00'
+powershell -ExecutionPolicy Bypass -File register-tasks.ps1 -Times '05:00'
 ```
 
 ### Register / change / remove
 
 ```powershell
-# Register with defaults (06:00 & 14:00 VPS-local):
+# Register with default (06:00 VPS-local = midnight UTC+3 during PDT):
 powershell -ExecutionPolicy Bypass -File C:\Artillery-ERP\database-sync\automation\register-tasks.ps1
 
-# Use different VPS-local times:
-powershell -ExecutionPolicy Bypass -File register-tasks.ps1 -Times '05:00','13:00'
+# Re-align for PST (05:00 VPS-local = midnight UTC+3 during PST):
+powershell -ExecutionPolicy Bypass -File register-tasks.ps1 -Times '05:00'
 
 # Inspect:
-schtasks /query /tn "Artillery-DeltaSync-TwiceDaily" /v /fo LIST
-Get-ScheduledTaskInfo -TaskName "Artillery-DeltaSync-TwiceDaily"
+schtasks /query /tn "Artillery-DeltaSync-Nightly" /v /fo LIST
+Get-ScheduledTaskInfo -TaskName "Artillery-DeltaSync-Nightly"
 
 # Run once now (manual test):
-Start-ScheduledTask -TaskName "Artillery-DeltaSync-TwiceDaily"
+Start-ScheduledTask -TaskName "Artillery-DeltaSync-Nightly"
 
 # Freeze for cutover (disable) / re-enable:
-Disable-ScheduledTask -TaskName "Artillery-DeltaSync-TwiceDaily"
-Enable-ScheduledTask  -TaskName "Artillery-DeltaSync-TwiceDaily"
+Disable-ScheduledTask -TaskName "Artillery-DeltaSync-Nightly"
+Enable-ScheduledTask  -TaskName "Artillery-DeltaSync-Nightly"
 
 # Remove entirely:
 powershell -ExecutionPolicy Bypass -File register-tasks.ps1 -Unregister
 ```
 
 The task runs as **SYSTEM**, highest privileges, whether logged on or not, with
-`MultipleInstances=IgnoreNew` (scheduler-level overlap guard) and
-`StartWhenAvailable` (catches up a missed run after downtime).
+`MultipleInstances=IgnoreNew` and `StartWhenAvailable`.
 
 ## Logs, backups, retention
 
-- Logs: `..\logs\sync_<yyyyMMdd-HHmmss>.log` — keep last **30**.
-- Backups: `..\backups\pre-sync_<yyyyMMdd-HHmmss>.dump` (`pg_dump -Fc`) — keep last **14**.
-- Both are pruned at the end of every run. Change via `-KeepLogs` / `-KeepBackups`
-  on `run-sync.ps1`.
+- Logs: `..\logs\reconcile_<yyyyMMdd-HHmmss>.log` — keep last **30**.
+- Backups: `..\backups\pre-reconcile_<yyyyMMdd-HHmmss>.dump` — keep last **14**.
+- Both are pruned at the end of every run.
 
-## How conflicts are handled (READ THIS)
+## How reconcile differs from safe sync
 
-The apply uses `psql -v ON_ERROR_ROLLBACK=on`, so a row that collides with a
-**VPS-only live booking** (unique/exclusion constraint) is skipped per-savepoint
-and **everything else still commits**. These skips are EXPECTED and logged, not
-failures.
+| | Safe sync (`run-sync.ps1`) | Nightly reconcile (`run-reconcile-nightly.ps1`) |
+|---|---|---|
+| Deletes VPS-only rows | Never | **Yes** (purge step) |
+| Goal | Catch up inserts/updates | **Full equality** with Supabase |
+| Verify tolerance | Known booking conflicts allowed | **Strict** (minor live-churn tolerance only) |
+| Schedule | Was twice daily (removed) | **Once daily at midnight UTC+3** |
 
-`verify` returns non-zero whenever any Supabase row is still missing from the
-VPS — which happens every run because of the **known live booking conflicts**
-(currently ~3 reservations). `run-sync.ps1` therefore parses
-`reports/verify_report.json` and only **fails** on divergence in tables *outside*
-the known-conflict allowlist (`public.reservations`,
-`public.reservation_attachments`, configurable via `-KnownConflictTables`).
-
-> ⚠️ **While BOTH systems are live**, this one-way sync keeps pulling
-> Supabase → VPS, but the new VPS site is *also* writing to the same DB. So
-> booking conflicts (same unit + overlapping dates) can **recur or grow** until a
-> real cutover with a write-freeze. The job handles them safely (skips + logs),
-> but they need **manual resolution at cutover**. See
-> [`../../docs/FINAL_CUTOVER_RUNBOOK.md`](../../docs/FINAL_CUTOVER_RUNBOOK.md) §6.
-
-**At final cutover: `Disable-ScheduledTask` first** (freeze), then do the final
-manual sync + conflict resolution per the runbook.
+> ⚠️ **While BOTH systems are live**, new VPS-only bookings can reappear between
+> runs and will be purged on the next nightly reconcile. At final cutover,
+> **disable this task first** (freeze), then do the manual final sync per
+> [`../../docs/FINAL_CUTOVER_RUNBOOK.md`](../../docs/FINAL_CUTOVER_RUNBOOK.md).
 
 ## Exit codes
 
-- `0` — success, including expected conflict skips, or a run skipped because
-  another was still in progress.
-- non-zero — a real failure (secrets missing, backup failed, generate failed,
-  apply connection error, verify divergence in an unexpected table, …). Check
-  the newest `..\logs\sync_*.log`.
+- `0` — success, or a run skipped because another was in progress.
+- non-zero — a real failure (secrets missing, backup failed, purge/generate/apply
+  error, verify divergence beyond tolerance). Check the newest `..\logs\reconcile_*.log`.
