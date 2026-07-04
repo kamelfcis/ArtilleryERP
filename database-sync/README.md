@@ -20,6 +20,7 @@ or committed.
 | `compare_databases.ts` | **Step 1 & 2.** Introspects both DBs and prints a schema comparison + a row-count comparison (`Table | Rows Supabase | Rows VPS | Difference`). Writes `reports/compare_report.md` and `.json`. |
 | `generateDelta.ts` | **Steps 3–7.** Detects missing rows (by composite PK, else uuid `id`, else int `id`) and changed rows (via `updated_at`, else full-column compare). Writes `delta_sync.sql`: `INSERT … ON CONFLICT (pk) DO NOTHING` for missing rows + `UPDATE … WHERE pk … (with an `updated_at` guard so newer target rows are never clobbered)` for changed rows, ordered FK-safe (topological sort), plus `setval()` sequence repair. Reads stream via server-side cursors (100k+ rows OK). |
 | `verifySync.ts` | **Step 8.** Re-counts both DBs, checks no source PKs remain missing in the target, prints PASS/FAILED per table + overall (non-zero exit on failure). Writes `reports/verify_report.json`. |
+| `purge-vps-only.ts` | **One-way reconciliation (destructive).** Deletes rows on VPS whose primary key does NOT exist in Supabase. Runs in reverse FK order (children before parents). Use before a full delta sync when Supabase is source of truth and VPS-only excess must be removed. Writes `reports/purge_report.json`. |
 | `delta_sync.sql` | **Generated** by `generateDelta.ts`; wrapped in `BEGIN; … COMMIT;`. Apply transactionally — any error rolls the whole thing back. |
 | `package.json` / `tsconfig.json` | Isolated to this folder (root deps untouched). |
 
@@ -160,6 +161,24 @@ PASS/FAILED per table + overall. Exit code is non-zero if any table fails.
 A table can legitimately show the VPS row count **higher** than Supabase
 (VPS-only live rows are preserved, never deleted); `verify` still PASSes as long
 as no Supabase PK is missing from the VPS.
+
+## One-way reconciliation (purge VPS-only rows)
+
+When Supabase is the **sole source of truth** and VPS-only rows must be
+removed (e.g. migration cutover), run **purge before sync**:
+
+```powershell
+# 1. Back up first (see step 4 above)
+npm run compare          # note tables where VPS count > Supabase
+npm run purge            # DELETE rows whose PK is absent from Supabase
+INSERT_BATCH=1 npm run generate
+# apply delta_sync.sql as superuser (see step 6)
+npm run verify           # row counts should now match
+```
+
+`purge-vps-only.ts` never truncates tables — it deletes only rows whose PK
+does not exist in Supabase, in FK-safe reverse order (children before parents).
+Set `PURGE_DRY_RUN=1` to count without deleting.
 
 ## Re-running
 
