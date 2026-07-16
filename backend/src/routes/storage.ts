@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { Router, raw } from 'express'
 import { DeleteObjectCommand, HeadBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { requireAuth } from '../middleware/auth.js'
@@ -10,6 +10,8 @@ import {
   r2ObjectKey,
   r2PublicUrl,
 } from '../storage/r2.js'
+
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 const router = Router()
 
@@ -77,6 +79,68 @@ router.post('/presign', requireAuth, async (req, res, next) => {
     next(err)
   }
 })
+
+/**
+ * Server-side upload proxy — browser POSTs file bytes here so it never
+ * talks to R2 directly (avoids bucket CORS requirements).
+ *
+ * Query: bucket, path
+ * Headers: Content-Type (optional)
+ * Body: raw file bytes (max 25MB)
+ */
+router.post(
+  '/upload',
+  requireAuth,
+  raw({ type: '*/*', limit: MAX_UPLOAD_BYTES }),
+  async (req, res, next) => {
+    try {
+      const bucket = typeof req.query.bucket === 'string' ? req.query.bucket : ''
+      const path = typeof req.query.path === 'string' ? req.query.path : ''
+
+      if (!isStorageBucket(bucket) || !path) {
+        res.status(400).json({ error: 'طلب غير صالح' })
+        return
+      }
+
+      if (!isR2Configured()) {
+        res.status(500).json({ error: 'إعدادات التخزين غير مكتملة' })
+        return
+      }
+
+      const body = req.body
+      if (!Buffer.isBuffer(body) || body.length === 0) {
+        res.status(400).json({ error: 'ملف فارغ أو غير صالح' })
+        return
+      }
+
+      if (body.length > MAX_UPLOAD_BYTES) {
+        res.status(413).json({ error: 'حجم الملف يتجاوز الحد المسموح (25MB)' })
+        return
+      }
+
+      const contentType =
+        typeof req.headers['content-type'] === 'string' && req.headers['content-type']
+          ? req.headers['content-type']
+          : 'application/octet-stream'
+
+      await r2.send(
+        new PutObjectCommand({
+          Bucket: R2_BUCKET,
+          Key: r2ObjectKey(bucket, path),
+          Body: body,
+          ContentType: contentType,
+        })
+      )
+
+      res.json({
+        ok: true,
+        publicUrl: r2PublicUrl(bucket, path),
+      })
+    } catch (err) {
+      next(err)
+    }
+  }
+)
 
 router.delete('/delete', requireAuth, async (req, res, next) => {
   try {
