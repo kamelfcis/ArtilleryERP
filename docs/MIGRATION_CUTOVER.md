@@ -1,4 +1,4 @@
-# Supabase â†’ VPS Migration Cutover Checklist
+﻿# Supabase â†’ VPS Migration Cutover Checklist
 
 Step-by-step guide for switching Artillery ERP from Supabase to the self-hosted VPS API. These steps require your domain, SSH access, and Vercel project settings â€” they cannot be executed from the codebase alone.
 
@@ -323,37 +323,43 @@ A second, standalone Vercel project runs the frontend entirely against the VPS P
 
 ### Vercel environment variables (Production)
 - `NEXT_PUBLIC_DATA_PROVIDER=api`
-- `NEXT_PUBLIC_API_URL=https://philips-demonstrates-wayne-income.trycloudflare.com`
+- `NEXT_PUBLIC_API_URL=https://<current-trycloudflare-host>` (ephemeral — see auto-heal below; as of 2026-07-16: `https://smallest-monitor-still-pole.trycloudflare.com`)
 - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (still required at build time because `lib/supabase/client.ts` throws if absent, even though runtime uses the API provider)
 - `NEXT_PUBLIC_R2_CDN_URL` (image CDN)
 
 ### Cloudflare Quick Tunnel (HTTPS for the API)
-- URL (ephemeral): https://philips-demonstrates-wayne-income.trycloudflare.com  ->  http://localhost:4000
+- URL (ephemeral): read `C:\cloudflared\current-api-url.txt` or `C:\cloudflared\artillery-tunnel.log` → `http://localhost:4000`
 - Runs as PM2 process `cloudflared-tunnel` (`pm2 save` done; resurrects with the other PM2 apps).
 - Config file (required): `C:\cloudflared\artillery-quick.yml` contains only `url: http://localhost:4000`. **Do not** run quick tunnel without `--config` on this VPS: the default `C:\Users\Administrator\.cloudflared\config.yml` is for the PDFNox named tunnel (`api.pdfnox.com` -> port 3000) and breaks Artillery quick-tunnel routing (HTTPS 404).
-- PM2 command: `pm2 start C:\cloudflared\cloudflared.exe --name cloudflared-tunnel -- tunnel --config C:\cloudflared\artillery-quick.yml --logfile C:\cloudflared\artillery-tunnel.log --loglevel info` (then `pm2 save`).
-- The current assigned URL is in `C:\cloudflared\artillery-tunnel.log` (search for "Your quick Tunnel has been created").
-- IMPORTANT: quick-tunnel URLs are ephemeral. On restart cloudflared is assigned a NEW random URL. To restart and re-point:
-  1. `pm2 restart cloudflared-tunnel`
-  2. Read the new URL from `C:\cloudflared\artillery-tunnel.log`
-  3. Update the Vercel `NEXT_PUBLIC_API_URL` to the new URL and redeploy; update backend `CORS_ORIGINS` only if the Vercel domain changes.
+- Starter: `C:\cloudflared\start-artillery-tunnel.cmd` (preferred) or PM2:
+  `pm2 start C:\cloudflared\cloudflared.exe --name cloudflared-tunnel -- tunnel --config C:\cloudflared\artillery-quick.yml --logfile C:\cloudflared\artillery-tunnel.log --loglevel info` (then `pm2 save`).
+- IMPORTANT: quick-tunnel URLs are ephemeral. On restart / process death / long disconnect, Cloudflare assigns a **NEW** random `*.trycloudflare.com` hostname. Vercel bakes `NEXT_PUBLIC_API_URL` at **build** time, so the SPA keeps calling the dead host until env is updated **and** a production redeploy finishes.
 
+### Auto-heal (2026-07-16) — stops the manual chase
+- **Why it always breaks:** `*.trycloudflare.com` quick tunnels are not stable. Any cloudflared restart (reboot, PM2 recreate, Cloudflare disconnect) mint a new hostname; the Vercel frontend still has the old one compiled in → browser `net::ERR_NAME_NOT_RESOLVED` on `/auth/login`.
+- **Script (repo):** `scripts/ops/ensure-artillery-tunnel.ps1` (+ `.cmd` wrapper). **Installed on VPS:** `C:\cloudflared\ensure-artillery-tunnel.ps1`.
+- **What it does every ~10 minutes** (scheduled task `Artillery-Ensure-Tunnel`):
+  1. Ensures `artillery-quick.yml` only points at `http://localhost:4000` (never inherits PDFNox).
+  2. Ensures PM2 `cloudflared-tunnel` is online (recreates via `start-artillery-tunnel.cmd` if needed).
+  3. Parses the live trycloudflare URL from the tunnel log; health-checks `/health`.
+  4. Compares to `C:\cloudflared\current-api-url.txt`. On change: updates Vercel Production `NEXT_PUBLIC_API_URL` via API and triggers a production redeploy.
+- **Secrets on VPS only (never git):** `C:\cloudflared\vercel-token.txt` and/or `VERCEL_TOKEN=` in `C:\Temp\artillery-db-secrets.txt`.
+- **Log:** `C:\cloudflared\ensure-artillery-tunnel.log`.
+- **Named tunnel note:** PDFNox already runs a **separate** token-based named tunnel for `api.pdfnox.com` → `:3000`. There is **no** `cert.pem` on the VPS, so CLI cannot create a second named tunnel without interactive `cloudflared tunnel login`. Do **not** edit the PDFNox token tunnel ingress from here. Stable hostname requires adding a Public Hostname (e.g. `api-artillery.pdfnox.com` → `http://localhost:4000`) in Cloudflare Zero Trust for that account + DNS, **or** a dedicated Artillery named tunnel + domain.
 
-### Quick-tunnel recovery (2026-07-10)
-- **Symptom:** browser `net::ERR_NAME_NOT_RESOLVED` on `POST …/auth/login` because Vercel still points at an old `*.trycloudflare.com` hostname after `cloudflared-tunnel` died or was removed from PM2.
-- **Dead URL:** `https://scholarship-cholesterol-lights-burning.trycloudflare.com`
-- **Working URL (after fix):** `https://philips-demonstrates-wayne-income.trycloudflare.com` (changes again on the next quick-tunnel restart).
+### Quick-tunnel recovery (manual, if auto-heal has not run yet)
+- **Symptom:** browser `net::ERR_NAME_NOT_RESOLVED` on `POST …/auth/login` because Vercel still points at an old `*.trycloudflare.com` hostname.
+- **Prior dead hosts (history):** `scholarship-cholesterol-lights-burning`, `philips-demonstrates-wayne-income`, `original-personnel-nov-gcc` (superseded whenever the tunnel restarts).
+- **Working URL (2026-07-16 after restore):** `https://smallest-monitor-still-pole.trycloudflare.com` (will change again on the next quick-tunnel restart; auto-heal should re-point Vercel).
 - **Recovery checklist:**
   1. `pm2 list` — ensure `artillery-api` and `cloudflared-tunnel` are `online`.
-  2. If tunnel missing: start with `artillery-quick.yml` (see above). If logs show `429` / error `1015`, wait before retrying (quick-tunnel rate limit from restart loops).
-  3. Read new URL: `pm2 logs cloudflared-tunnel --lines 50 --nostream` (line `Your quick Tunnel has been created`) or `C:\cloudflared\artillery-tunnel.log`.
+  2. If tunnel missing: `C:\cloudflared\start-artillery-tunnel.cmd`. If logs show `429` / error `1015`, wait before retrying (quick-tunnel rate limit).
+  3. Read new URL from `C:\cloudflared\artillery-tunnel.log` or run `C:\cloudflared\ensure-artillery-tunnel.cmd`.
   4. `curl https://<new-host>/health` must return **200** JSON (not Cloudflare **404**).
-  5. Update Vercel Production `NEXT_PUBLIC_API_URL`, then `vercel deploy --prod --yes`.
-  6. Hard-refresh the browser (or clear site data) so the new baked-in API URL loads.
+  5. If auto-heal did not redeploy yet: update Vercel Production `NEXT_PUBLIC_API_URL`, then `vercel deploy --prod --yes`.
+  6. Hard-refresh the browser / clear site data / unregister the PWA service worker so the new baked-in API URL loads.
 - **Health check:** `GET https://<tunnel-host>/health` -> 200; `POST /auth/login` with `Origin: https://artillery-erp-vps.vercel.app` -> 200 + `Set-Cookie: artillery_token=…`.
-- **Long-term:** add a named Cloudflare Tunnel hostname for Artillery (same account as PDFNox is fine) so the URL and PM2 command stop churning.
-
-- For a stable URL, create a named Cloudflare Tunnel (needs a Cloudflare account + a domain).
+- **Long-term:** add a named Cloudflare Tunnel hostname for Artillery on the PDFNox Cloudflare account (recommended: `api-artillery.pdfnox.com` → `localhost:4000`) so the URL stops churning and third-party cookie pain is reduced if the frontend later shares a parent domain.
 
 ### Backend CORS
 - `C:\Artillery-ERP\backend-deploy\.env` -> `CORS_ORIGINS=http://localhost:3000,https://artilleryerp.vercel.app,https://artillery-erp-vps.vercel.app`

@@ -53,7 +53,7 @@ Key facts this runbook is built on:
   (team `healthcare4314-6641s-projects`), `NEXT_PUBLIC_DATA_PROVIDER=api`.
 - **Frontend (OLD):** https://artilleryerp.vercel.app — **untouched**, still on Supabase; this is the rollback target.
 - **API:** Express on `95.217.137.18:4000`, PM2 process `artillery-api`, deploy dir `C:\Artillery-ERP\backend-deploy`.
-- **HTTPS edge:** PM2 process `cloudflared-tunnel` (currently an **ephemeral** Cloudflare quick tunnel — see §3).
+- **HTTPS edge:** PM2 process `cloudflared-tunnel` (currently an **ephemeral** Cloudflare quick tunnel — see §3). **Auto-heal:** scheduled task `Artillery-Ensure-Tunnel` runs `C:\cloudflared\ensure-artillery-tunnel.ps1` every 10 minutes to re-point Vercel when the trycloudflare hostname changes (repo copy: `scripts/ops/ensure-artillery-tunnel.ps1`).
 - **DB:** PostgreSQL 18 service `postgresql-x64-18`, database `artillery_erp_staging` (production), `artillery_erp` untouched.
 - **Delta-sync toolkit:** durable install at `C:\Artillery-ERP\database-sync` (via `git pull`; `npm install` done). An older copy exists at `C:\Temp\database-sync`.
 - **Secrets file (VPS only):** `C:\Temp\artillery-db-secrets.txt` (holds `DATABASE_URL_STAGING=...`, `SOURCE_DATABASE_URL=...`, and `POSTGRES_SUPERUSER_PASSWORD=...` for the non-interactive apply). Secured pgpass: `C:\Temp\artillery-pgpass.conf`.
@@ -121,8 +121,25 @@ Do this **before** touching Supabase or the delta sync. All boxes must be ticked
 the new site succeeds **in Safari and a Chrome incognito window** (proves the cookie is first-party).
 
 > If you consciously choose to cut over on the ephemeral quick-tunnel URL anyway, accept that (a) Safari/incognito
-> users may not be able to log in, and (b) any tunnel restart requires re-running §13 "read tunnel URL" +
-> updating Vercel + redeploying. Document the current URL before starting.
+> users may not be able to log in, and (b) any tunnel restart used to require re-running §13 "read tunnel URL" +
+> updating Vercel + redeploying. **Mitigation now installed:** `Artillery-Ensure-Tunnel` (every 10 min) +
+> `C:\cloudflared\ensure-artillery-tunnel.ps1` auto-updates `NEXT_PUBLIC_API_URL` and redeploys when the
+> hostname changes. Still prefer Option A/B for a truly stable URL and first-party cookies. PDFNox already has
+> a named tunnel for `api.pdfnox.com` on this VPS — add a separate Public Hostname (e.g. `api-artillery.pdfnox.com`
+> → `http://localhost:4000`) in Cloudflare Zero Trust without touching the PDFNox `:3000` route.
+
+### Auto-heal ops (quick tunnel)
+
+| Item | Location |
+|------|----------|
+| Script | `C:\cloudflared\ensure-artillery-tunnel.ps1` (source: `scripts/ops/ensure-artillery-tunnel.ps1`) |
+| Wrapper / Task | `C:\cloudflared\ensure-artillery-tunnel.cmd` → scheduled task **`Artillery-Ensure-Tunnel`** (every 10 min) |
+| State | `C:\cloudflared\current-api-url.txt` |
+| Log | `C:\cloudflared\ensure-artillery-tunnel.log` |
+| Vercel token | `C:\cloudflared\vercel-token.txt` or `VERCEL_TOKEN=` in `C:\Temp\artillery-db-secrets.txt` (**never commit**) |
+| Manual run | `C:\cloudflared\ensure-artillery-tunnel.cmd` |
+
+**VERIFY auto-heal:** after a deliberate `pm2 delete cloudflared-tunnel` + `C:\cloudflared\start-artillery-tunnel.cmd`, wait ≤10 minutes (or run the cmd manually) and confirm Vercel Production `NEXT_PUBLIC_API_URL` matches the new host and a new production deployment is READY.
 
 ---
 
@@ -603,9 +620,12 @@ pm2 resurrect                   # what the Artillery-PM2-Resurrect task runs at 
 ### Read the current (quick) tunnel URL
 
 ```powershell
-# The assigned URL is logged when the tunnel starts:
-Select-String -Path C:\cloudflared\artillery-tunnel.log -Pattern "Your quick Tunnel has been created" -Context 0,2
-# then update Vercel NEXT_PUBLIC_API_URL to that URL and redeploy (quick-tunnel only).
+# Preferred: state file maintained by auto-heal
+Get-Content C:\cloudflared\current-api-url.txt
+# Or parse the tunnel log:
+Select-String -Path C:\cloudflared\artillery-tunnel.log -Pattern "https://[a-z0-9-]+\.trycloudflare\.com"
+# Auto-heal (ensures tunnel + updates Vercel if URL changed):
+C:\cloudflared\ensure-artillery-tunnel.cmd
 ```
 
 ### API health
