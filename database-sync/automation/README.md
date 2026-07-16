@@ -1,55 +1,62 @@
-# Artillery ERP — Nightly Reconcile (Supabase → VPS)
+# Artillery ERP — Supabase → VPS sync automation
 
-Automation that keeps the VPS PostgreSQL (`artillery_erp_staging`) **equal** to
-**Supabase (source of truth)** by running a full reconcile pipeline **once daily
-at midnight (UTC+3)**, unattended.
+Automation that keeps VPS PostgreSQL (`artillery_erp_staging`) caught up with
+**Supabase** until Supabase is decommissioned.
 
-Each run does: **compare → backup (`pg_dump -Fc`) → purge VPS-only rows →
-generate → apply (resilient) → verify**, writes a timestamped log, and prunes
-old logs/backups.
+## Active strategy: 10-minute differential mirror
 
-> **Destructive one-way reconcile.** Unlike the old safe sync (`run-sync.ps1`),
-> this **deletes** rows on the VPS whose primary keys are absent from Supabase,
-> then INSERTs missing + UPDATEs changed rows so both databases match.
+Windows task **`Artillery-DeltaSync-Mirror`** runs every **10 minutes** as SYSTEM:
+
+**compare → generate → apply (resilient) → verify** (no `pg_dump`, no purge)
+
+- **INSERT** missing + **UPDATE** changed rows only.
+- **Never deletes** VPS-only rows (safe while both sites may still write).
+- Resilient apply (`ON_ERROR_ROLLBACK=on`) skips booking unique-constraint conflicts.
+- Logs: `..\logs\mirror_<stamp>.log` (keep ~288 / 48h) plus child `sync_*.log`.
+
+> While both sites write, VPS can still get ahead on some tables; the mirror only
+> applies Supabase → VPS. That is intentional until Supabase is frozen.
 
 ## Files
 
 | File | What it does |
 |------|--------------|
-| `run-reconcile-nightly.ps1` | The scheduled runner. Loads creds, runs the 6-step reconcile pipeline, logs to `..\logs\`, backs up to `..\backups\`, prunes old files, uses a lock file. Exit `0` on success. |
-| `run-sync.ps1` | Legacy safe sync (insert/update only, never deletes). Kept for manual use. |
-| `run-reconcile.ps1` | Interactive/manual full reconcile (same steps, console output). |
-| `register-tasks.ps1` | Creates/updates (or `-Unregister`s) the Windows Scheduled Task. Removes the legacy twice-daily task on register. |
+| `run-mirror.ps1` | 10-min wrapper: lock (~25 min stale), calls `run-sync.ps1 -SkipBackup`, retention. |
+| `register-mirror-task.ps1` | Creates/updates (or `-Unregister`s) `Artillery-DeltaSync-Mirror`. **Disables** the nightly purge task on register. |
+| `run-sync.ps1` | Safe sync pipeline (insert/update only). Supports `-SkipBackup` for frequent runs. |
+| `run-reconcile-nightly.ps1` | Full equality pipeline including **purge** of VPS-only rows. Kept for a final cutover equality pass. |
+| `register-tasks.ps1` | Registers `Artillery-DeltaSync-Nightly` (disabled while the 10-min mirror is active). |
+| `run-reconcile.ps1` | Interactive/manual full reconcile. |
 | `README.md` | This file. |
 
 ## Install location (durable)
 
 ```
 C:\Artillery-ERP\database-sync\              <- git working tree (git pull to update)
-  ├─ automation\   run-reconcile-nightly.ps1, register-tasks.ps1, …   (committed)
-  ├─ logs\         reconcile_<stamp>.log, run-reconcile.lock           (gitignored)
-  ├─ backups\      pre-reconcile_<stamp>.dump                         (gitignored)
-  └─ reports\      compare/delta/purge/verify reports                 (gitignored)
+  ├─ automation\   run-mirror.ps1, register-mirror-task.ps1, …   (committed)
+  ├─ logs\         mirror_*.log, sync_*.log, locks               (gitignored)
+  ├─ backups\      pre-sync_*.dump / pre-reconcile_*.dump        (gitignored)
+  └─ reports\      compare/delta/verify reports                  (gitignored)
 ```
 
-Set up once on the VPS:
+Set up / refresh on the VPS:
 
 ```powershell
 cd C:\Artillery-ERP
 git pull
 cd C:\Artillery-ERP\database-sync
 npm install
-powershell -ExecutionPolicy Bypass -File automation\register-tasks.ps1
+powershell -ExecutionPolicy Bypass -File automation\register-mirror-task.ps1
 ```
 
 ## Credentials & non-interactive DB auth (no secrets in git)
 
-`run-reconcile-nightly.ps1` reads everything at runtime from the VPS-only secrets file
+Runners read everything at runtime from the VPS-only secrets file
 `C:\Temp\artillery-db-secrets.txt`:
 
-- `SOURCE_DATABASE_URL` — Supabase session pooler (source of truth).
-- `DATABASE_URL_STAGING` — VPS target (`artillery_app`) — used for compare/generate/purge/verify.
-- `POSTGRES_SUPERUSER_PASSWORD` — the `postgres` role password (see below).
+- `SOURCE_DATABASE_URL` — Supabase session pooler (source of truth for inserts/updates).
+- `DATABASE_URL_STAGING` — VPS target (`artillery_app`) — used for compare/generate/verify.
+- `POSTGRES_SUPERUSER_PASSWORD` — the `postgres` role password (fallback if pgpass missing).
 
 The **apply** step must run as a superuser because the generated delta uses
 `ALTER TABLE … DISABLE TRIGGER USER`. Auth is via the secured pgpass file
@@ -57,72 +64,70 @@ The **apply** step must run as a superuser because the generated delta uses
 
 **Nothing sensitive is committed.**
 
-## Schedule & timezone
-
-Windows fires triggers at the **VPS local wall-clock time**. This VPS runs on
-**Pacific time**; the operator is **UTC+3**.
-
-| Operator intent (UTC+3) | VPS-local trigger (PDT / summer) | VPS-local trigger (PST / winter) |
-|---|---|---|
-| **00:00 (midnight)** | **06:00** | 05:00 |
-
-The default trigger is **06:00** VPS-local, which matches midnight UTC+3
-**while Pacific is on PDT (UTC-7)**. When Pacific switches to PST (UTC-8,
-~early November) that same VPS-local time drifts to 23:00 UTC+3 — re-align with:
+## Schedule: 10-minute mirror
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File register-tasks.ps1 -Times '05:00'
-```
-
-### Register / change / remove
-
-```powershell
-# Register with default (06:00 VPS-local = midnight UTC+3 during PDT):
-powershell -ExecutionPolicy Bypass -File C:\Artillery-ERP\database-sync\automation\register-tasks.ps1
-
-# Re-align for PST (05:00 VPS-local = midnight UTC+3 during PST):
-powershell -ExecutionPolicy Bypass -File register-tasks.ps1 -Times '05:00'
+# Register (every 10 min) and disable nightly purge:
+powershell -ExecutionPolicy Bypass -File C:\Artillery-ERP\database-sync\automation\register-mirror-task.ps1
 
 # Inspect:
-schtasks /query /tn "Artillery-DeltaSync-Nightly" /v /fo LIST
-Get-ScheduledTaskInfo -TaskName "Artillery-DeltaSync-Nightly"
+schtasks /query /tn "Artillery-DeltaSync-Mirror" /v /fo LIST
+Get-ScheduledTaskInfo -TaskName "Artillery-DeltaSync-Mirror"
 
 # Run once now (manual test):
-Start-ScheduledTask -TaskName "Artillery-DeltaSync-Nightly"
+schtasks /run /tn "Artillery-DeltaSync-Mirror"
+# or: powershell -ExecutionPolicy Bypass -File C:\Artillery-ERP\database-sync\automation\run-mirror.ps1
 
 # Freeze for cutover (disable) / re-enable:
-Disable-ScheduledTask -TaskName "Artillery-DeltaSync-Nightly"
-Enable-ScheduledTask  -TaskName "Artillery-DeltaSync-Nightly"
+Disable-ScheduledTask -TaskName "Artillery-DeltaSync-Mirror"
+Enable-ScheduledTask  -TaskName "Artillery-DeltaSync-Mirror"
 
-# Remove entirely:
-powershell -ExecutionPolicy Bypass -File register-tasks.ps1 -Unregister
+# Remove entirely (does not re-enable nightly):
+powershell -ExecutionPolicy Bypass -File register-mirror-task.ps1 -Unregister
 ```
 
 The task runs as **SYSTEM**, highest privileges, whether logged on or not, with
 `MultipleInstances=IgnoreNew` and `StartWhenAvailable`.
 
-## Logs, backups, retention
+## Nightly purge reconcile (disabled while mirror is active)
 
-- Logs: `..\logs\reconcile_<yyyyMMdd-HHmmss>.log` — keep last **30**.
-- Backups: `..\backups\pre-reconcile_<yyyyMMdd-HHmmss>.dump` — keep last **14**.
-- Both are pruned at the end of every run.
+`Artillery-DeltaSync-Nightly` runs **compare → backup → purge VPS-only → generate →
+apply → verify**. It is **destructive** (deletes VPS-only rows) and too heavy for
+a 10-minute cadence. `register-mirror-task.ps1` **disables** it on register.
 
-## How reconcile differs from safe sync
+To re-enable for a **final equality pass** before/during cutover (after writes on
+the new site are frozen, or you accept purging VPS-only rows):
 
-| | Safe sync (`run-sync.ps1`) | Nightly reconcile (`run-reconcile-nightly.ps1`) |
+```powershell
+Enable-ScheduledTask -TaskName "Artillery-DeltaSync-Nightly"
+# Or re-register:
+powershell -ExecutionPolicy Bypass -File C:\Artillery-ERP\database-sync\automation\register-tasks.ps1
+```
+
+Default nightly trigger: **06:00 VPS-local** (= **00:00 midnight UTC+3** while
+Pacific is on PDT). Re-align for PST with `-Times '05:00'`.
+
+## How mirror differs from nightly reconcile
+
+| | 10-min mirror (`run-mirror.ps1`) | Nightly reconcile (`run-reconcile-nightly.ps1`) |
 |---|---|---|
 | Deletes VPS-only rows | Never | **Yes** (purge step) |
+| `pg_dump` every run | **Skipped** (`-SkipBackup`) | Yes |
 | Goal | Catch up inserts/updates | **Full equality** with Supabase |
-| Verify tolerance | Known booking conflicts allowed | **Strict** (minor live-churn tolerance only) |
-| Schedule | Was twice daily (removed) | **Once daily at midnight UTC+3** |
+| Schedule | **Every 10 minutes** | Once daily (currently **disabled**) |
+| Verify tolerance | Known booking conflicts allowed | Strict (minor live-churn only) |
 
-> ⚠️ **While BOTH systems are live**, new VPS-only bookings can reappear between
-> runs and will be purged on the next nightly reconcile. At final cutover,
-> **disable this task first** (freeze), then do the manual final sync per
+> ⚠️ At final cutover, **disable `Artillery-DeltaSync-Mirror` first** (freeze),
+> then do the manual final sync per
 > [`../../docs/FINAL_CUTOVER_RUNBOOK.md`](../../docs/FINAL_CUTOVER_RUNBOOK.md).
+
+## Logs, backups, retention
+
+- Mirror logs: `..\logs\mirror_<yyyyMMdd-HHmmss>.log` — keep last **288** or **48h**.
+- Sync logs (child): `..\logs\sync_*.log` — pruned by `run-sync.ps1` retention.
+- Backups: only when `run-sync.ps1` is run **without** `-SkipBackup`, or via nightly/manual reconcile (`pre-reconcile_*.dump`).
 
 ## Exit codes
 
 - `0` — success, or a run skipped because another was in progress.
-- non-zero — a real failure (secrets missing, backup failed, purge/generate/apply
-  error, verify divergence beyond tolerance). Check the newest `..\logs\reconcile_*.log`.
+- non-zero — a real failure (secrets missing, generate/apply error, severe verify divergence). Check the newest `..\logs\mirror_*.log`.

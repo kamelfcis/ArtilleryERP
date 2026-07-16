@@ -58,7 +58,8 @@ Key facts this runbook is built on:
 - **Delta-sync toolkit:** durable install at `C:\Artillery-ERP\database-sync` (via `git pull`; `npm install` done). An older copy exists at `C:\Temp\database-sync`.
 - **Secrets file (VPS only):** `C:\Temp\artillery-db-secrets.txt` (holds `DATABASE_URL_STAGING=...`, `SOURCE_DATABASE_URL=...`, and `POSTGRES_SUPERUSER_PASSWORD=...` for the non-interactive apply). Secured pgpass: `C:\Temp\artillery-pgpass.conf`.
 - **PM2 boot recovery:** scheduled task `Artillery-PM2-Resurrect` → `pm2 resurrect` at system startup.
-- **Scheduled nightly reconcile (NEW):** Windows task **`Artillery-DeltaSync-Nightly`** runs the full reconcile (compare → backup → **purge VPS-only rows** → generate → apply → verify) once daily as SYSTEM at **VPS-local 06:00** (= **00:00 midnight UTC+3** while Pacific is on PDT; re-register with `-Times '05:00'` when Pacific is on PST). Logs `C:\Artillery-ERP\database-sync\logs\`, backups `...\backups\`. Supabase = source of truth; VPS-only rows are deleted each run. **DISABLE it before the final cutover freeze** (see §4). Setup/README: [`../database-sync/automation/README.md`](../database-sync/automation/README.md).
+- **Scheduled 10-min mirror (ACTIVE):** Windows task **`Artillery-DeltaSync-Mirror`** runs every **10 minutes** as SYSTEM: compare → generate → apply (INSERT/UPDATE only; no purge, no `pg_dump`) → verify. Keeps VPS caught up with new/changed Supabase rows without deleting VPS-only live bookings. Logs `C:\Artillery-ERP\database-sync\logs\mirror_*.log`. **DISABLE it before the final cutover freeze** (see §4). Setup/README: [`../database-sync/automation/README.md`](../database-sync/automation/README.md).
+- **Nightly purge reconcile (DISABLED while mirror is active):** task **`Artillery-DeltaSync-Nightly`** can still run a full equality pass (including **purge** of VPS-only rows) if re-enabled for cutover. Prefer a manual reconcile during the freeze window rather than leaving purge on a schedule.
 - **SSH tooling:** PuTTY `plink`/`pscp` under `C:\Program Files\PuTTY\`, user `Administrator@95.217.137.18`.
 
 ---
@@ -148,9 +149,10 @@ the new site succeeds **in Safari and a Chrome incognito window** (proves the co
 The final delta sync is only clean if Supabase stops changing while you copy the last rows over. Freezing
 writes prevents further divergence between Supabase and the VPS.
 
-- [ ] **Disable the scheduled nightly reconcile FIRST** so it can't run mid-cutover and race the manual final sync:
-  `Disable-ScheduledTask -TaskName "Artillery-DeltaSync-Nightly"` (re-enable only if you abort the cutover).
-  Confirm no run is in progress (no `C:\Artillery-ERP\database-sync\logs\run-reconcile.lock`).
+- [ ] **Disable the scheduled 10-min mirror FIRST** so it can't run mid-cutover and race the manual final sync:
+  `Disable-ScheduledTask -TaskName "Artillery-DeltaSync-Mirror"` (re-enable only if you abort the cutover).
+  Also confirm the nightly purge task stays off: `Disable-ScheduledTask -TaskName "Artillery-DeltaSync-Nightly"`.
+  Confirm no run is in progress (no `C:\Artillery-ERP\database-sync\logs\run-mirror.lock` or `run-sync.lock`).
 - [ ] **Announce the freeze** to all users (comms channel): "Do not create/edit bookings on the old site during the window."
 - [ ] **Enforce read-only (choose one):**
   - **Preferred:** put the OLD site https://artilleryerp.vercel.app into maintenance/read-only (e.g. a maintenance

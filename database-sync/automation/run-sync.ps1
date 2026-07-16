@@ -7,6 +7,8 @@
 
     compare -> backup (pg_dump -Fc) -> generate -> apply (resilient) -> verify
 
+  Pass -SkipBackup to omit pg_dump (used by the 10-minute mirror wrapper).
+
   Design points:
     * Credentials are read at runtime from the VPS-only secrets file
       (default C:\Temp\artillery-db-secrets.txt). NOTHING is hardcoded here.
@@ -50,7 +52,10 @@ param(
   # they catch up next run. So verify divergence only escalates to a REAL FAILURE
   # when a non-known table diverges by MORE than this many rows (a sign of a real
   # sync bug rather than normal live churn). Set 0 to fail on ANY divergence.
-  [int]     $DivergenceAlertThreshold = 500
+  [int]     $DivergenceAlertThreshold = 500,
+  # When set (e.g. by the 10-min mirror wrapper), skip pg_dump to avoid filling
+  # disk / loading the DB on frequent runs. Manual/nightly runs keep backups.
+  [switch]  $SkipBackup
 )
 
 $ErrorActionPreference = 'Stop'
@@ -159,16 +164,22 @@ try {
   else { Write-Log 'compare complete (see reports/compare_report.md).' }
 
   # ---------------------------------------------------------------- 2) BACKUP
-  Write-Log '----- STEP 2/5: backup (pg_dump -Fc) -----'
-  $backupFile = Join-Path $BackupDir "pre-sync_$stamp.dump"
-  $out = Invoke-Native { & (Join-Path $PgBin 'pg_dump.exe') -Fc -w -U $SuperUser -h $SuperHost -d $TargetDb -f $backupFile }
-  $rc = $LASTEXITCODE
-  Add-CommandOutput $out
-  if ($rc -ne 0 -or -not (Test-Path $backupFile) -or (Get-Item $backupFile).Length -eq 0) {
-    throw "pg_dump backup FAILED (exit $rc). Aborting before apply."
+  if ($SkipBackup) {
+    Write-Log '----- STEP 2/5: backup SKIPPED (-SkipBackup) -----'
+    $summary.backup = '(skipped)'
   }
-  $summary.backup = $backupFile
-  Write-Log ("backup OK: {0} ({1:N1} KB)" -f $backupFile, ((Get-Item $backupFile).Length / 1KB))
+  else {
+    Write-Log '----- STEP 2/5: backup (pg_dump -Fc) -----'
+    $backupFile = Join-Path $BackupDir "pre-sync_$stamp.dump"
+    $out = Invoke-Native { & (Join-Path $PgBin 'pg_dump.exe') -Fc -w -U $SuperUser -h $SuperHost -d $TargetDb -f $backupFile }
+    $rc = $LASTEXITCODE
+    Add-CommandOutput $out
+    if ($rc -ne 0 -or -not (Test-Path $backupFile) -or (Get-Item $backupFile).Length -eq 0) {
+      throw "pg_dump backup FAILED (exit $rc). Aborting before apply."
+    }
+    $summary.backup = $backupFile
+    Write-Log ("backup OK: {0} ({1:N1} KB)" -f $backupFile, ((Get-Item $backupFile).Length / 1KB))
+  }
 
   # ---------------------------------------------------------------- 3) GENERATE
   Write-Log '----- STEP 3/5: generate delta -----'
