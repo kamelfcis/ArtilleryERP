@@ -1,9 +1,16 @@
 'use client'
 
 import { fetchWithSupabaseAuth } from '@/lib/api/fetch-with-supabase-auth'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiDelete, apiPost } from '@/lib/api/http-client'
 import type { StorageBucket } from '@/lib/storage/r2-client'
 
 type UploadBody = File | Blob
+
+type PresignResponse = {
+  presignedUrl: string
+  publicUrl: string
+}
 
 export async function uploadToR2(
   bucket: StorageBucket,
@@ -13,20 +20,32 @@ export async function uploadToR2(
 ): Promise<string> {
   const type = contentType ?? (file instanceof File ? file.type : undefined) ?? 'application/octet-stream'
 
-  const presignRes = await fetchWithSupabaseAuth('/api/storage/presign', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bucket, path, contentType: type }),
-  })
+  let presignedUrl: string
+  let publicUrl: string
 
-  if (!presignRes.ok) {
-    const err = await presignRes.json().catch(() => ({}))
-    throw new Error(err.error || 'فشل في تجهيز رابط الرفع')
-  }
+  if (isApiProvider()) {
+    const data = await apiPost<PresignResponse>('/storage/presign', {
+      bucket,
+      path,
+      contentType: type,
+    })
+    presignedUrl = data.presignedUrl
+    publicUrl = data.publicUrl
+  } else {
+    const presignRes = await fetchWithSupabaseAuth('/api/storage/presign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bucket, path, contentType: type }),
+    })
 
-  const { presignedUrl, publicUrl } = (await presignRes.json()) as {
-    presignedUrl: string
-    publicUrl: string
+    if (!presignRes.ok) {
+      const err = await presignRes.json().catch(() => ({}))
+      throw new Error(err.error || 'فشل في تجهيز رابط الرفع')
+    }
+
+    const data = (await presignRes.json()) as PresignResponse
+    presignedUrl = data.presignedUrl
+    publicUrl = data.publicUrl
   }
 
   const uploadRes = await fetch(presignedUrl, {
@@ -43,6 +62,11 @@ export async function uploadToR2(
 }
 
 export async function deleteFromR2(bucket: StorageBucket, path: string): Promise<void> {
+  if (isApiProvider()) {
+    await apiDelete('/storage/delete', { bucket, path })
+    return
+  }
+
   const res = await fetchWithSupabaseAuth('/api/storage/delete', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
