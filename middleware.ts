@@ -1,37 +1,55 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { get } from '@vercel/edge-config'
 
+const PROXY_PREFIX = '/api-backend'
+
+function serviceUnavailable(message: string) {
+  return new NextResponse(JSON.stringify({ error: message }), {
+    status: 503,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+/**
+ * Same-origin API proxy.
+ *
+ * Browser calls `https://artillery-erp-vps.vercel.app/api-backend/*` (first-party,
+ * so the `artillery_token` cookie is first-party and works in Safari/incognito).
+ * The backend destination is read at runtime from Vercel Edge Config (`backendUrl`),
+ * which the VPS updates in seconds when the quick tunnel churns — no redeploy needed.
+ */
 export async function middleware(req: NextRequest) {
-  // Temporarily disable middleware to test login
-  // The AuthContext will handle authentication checks
-  return NextResponse.next()
-  
-  /* 
-  // Original middleware code - re-enable after testing
-  const allCookies = req.cookies.getAll()
-  const hasSupabaseSession = allCookies.some(cookie => 
-    cookie.name.includes('supabase') || 
-    cookie.name.includes('sb-') ||
-    cookie.name.includes('auth-token')
-  )
-  
-  if (req.nextUrl.pathname.startsWith('/dashboard')) {
-    if (!hasSupabaseSession) {
-      return NextResponse.redirect(new URL('/login', req.url))
-    }
+  const { pathname, search } = req.nextUrl
+
+  if (!pathname.startsWith(PROXY_PREFIX)) {
+    return NextResponse.next()
   }
 
-  if (req.nextUrl.pathname === '/login') {
-    if (hasSupabaseSession) {
-      return NextResponse.redirect(new URL('/dashboard', req.url))
-    }
+  let backendUrl: string | undefined
+  try {
+    backendUrl = await get<string>('backendUrl')
+  } catch {
+    return serviceUnavailable('Backend proxy misconfigured: Edge Config read failed')
   }
 
-  return NextResponse.next()
-  */
+  if (!backendUrl) {
+    return serviceUnavailable('Backend proxy unavailable: backendUrl not set in Edge Config')
+  }
+
+  // Strip the /api-backend prefix, preserve the remaining path + querystring.
+  const rest = pathname.slice(PROXY_PREFIX.length) || '/'
+  const target = new URL(rest + search, backendUrl)
+
+  // Forward the original headers (Content-Type, Cookie, etc.) so JSON and binary
+  // upload bodies pass through unchanged. Drop Host so the outbound request uses
+  // the backend host rather than the Vercel host.
+  const headers = new Headers(req.headers)
+  headers.delete('host')
+
+  return NextResponse.rewrite(target, { request: { headers } })
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/login'],
+  matcher: ['/api-backend/:path*'],
 }
-

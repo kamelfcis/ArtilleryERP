@@ -9,10 +9,15 @@ export function isApiProvider(): boolean {
   return getDataProvider() === 'api'
 }
 
+/**
+ * Same-origin proxy prefix. In api mode the browser talks only to
+ * `https://<app-host>/api-backend/*`; the Next.js middleware rewrites those
+ * requests to the real backend (read at runtime from Vercel Edge Config).
+ * Keeping this relative means the auth cookie is first-party and the app never
+ * bakes a `*.trycloudflare.com` host into the bundle.
+ */
+export const API_PROXY_PREFIX = '/api-backend'
+
 export function getApiUrl(): string {
-  const url = process.env.NEXT_PUBLIC_API_URL?.trim()
-  if (!url) {
-    throw new Error('NEXT_PUBLIC_API_URL is required when NEXT_PUBLIC_DATA_PROVIDER=api')
-  }
-  return url
+  return API_PROXY_PREFIX
 }

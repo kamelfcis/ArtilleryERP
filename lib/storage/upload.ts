@@ -27,8 +27,110 @@ async function parseJsonSafe(res: Response): Promise<unknown> {
   }
 }
 
+// Vercel caps proxied request bodies at ~4.5 MB. Stay safely under it.
+const PROXY_TARGET_BYTES = 4 * 1024 * 1024 // 4 MB
+
+function getSize(file: UploadBody): number {
+  return typeof (file as Blob).size === 'number' ? (file as Blob).size : 0
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob((b) => resolve(b), type, quality))
+}
+
 /**
- * Upload via Express proxy (api mode). Browser never PUTs to R2, so bucket CORS is not required.
+ * Downscale/compress an image on the client (canvas, no extra dependency) so the
+ * same-origin proxy body stays under the ~4.5 MB Vercel limit. Falls back to the
+ * original blob if the browser can't decode it.
+ */
+async function compressImage(file: UploadBody, targetBytes: number): Promise<Blob> {
+  const source = file instanceof Blob ? file : new Blob([file])
+  if (typeof document === 'undefined' || typeof createImageBitmap === 'undefined') {
+    return source
+  }
+
+  let bitmap: ImageBitmap
+  try {
+    bitmap = await createImageBitmap(source)
+  } catch {
+    return source
+  }
+
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    bitmap.close?.()
+    return source
+  }
+
+  const MAX_DIM = 2400
+  let width = bitmap.width
+  let height = bitmap.height
+  if (width > MAX_DIM || height > MAX_DIM) {
+    const scale = Math.min(MAX_DIM / width, MAX_DIM / height)
+    width = Math.max(1, Math.round(width * scale))
+    height = Math.max(1, Math.round(height * scale))
+  }
+
+  let best: Blob | null = null
+  for (let attempt = 0; attempt < 6; attempt++) {
+    canvas.width = width
+    canvas.height = height
+    ctx.clearRect(0, 0, width, height)
+    ctx.drawImage(bitmap, 0, 0, width, height)
+
+    let quality = 0.9
+    let blob = await canvasToBlob(canvas, 'image/jpeg', quality)
+    while (blob && blob.size > targetBytes && quality > 0.4) {
+      quality = Math.round((quality - 0.1) * 10) / 10
+      blob = await canvasToBlob(canvas, 'image/jpeg', quality)
+    }
+
+    if (blob) best = blob
+    if (blob && blob.size <= targetBytes) break
+
+    width = Math.max(1, Math.round(width * 0.8))
+    height = Math.max(1, Math.round(height * 0.8))
+  }
+
+  bitmap.close?.()
+  return best ?? source
+}
+
+/**
+ * Prepare a file for the same-origin proxy: compress images to fit under the
+ * proxy limit, and hard-guard non-image files with a clear Arabic error.
+ */
+async function prepareForProxy(
+  file: UploadBody,
+  contentType: string
+): Promise<{ body: UploadBody; contentType: string }> {
+  const isImage = contentType.startsWith('image/')
+  const size = getSize(file)
+
+  if (isImage) {
+    if (size > 0 && size <= PROXY_TARGET_BYTES) {
+      return { body: file, contentType }
+    }
+    const compressed = await compressImage(file, PROXY_TARGET_BYTES)
+    if (compressed.size > PROXY_TARGET_BYTES) {
+      throw new Error('تعذّر ضغط الصورة إلى أقل من ٤ ميجابايت. يرجى اختيار صورة أصغر أو بدقة أقل.')
+    }
+    return { body: compressed, contentType: 'image/jpeg' }
+  }
+
+  if (size > PROXY_TARGET_BYTES) {
+    throw new Error('حجم الملف يتجاوز الحد المسموح به (٤ ميجابايت). يرجى اختيار ملف أصغر.')
+  }
+
+  return { body: file, contentType }
+}
+
+/**
+ * Upload via the same-origin proxy (api mode): the browser POSTs to
+ * `/api-backend/storage/upload`, the Next.js middleware forwards it to the
+ * Express backend, which streams the bytes to R2. Browser never PUTs to R2, so
+ * bucket CORS is not required, and the auth cookie is first-party.
  */
 async function uploadViaApiProxy(
   bucket: StorageBucket,
@@ -72,7 +174,8 @@ export async function uploadToR2(
   const type = contentType ?? (file instanceof File ? file.type : undefined) ?? 'application/octet-stream'
 
   if (isApiProvider()) {
-    return uploadViaApiProxy(bucket, path, file, type)
+    const prepared = await prepareForProxy(file, type)
+    return uploadViaApiProxy(bucket, path, prepared.body, prepared.contentType)
   }
 
   const presignRes = await fetchWithSupabaseAuth('/api/storage/presign', {

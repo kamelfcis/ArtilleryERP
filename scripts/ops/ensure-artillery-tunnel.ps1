@@ -1,4 +1,6 @@
-# Artillery ERP — ensure Cloudflare quick tunnel is healthy and Vercel points at it.
+# Artillery ERP — ensure Cloudflare quick tunnel is healthy and push its URL into Vercel Edge Config.
+# The Next.js middleware reads backendUrl from Edge Config at runtime, so a churned quick-tunnel URL
+# propagates globally in seconds with NO redeploy (browser always talks to the same-origin /api-backend proxy).
 # VPS path: C:\cloudflared\ensure-artillery-tunnel.ps1
 # Secrets (NOT in git): C:\cloudflared\vercel-token.txt  OR  VERCEL_TOKEN= in C:\Temp\artillery-db-secrets.txt
 # State file: C:\cloudflared\current-api-url.txt
@@ -15,6 +17,7 @@ $ProjectDir = "C:\Artillery-ERP"
 $TeamId = "team_2IFtuuXSEcZGzUhW1VNyM0JE"
 $ProjectId = "prj_B5KuC4O8W2uy16VJD8LvktKdjDJc"
 $ProjectName = "artillery-erp-vps"
+$EdgeConfigId = "ecfg_npkgxlllddf0eccn27fd7gx8pqbp"
 
 function Write-Log([string]$msg) {
   $line = "$(Get-Date -Format o) $msg"
@@ -89,63 +92,20 @@ function Recreate-Tunnel {
   Start-Sleep -Seconds 12
 }
 
-function Update-VercelApiUrl([string]$newUrl, [string]$token) {
+function Update-EdgeConfigBackendUrl([string]$newUrl, [string]$token) {
+  # Push the new backend host into Vercel Edge Config. The Next.js middleware reads
+  # this at runtime, so the change propagates globally in seconds — no redeploy.
   $headers = @{
     Authorization = "Bearer $token"
     "Content-Type" = "application/json"
   }
+  $body = @{
+    items = @(@{ operation = "upsert"; key = "backendUrl"; value = $newUrl })
+  } | ConvertTo-Json -Depth 5
 
-  $listUri = "https://api.vercel.com/v9/projects/$ProjectId/env?teamId=$TeamId"
-  $envs = Invoke-RestMethod -Uri $listUri -Headers $headers -Method GET
-  $existing = @($envs.envs) | Where-Object {
-    $_.key -eq "NEXT_PUBLIC_API_URL" -and ($_.target -contains "production")
-  } | Select-Object -First 1
-
-  if ($existing) {
-    $delUri = "https://api.vercel.com/v9/projects/$ProjectId/env/$($existing.id)?teamId=$TeamId"
-    Invoke-RestMethod -Uri $delUri -Headers $headers -Method DELETE | Out-Null
-    Write-Log "Removed old NEXT_PUBLIC_API_URL env id=$($existing.id)"
-  }
-
-  $createBody = @{
-    key    = "NEXT_PUBLIC_API_URL"
-    value  = $newUrl
-    type   = "encrypted"
-    target = @("production")
-  } | ConvertTo-Json
-  $createUri = "https://api.vercel.com/v10/projects/$ProjectId/env?teamId=$TeamId"
-  Invoke-RestMethod -Uri $createUri -Headers $headers -Method POST -Body $createBody | Out-Null
-  Write-Log "Set NEXT_PUBLIC_API_URL=$newUrl"
-
-  $depsUri = "https://api.vercel.com/v6/deployments?projectId=$ProjectId" +
-    "&teamId=$TeamId&target=production&state=READY&limit=5"
-  $deps = Invoke-RestMethod -Uri $depsUri -Headers $headers -Method GET
-  $latest = @($deps.deployments) | Select-Object -First 1
-  if (-not $latest) { throw "No production deployment found to redeploy" }
-
-  $deployUri = "https://api.vercel.com/v13/deployments?teamId=$TeamId&forceNew=1"
-  $deployPayload = @{
-    name         = $ProjectName
-    deploymentId = $latest.uid
-    target       = "production"
-  } | ConvertTo-Json
-
-  try {
-    $dep = Invoke-RestMethod -Uri $deployUri -Headers $headers -Method POST -Body $deployPayload
-    Write-Log "Triggered redeploy id=$($dep.id) url=$($dep.url) from $($latest.uid)"
-  } catch {
-    $vercel = Get-Command vercel -ErrorAction SilentlyContinue
-    if (-not $vercel) { throw "Redeploy API failed and vercel CLI missing: $_" }
-    $env:VERCEL_TOKEN = $token
-    Push-Location $ProjectDir
-    try {
-      $out = & vercel deploy --prod --yes --token $token 2>&1 | Out-String
-      $tail = if ($out.Length -gt 400) { $out.Substring($out.Length - 400) } else { $out }
-      Write-Log "vercel CLI deploy fallback: $tail"
-    } finally {
-      Pop-Location
-    }
-  }
+  $uri = "https://api.vercel.com/v1/edge-config/$EdgeConfigId/items?teamId=$TeamId"
+  $resp = Invoke-RestMethod -Uri $uri -Headers $headers -Method PATCH -Body $body
+  Write-Log "Edge Config backendUrl -> $newUrl (status=$($resp.status); no redeploy needed)"
 }
 
 Write-Log "=== ensure-artillery-tunnel start ==="
@@ -180,8 +140,8 @@ if (-not $token) {
   exit 2
 }
 
-Write-Log "URL changed ($known -> $url) - updating Vercel and redeploying"
-Update-VercelApiUrl -newUrl $url -token $token
+Write-Log "URL changed ($known -> $url) - updating Edge Config backendUrl (no redeploy)"
+Update-EdgeConfigBackendUrl -newUrl $url -token $token
 Set-Content -Path $StateFile -Value $url -Encoding ASCII
 Write-Log "State updated"
 Write-Log "=== ensure-artillery-tunnel done ==="
