@@ -311,7 +311,82 @@ Postgres error `42883` ("No operator matches the given name and argument types..
 
 ---
 
+## Same-origin API proxy via Vercel Edge Config (2026-07-17) — CANONICAL
+
+This supersedes the "bake `NEXT_PUBLIC_API_URL` into the bundle + redeploy on churn" model
+below. The browser now only ever talks to the app's own origin, and the backend host is
+resolved at runtime from Vercel Edge Config — so a churned quick-tunnel URL propagates in
+seconds with **no redeploy**, and the auth cookie is **first-party** (works in Safari/incognito).
+
+### Architecture
+
+```
+Browser ─▶ https://artillery-erp-vps.vercel.app/api-backend/*   (same-origin, first-party cookie)
+             │
+             ▼
+        Next.js middleware (Edge runtime)
+             │  reads backendUrl from Vercel Edge Config (get('backendUrl'))
+             │  strips /api-backend, forwards path+query+headers+body via NextResponse.rewrite
+             ▼
+        Cloudflare quick tunnel (HTTPS transport only)  ─▶  Express :4000 on the VPS
+             ▲
+             │  PATCH /v1/edge-config/{id}/items  (backendUrl -> new host, ~seconds, no redeploy)
+        VPS auto-heal (Artillery-Ensure-Tunnel, every 10 min)
+```
+
+### Components
+
+- **Proxy prefix:** `/api-backend`. Implemented in [`middleware.ts`](../middleware.ts) (matcher
+  `/api-backend/:path*`). Reads `backendUrl` from Edge Config; strips the prefix; preserves the
+  remaining path + querystring; forwards original headers (incl. `Content-Type`, `Cookie`) and the
+  request body so JSON **and** binary uploads pass through; drops `Host` so the outbound request
+  uses the backend host. Returns **503** (JSON) if `backendUrl` is missing/unreadable.
+- **Edge Config store:** `artillery-backend`, id **`ecfg_npkgxlllddf0eccn27fd7gx8pqbp`**
+  (team `healthcare4314-6641s-projects`). Single item `backendUrl`. Connected to the project via
+  the **`EDGE_CONFIG`** connection-string env var (Production + Preview). SDK: `@vercel/edge-config`
+  (`get('backendUrl')`).
+- **Frontend:** [`lib/api/data-provider.ts`](../lib/api/data-provider.ts) `getApiUrl()` returns the
+  relative prefix `'/api-backend'` in api mode (no `NEXT_PUBLIC_API_URL` in the browser).
+  [`lib/api/http-client.ts`](../lib/api/http-client.ts) unchanged (`base + path` → same-origin,
+  `credentials: 'include'`). [`lib/storage/upload.ts`](../lib/storage/upload.ts) uploads to
+  `/api-backend/storage/upload`, with client-side **canvas image compression** (no new dep) to stay
+  under Vercel's ~4.5 MB proxied-body cap, and a hard **4 MB** guard for non-image files.
+- **Auto-heal:** [`scripts/ops/ensure-artillery-tunnel.ps1`](../scripts/ops/ensure-artillery-tunnel.ps1)
+  now **PATCHes Edge Config `backendUrl`** (`PATCH https://api.vercel.com/v1/edge-config/{id}/items`,
+  `operation: upsert`) instead of updating `NEXT_PUBLIC_API_URL` + redeploying. It keeps the
+  tunnel-alive / `/health` / `current-api-url.txt` state logic. No Vercel redeploy on churn.
+
+### Required Vercel env (Production)
+
+- `NEXT_PUBLIC_DATA_PROVIDER=api`
+- `EDGE_CONFIG` = connection string for `ecfg_npkgxlllddf0eccn27fd7gx8pqbp` (encrypted; also in local
+  `.env.local` for builds). The read token is **not** committed.
+- `NEXT_PUBLIC_API_URL` is now **unused by the browser** (safe to leave or remove).
+- `NEXT_PUBLIC_R2_CDN_URL`, `NEXT_PUBLIC_SUPABASE_*` (build-time), `CLOUDFLARE_R2_*` unchanged.
+
+### Verification (2026-07-17, all PASS)
+
+- `GET https://artillery-erp-vps.vercel.app/api-backend/health` → `{"status":"ok","database":"connected"}`.
+- Deployed `/login` bundle: **0** `*.trycloudflare.com` references; uses the relative `api-backend` prefix.
+- `POST /api-backend/auth/login` (admin) → 200, `Set-Cookie: artillery_token=… HttpOnly; Secure; SameSite=None`
+  from the app origin → **first-party** cookie, roles `["SuperAdmin"]`.
+- Churn recovery: PATCH `backendUrl` → proxy reflected the new value in **~4 s** with no redeploy; restored in ~7 s.
+- Image upload: `POST /api-backend/storage/upload` (binary + cookie) → 200 `publicUrl`; CDN GET 200; `DELETE` 200.
+- A prior smoke-test temp password on `admin@hospitality.com` was **restored** to the original hash
+  (temp password now returns 401). No temp password left active.
+
+### Future upgrade (unchanged recommendation)
+
+A Cloudflare **named tunnel** (stable `api-*` hostname) remains the ideal transport so the quick
+tunnel stops churning entirely. The same-origin proxy already removes the user-facing churn pain and
+fixes the third-party-cookie problem, so a named tunnel is now an optimization, not a blocker.
+
+---
+
 ## API-mode Vercel deployment via Cloudflare Quick Tunnel (2026-07-02)
+
+> **Historical.** The `NEXT_PUBLIC_API_URL` + redeploy-on-churn model described in this section is
+> **superseded** by the same-origin Edge Config proxy above. Kept for history/rollback context.
 
 A second, standalone Vercel project runs the frontend entirely against the VPS Postgres through the API. The existing `artilleryerp` production project was left untouched.
 
@@ -326,6 +401,12 @@ A second, standalone Vercel project runs the frontend entirely against the VPS P
 - `NEXT_PUBLIC_API_URL=https://<current-trycloudflare-host>` (ephemeral — see auto-heal below; as of 2026-07-16: `https://smallest-monitor-still-pole.trycloudflare.com`)
 - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (still required at build time because `lib/supabase/client.ts` throws if absent, even though runtime uses the API provider)
 - `NEXT_PUBLIC_R2_CDN_URL` (image CDN)
+- Server R2 vars (belt-and-suspenders for leftover Next `/api/storage/*`; primary presign is on Express): `CLOUDFLARE_R2_ACCOUNT_ID`, `CLOUDFLARE_R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_R2_BUCKET_NAME`
+
+### R2 uploads (api mode)
+- Browser uploads call Express `POST /storage/presign` and `DELETE /storage/delete` (cookie auth on the tunnel), then `PUT` the file to the presigned R2 URL. Next.js `/api/storage/*` remains for supabase-mode only.
+- VPS backend `.env` must include the same `CLOUDFLARE_R2_*` + `R2_CDN_URL` (or `NEXT_PUBLIC_R2_CDN_URL`) as local `.env.local`.
+- **R2 bucket CORS** (Cloudflare dashboard → R2 → `artillery` → Settings → CORS): Allowed Origins must include `https://artillery-erp-vps.vercel.app`, `https://artilleryerp.vercel.app`, and `http://localhost:3000`. Allowed Methods: `GET`, `PUT`, `HEAD`. Allowed Headers: `Content-Type`, `*`. Without this, presign succeeds but the browser `PUT` to R2 fails.
 
 ### Cloudflare Quick Tunnel (HTTPS for the API)
 - URL (ephemeral): read `C:\cloudflared\current-api-url.txt` or `C:\cloudflared\artillery-tunnel.log` → `http://localhost:4000`

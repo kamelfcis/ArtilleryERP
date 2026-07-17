@@ -87,6 +87,30 @@ Do this **before** touching Supabase or the delta sync. All boxes must be ticked
 
 ## 3. RECOMMENDED prerequisite — replace the ephemeral tunnel with a STABLE URL
 
+> **✅ IMPLEMENTED (2026-07-17): same-origin proxy via Vercel Edge Config.** The problems this
+> section warns about (URL churn requiring a redeploy, and third-party-cookie breakage in
+> Safari/incognito) are now **solved on our side without a Cloudflare dashboard or new domain**:
+>
+> - The browser only ever calls the app's own origin at **`/api-backend/*`**; a Next.js middleware
+>   ([`middleware.ts`](../middleware.ts)) rewrites those requests to the real backend, whose host is
+>   read at runtime from **Vercel Edge Config** (`backendUrl`, store id
+>   `ecfg_npkgxlllddf0eccn27fd7gx8pqbp`, project env `EDGE_CONFIG`).
+> - Because API calls are **same-origin**, the `artillery_token` cookie is **first-party** and works
+>   in Safari and Chrome incognito.
+> - On quick-tunnel churn, the VPS auto-heal
+>   ([`scripts/ops/ensure-artillery-tunnel.ps1`](../scripts/ops/ensure-artillery-tunnel.ps1))
+>   **PATCHes Edge Config `backendUrl`** and the change propagates globally in **seconds — no
+>   redeploy**. The quick tunnel remains only as the HTTPS transport between Vercel and the VPS.
+> - Client uploads are compressed on the client (canvas) to fit under Vercel's ~4.5 MB proxied-body
+>   cap; non-image files are hard-guarded at 4 MB.
+>
+> Full design + verification results: see **"Same-origin API proxy via Vercel Edge Config (2026-07-17)"**
+> in [`MIGRATION_CUTOVER.md`](./MIGRATION_CUTOVER.md).
+>
+> **Options A/B below (named tunnel / reverse-proxy on a custom domain) are now a FUTURE
+> OPTIMIZATION** for stable TLS transport, not a prerequisite for cutover. The `NEXT_PUBLIC_API_URL`
+> steps in this section are superseded by the `EDGE_CONFIG` model.
+
 > **Do this before cutting users over.** Skipping it means the app can break on any tunnel restart.
 
 ### Why this matters
@@ -140,7 +164,7 @@ the new site succeeds **in Safari and a Chrome incognito window** (proves the co
 | Vercel token | `C:\cloudflared\vercel-token.txt` or `VERCEL_TOKEN=` in `C:\Temp\artillery-db-secrets.txt` (**never commit**) |
 | Manual run | `C:\cloudflared\ensure-artillery-tunnel.cmd` |
 
-**VERIFY auto-heal:** after a deliberate `pm2 delete cloudflared-tunnel` + `C:\cloudflared\start-artillery-tunnel.cmd`, wait ≤10 minutes (or run the cmd manually) and confirm Vercel Production `NEXT_PUBLIC_API_URL` matches the new host and a new production deployment is READY.
+**VERIFY auto-heal:** after a deliberate `pm2 delete cloudflared-tunnel` + `C:\cloudflared\start-artillery-tunnel.cmd`, wait ≤10 minutes (or run the cmd manually) and confirm the Edge Config `backendUrl` now equals the new host (`GET https://api.vercel.com/v1/edge-config/ecfg_npkgxlllddf0eccn27fd7gx8pqbp/items` with the Vercel token) and that `GET https://artillery-erp-vps.vercel.app/api-backend/health` returns `{"status":"ok"}`. **No redeploy is expected** — the middleware reads `backendUrl` at runtime. (The legacy `NEXT_PUBLIC_API_URL` + redeploy behaviour no longer applies.)
 
 ---
 
