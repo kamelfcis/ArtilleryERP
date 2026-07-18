@@ -101,13 +101,12 @@ If critical issues appear within the maintenance window:
 
 ## Notes
 
-- **Canonical API host (target):** `https://api-artillery.pdfnox.com` → VPS `http://localhost:4000` via an
-  **additional** Public Hostname on the existing PDFNox Cloudflare named tunnel. **Do not** edit
-  `api.pdfnox.com` → `:3000` or stop the Windows service `Cloudflared`. Until that hostname’s `/health`
-  returns Artillery JSON, Edge Config `backendUrl` stays on the Artillery quick tunnel
-  (`*.trycloudflare.com`) and `Artillery-Ensure-Tunnel` remains active. After cutover, replace that task
-  with `scripts/ops/ensure-artillery-health.ps1` (keeps `:4000` / Edge Config canonical; does **not** chase
-  trycloudflare). See session log **2026-07-18** below for the blocked Cloudflare dashboard steps.
+- **Canonical API host (live):** `https://api-artillery.abdelrhmanabdelkhalek.com` → VPS `http://localhost:4000` via an
+  **additional** Public Hostname on the existing PDFNox Cloudflare named tunnel (`16782513-7fb6-481b-8ac2-ab74d9bd9e04`).
+  **Do not** edit `api.pdfnox.com` → `:3000` or stop the Windows service `Cloudflared`. Edge Config `backendUrl` is
+  `https://api-artillery.abdelrhmanabdelkhalek.com`. Scheduled task `Artillery-Ensure-Tunnel` runs
+  `scripts/ops/ensure-artillery-health.ps1` (keeps `:4000` / Edge Config canonical; does **not** chase trycloudflare).
+  See session log **2026-07-18** below for cutover details.
 - **Port 4000 is reserved for Artillery** on the VPS (`C:\Artillery-ERP\backend-deploy`, PM2 `artillery-api`).
   The Cloudflare quick tunnel (`C:\cloudflared\artillery-quick.yml`) and Vercel same-origin proxy
   (`/api-backend/*` → Edge Config `backendUrl`) both expect Artillery on `http://localhost:4000`.
@@ -440,7 +439,9 @@ A second, standalone Vercel project runs the frontend entirely against the VPS P
   4. Compares to `C:\cloudflared\current-api-url.txt`. On change: updates Vercel Production `NEXT_PUBLIC_API_URL` via API and triggers a production redeploy.
 - **Secrets on VPS only (never git):** `C:\cloudflared\vercel-token.txt` and/or `VERCEL_TOKEN=` in `C:\Temp\artillery-db-secrets.txt`.
 - **Log:** `C:\cloudflared\ensure-artillery-tunnel.log`.
-- **Named tunnel note:** PDFNox already runs a **separate** token-based named tunnel for `api.pdfnox.com` → `:3000`. There is **no** `cert.pem` on the VPS, so CLI cannot create a second named tunnel without interactive `cloudflared tunnel login`. Do **not** edit the PDFNox token tunnel ingress from here. Stable hostname requires adding a Public Hostname (e.g. `api-artillery.pdfnox.com` → `http://localhost:4000`) in Cloudflare Zero Trust for that account + DNS, **or** a dedicated Artillery named tunnel + domain.
+- **Named tunnel note:** PDFNox already runs a **separate** token-based named tunnel for `api.pdfnox.com` → `:3000`. Artillery
+  uses an **additional** Public Hostname on the same tunnel: `api-artillery.abdelrhmanabdelkhalek.com` → `http://localhost:4000`.
+  **Do not** edit the PDFNox `api.pdfnox.com` → `:3000` row or stop the Windows service `Cloudflared`.
 
 ### Quick-tunnel recovery (manual, if auto-heal has not run yet)
 - **Symptom:** browser `net::ERR_NAME_NOT_RESOLVED` on `POST …/auth/login` because Vercel still points at an old `*.trycloudflare.com` hostname.
@@ -454,7 +455,8 @@ A second, standalone Vercel project runs the frontend entirely against the VPS P
   5. If auto-heal did not redeploy yet: update Vercel Production `NEXT_PUBLIC_API_URL`, then `vercel deploy --prod --yes`.
   6. Hard-refresh the browser / clear site data / unregister the PWA service worker so the new baked-in API URL loads.
 - **Health check:** `GET https://<tunnel-host>/health` -> 200; `POST /auth/login` with `Origin: https://artillery-erp-vps.vercel.app` -> 200 + `Set-Cookie: artillery_token=…`.
-- **Long-term:** add a named Cloudflare Tunnel hostname for Artillery on the PDFNox Cloudflare account (recommended: `api-artillery.pdfnox.com` → `localhost:4000`) so the URL stops churning and third-party cookie pain is reduced if the frontend later shares a parent domain.
+- **Long-term:** Artillery is served on the stable named hostname `api-artillery.abdelrhmanabdelkhalek.com` → `localhost:4000`
+  on the PDFNox Cloudflare tunnel so the URL no longer churns.
 
 ### Backend CORS
 - `C:\Artillery-ERP\backend-deploy\.env` -> `CORS_ORIGINS=http://localhost:3000,https://artilleryerp.vercel.app,https://artillery-erp-vps.vercel.app`
@@ -485,39 +487,25 @@ A second, standalone Vercel project runs the frontend entirely against the VPS P
 |-------|--------|
 | `ReelSaverDL-API` | Stopped + **Disabled** (was reclaiming `:4000`) |
 | `artillery-api` PM2 | Online on `:4000`; local `/health` Artillery JSON |
-| Artillery quick tunnel | PM2 `cloudflared-tunnel` online (temporary) |
-| Edge Config `backendUrl` | Synced to live trycloudflare URL |
+| Artillery quick tunnel | **Retired** (PM2 `cloudflared-tunnel` deleted) |
+| Edge Config `backendUrl` | `https://api-artillery.abdelrhmanabdelkhalek.com` |
 | `GET …/api-backend/health` | **200** Artillery |
-| `POST …/api-backend/auth/login` | **not 502** (validation 400 with probe creds) |
+| `POST …/api-backend/auth/login` | **401** with probe creds (not 502/404) |
 | PDFNox `Cloudflared` service | Untouched (still Automatic/Running) |
 
-### Phase B — BLOCKED (needs you in Cloudflare)
+### Phase B — COMPLETE (named hostname live)
 
-No `CLOUDFLARE_API_TOKEN` on the VPS, in repo `.env.local`, or in `C:\Temp\artillery-db-secrets.txt`
-(keys present: DB URLs + `VERCEL_TOKEN` only). DNS for `api-artillery.pdfnox.com` does **not** exist yet.
-`api.pdfnox.com` already CNAMEs to tunnel `16782513-7fb6-481b-8ac2-ab74d9bd9e04.cfargotunnel.com`
-(zone NS is at the registrar, not Cloudflare).
+Public Hostname added on PDFNox tunnel `16782513-7fb6-481b-8ac2-ab74d9bd9e04`:
 
-**Do this once (≈1 minute), without touching the `api.pdfnox.com` row:**
+- Hostname: `api-artillery.abdelrhmanabdelkhalek.com`
+- Service: HTTP `localhost:4000`
+- DNS: CNAME `api-artillery` → `16782513-7fb6-481b-8ac2-ab74d9bd9e04.cfargotunnel.com` (registrar zone)
+- Verify: `GET https://api-artillery.abdelrhmanabdelkhalek.com/health` → `{"status":"ok","database":"connected"}`
 
-1. Cloudflare Dashboard → **Zero Trust** → **Networks** → **Tunnels**.
-2. Open the existing **PDFNox** tunnel (UUID `16782513-7fb6-481b-8ac2-ab74d9bd9e04`).
-3. **Public Hostname → Add**:
-   - Hostname: `api-artillery.pdfnox.com`
-   - Path: *(empty)*
-   - Service type: HTTP
-   - URL: `localhost:4000` (or `http://localhost:4000`)
-4. If the UI does not auto-create DNS (zone may be at Namecheap/registrar): add a **CNAME**
-   `api-artillery` → `16782513-7fb6-481b-8ac2-ab74d9bd9e04.cfargotunnel.com` (proxied/orange if on CF DNS;
-   plain CNAME at registrar is fine).
-5. Verify: `GET https://api-artillery.pdfnox.com/health` → `{"status":"ok","database":"connected"}`.
+**Do not** touch the existing `api.pdfnox.com` → `:3000` row.
 
-**Optional automation later:** place an Account API token (Tunnel Edit + DNS Edit on `pdfnox.com` if
-applicable) in `C:\cloudflared\cloudflare-api-token.txt` as a single line (never commit) and ask the agent
-to finish Phases C–D.
+### Phases C–D — COMPLETE
 
-### Phases C–D — waiting on Phase B
-
-- **C:** PATCH Edge Config `backendUrl` → `https://api-artillery.pdfnox.com`; verify `/api-backend/health`.
-- **D:** Stop PM2 `cloudflared-tunnel` only; switch `Artillery-Ensure-Tunnel` to
-  `scripts/ops/ensure-artillery-health.ps1` (no trycloudflare chase). Leave Windows `Cloudflared` alone.
+- **C:** Edge Config `backendUrl` → `https://api-artillery.abdelrhmanabdelkhalek.com`; `/api-backend/health` verified **200**.
+- **D:** PM2 `cloudflared-tunnel` deleted; `Artillery-Ensure-Tunnel` → `C:\cloudflared\ensure-artillery-health.cmd`
+  (source: `scripts/ops/ensure-artillery-health.ps1`). Windows `Cloudflared` service untouched.
