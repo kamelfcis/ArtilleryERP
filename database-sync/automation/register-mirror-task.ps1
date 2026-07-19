@@ -7,10 +7,10 @@
   run-mirror.ps1 every 10 minutes unattended (whether a user is logged on or not)
   as SYSTEM at highest privileges.
 
-  The mirror job is a SAFE one-way sync (INSERT missing + UPDATE changed only).
-  It does NOT purge VPS-only rows. On register, the nightly purge reconcile task
-  (Artillery-DeltaSync-Nightly) is DISABLED so it cannot delete VPS-only rows
-  overnight while the 10-min mirror is the active strategy.
+  The mirror job is a full one-way sync (INSERT + UPDATE + DELETE VPS-only rows).
+  It calls run-reconcile-nightly.ps1 -SkipBackup each run. On register, the nightly
+  purge reconcile task (Artillery-DeltaSync-Nightly) is DISABLED because the mirror
+  now includes purge on every 10-minute run.
 
   Uses schtasks.exe + a generated task XML (same pattern as register-tasks.ps1).
 
@@ -57,8 +57,8 @@ $ScriptPath = (Resolve-Path $ScriptPath).Path
 $workDir = Split-Path -Parent $ScriptPath
 
 $taskArgs = "-NoProfile -ExecutionPolicy Bypass -NonInteractive -File `"$ScriptPath`""
-$desc = "Artillery ERP: every-${IntervalMinutes}m Supabase->VPS differential mirror " +
-        "(INSERT/UPDATE only; no purge, no pg_dump). Disable before final cutover freeze."
+$desc = "Artillery ERP: every-${IntervalMinutes}m Supabase->VPS full sync " +
+        "(INSERT/UPDATE/DELETE VPS-only; no pg_dump). Disable before final cutover freeze."
 
 # ISO-8601 duration for repetition interval (e.g. PT10M).
 $repInterval = "PT${IntervalMinutes}M"

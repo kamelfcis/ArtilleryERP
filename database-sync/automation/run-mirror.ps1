@@ -1,21 +1,22 @@
 <#
 .SYNOPSIS
-  10-minute Supabase → VPS differential mirror wrapper for Artillery ERP.
+  10-minute Supabase → VPS full-sync mirror wrapper for Artillery ERP.
 
 .DESCRIPTION
-  Thin wrapper around run-sync.ps1 for frequent one-way catch-up:
+  Thin wrapper around run-reconcile-nightly.ps1 for frequent one-way catch-up:
 
-    lock -> run-sync.ps1 -SkipBackup (compare → generate → apply → verify) -> retention
+    lock -> run-reconcile-nightly.ps1 -SkipBackup
+      (compare → purge VPS-only → generate → apply → verify) -> retention
 
   Design points:
-    * INSERT missing + UPDATE changed only — never deletes VPS-only rows
-      (safe while both sites may still write).
+    * Full sync: INSERT missing + UPDATE changed + DELETE VPS-only rows.
+      Supabase is the source of truth; VPS is brought into equality every run.
     * Skips pg_dump every run (disk/load); rely on manual/nightly backups.
     * Own lock file with a short stale window (~25 min) so a hung run does not
       block the rest of the day; overlapping runs exit 0 (IgnoreNew).
     * Logs to logs/mirror_<stamp>.log; keeps ~288 (~2 days at 10-min) or 48h.
 
-  Exit code: mirrors run-sync.ps1 (0 on success / skipped overlap; non-zero on failure).
+  Exit code: mirrors run-reconcile-nightly.ps1 (0 on success / skipped overlap; non-zero on failure).
 
 .NOTES
   Scheduled by register-mirror-task.ps1 as Artillery-DeltaSync-Mirror.
@@ -32,7 +33,8 @@ param(
   [string] $SuperHost      = '127.0.0.1',
   [int]    $KeepLogs       = 288,
   [int]    $LogMaxAgeHours = 48,
-  [int]    $StaleLockMinutes = 25
+  [int]    $StaleLockMinutes = 25,
+  [int]    $LiveChurnTolerance = 50
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,7 +47,7 @@ New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $stamp    = Get-Date -Format 'yyyyMMdd-HHmmss'
 $LogFile  = Join-Path $LogDir "mirror_$stamp.log"
 $LockFile = Join-Path $LogDir 'run-mirror.lock'
-$SyncScript = Join-Path $AutomationDir 'run-sync.ps1'
+$ReconcileScript = Join-Path $AutomationDir 'run-reconcile-nightly.ps1'
 
 function Write-Log {
   param([string]$Message, [ValidateSet('INFO', 'WARN', 'ERROR')][string]$Level = 'INFO')
@@ -54,10 +56,10 @@ function Write-Log {
   Write-Host $line
 }
 
-if (-not (Test-Path $SyncScript)) { throw "run-sync.ps1 not found at $SyncScript" }
+if (-not (Test-Path $ReconcileScript)) { throw "run-reconcile-nightly.ps1 not found at $ReconcileScript" }
 
 Write-Log '=================================================================='
-Write-Log "Artillery ERP 10-min mirror starting (host time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'))"
+Write-Log "Artillery ERP 10-min full-sync mirror starting (host time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'))"
 Write-Log "SyncRoot=$SyncRoot"
 
 # ------------------------------------------------------------------ overlap guard
@@ -74,11 +76,11 @@ if (Test-Path $LockFile) {
 
 $overallExit = 0
 try {
-  Write-Log 'Invoking run-sync.ps1 -SkipBackup (INSERT/UPDATE only; no purge, no dump).'
+  Write-Log 'Invoking run-reconcile-nightly.ps1 -SkipBackup (compare → purge → generate → apply → verify).'
   # Run in a child powershell process so its `exit` does not kill this wrapper.
   $argList = @(
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-NonInteractive',
-    '-File', $SyncScript,
+    '-File', $ReconcileScript,
     '-SecretsFile', $SecretsFile,
     '-PgBin', $PgBin,
     '-NodeDir', $NodeDir,
@@ -87,7 +89,8 @@ try {
     '-SuperUser', $SuperUser,
     '-SuperHost', $SuperHost,
     '-SkipBackup',
-    '-KeepLogs', "$KeepLogs"
+    '-LiveChurnTolerance', "$LiveChurnTolerance",
+    '-KeepLogs', '30'
   )
   $prevEap = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
@@ -104,10 +107,10 @@ try {
     }
   }
   if ($overallExit -ne 0) {
-    Write-Log ("run-sync.ps1 exited $overallExit") 'ERROR'
+    Write-Log ("run-reconcile-nightly.ps1 exited $overallExit") 'ERROR'
   }
   else {
-    Write-Log 'run-sync.ps1 completed successfully.'
+    Write-Log 'run-reconcile-nightly.ps1 completed successfully.'
   }
 }
 catch {

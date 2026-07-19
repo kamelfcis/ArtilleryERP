@@ -3,26 +3,24 @@
 Automation that keeps VPS PostgreSQL (`artillery_erp_staging`) caught up with
 **Supabase** until Supabase is decommissioned.
 
-## Active strategy: 10-minute differential mirror
+## Active strategy: 10-minute full-sync mirror
 
 Windows task **`Artillery-DeltaSync-Mirror`** runs every **10 minutes** as SYSTEM:
 
-**compare → generate → apply (resilient) → verify** (no `pg_dump`, no purge)
+**compare → purge VPS-only → generate → apply (resilient) → verify** (no `pg_dump`)
 
-- **INSERT** missing + **UPDATE** changed rows only.
-- **Never deletes** VPS-only rows (safe while both sites may still write).
-- Resilient apply (`ON_ERROR_ROLLBACK=on`) skips booking unique-constraint conflicts.
-- Logs: `..\logs\mirror_<stamp>.log` (keep ~288 / 48h) plus child `sync_*.log`.
-
-> While both sites write, VPS can still get ahead on some tables; the mirror only
-> applies Supabase → VPS. That is intentional until Supabase is frozen.
+- **INSERT** missing + **UPDATE** changed + **DELETE** VPS-only rows.
+- Supabase is the source of truth; each run brings VPS into equality.
+- Purge runs in reverse FK order (children before parents); apply uses resilient
+  `ON_ERROR_ROLLBACK=on` with optional generate+apply retry after FK skips.
+- Logs: `..\logs\mirror_<stamp>.log` (keep ~288 / 48h) plus child `reconcile_*.log`.
 
 ## Files
 
 | File | What it does |
 |------|--------------|
-| `run-mirror.ps1` | 10-min wrapper: lock (~25 min stale), calls `run-sync.ps1 -SkipBackup`, retention. |
-| `register-mirror-task.ps1` | Creates/updates (or `-Unregister`s) `Artillery-DeltaSync-Mirror`. **Disables** the nightly purge task on register. |
+| `run-mirror.ps1` | 10-min wrapper: lock (~25 min stale), calls `run-reconcile-nightly.ps1 -SkipBackup` (full sync), retention. |
+| `register-mirror-task.ps1` | Creates/updates (or `-Unregister`s) `Artillery-DeltaSync-Mirror`. **Disables** the nightly purge task on register (mirror now includes purge). |
 | `run-sync.ps1` | Safe sync pipeline (insert/update only). Supports `-SkipBackup` for frequent runs. |
 | `run-reconcile-nightly.ps1` | Full equality pipeline including **purge** of VPS-only rows. Kept for a final cutover equality pass. |
 | `register-tasks.ps1` | Registers `Artillery-DeltaSync-Nightly` (disabled while the 10-min mirror is active). |
@@ -111,11 +109,11 @@ Pacific is on PDT). Re-align for PST with `-Times '05:00'`.
 
 | | 10-min mirror (`run-mirror.ps1`) | Nightly reconcile (`run-reconcile-nightly.ps1`) |
 |---|---|---|
-| Deletes VPS-only rows | Never | **Yes** (purge step) |
+| Deletes VPS-only rows | **Yes** (purge step) | **Yes** (purge step) |
 | `pg_dump` every run | **Skipped** (`-SkipBackup`) | Yes |
-| Goal | Catch up inserts/updates | **Full equality** with Supabase |
+| Goal | **Full equality** with Supabase | **Full equality** with Supabase |
 | Schedule | **Every 10 minutes** | Once daily (currently **disabled**) |
-| Verify tolerance | Known booking conflicts allowed | Strict (minor live-churn only) |
+| Verify tolerance | Minor live-churn only (default 50 rows) | Minor live-churn only (default 50 rows) |
 
 > ⚠️ At final cutover, **disable `Artillery-DeltaSync-Mirror` first** (freeze),
 > then do the manual final sync per
@@ -124,7 +122,7 @@ Pacific is on PDT). Re-align for PST with `-Times '05:00'`.
 ## Logs, backups, retention
 
 - Mirror logs: `..\logs\mirror_<yyyyMMdd-HHmmss>.log` — keep last **288** or **48h**.
-- Sync logs (child): `..\logs\sync_*.log` — pruned by `run-sync.ps1` retention.
+- Reconcile logs (child): `..\logs\reconcile_*.log` — pruned by `run-reconcile-nightly.ps1` retention.
 - Backups: only when `run-sync.ps1` is run **without** `-SkipBackup`, or via nightly/manual reconcile (`pre-reconcile_*.dump`).
 
 ## Exit codes
