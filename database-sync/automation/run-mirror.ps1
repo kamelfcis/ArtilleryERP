@@ -76,7 +76,7 @@ if (Test-Path $LockFile) {
 
 $overallExit = 0
 try {
-  Write-Log 'Invoking run-reconcile-nightly.ps1 -SkipBackup (compare → purge → generate → apply → verify).'
+  Write-Log 'Invoking run-reconcile-nightly.ps1 -SkipBackup (compare -> purge -> generate -> apply -> verify).'
   # Run in a child powershell process so its `exit` does not kill this wrapper.
   $argList = @(
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-NonInteractive',
