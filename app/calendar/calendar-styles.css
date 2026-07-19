@@ -283,16 +283,18 @@
   background: linear-gradient(90deg, rgba(59, 130, 246, 0.05) 0%, rgba(255, 255, 255, 0.95) 100%) !important;
 }
 
+/* min-height only — do not set height:auto; FC scrollgrid syncs unit ↔ lane height */
 .fc-datagrid-body .fc-datagrid-cell-frame {
   padding: 0 !important;
-  height: var(--fc-row-h) !important;
+  min-height: var(--fc-row-h) !important;
   display: flex !important;
   align-items: center !important;
   overflow: visible !important;
+  box-sizing: border-box !important;
 }
 
 .fc-datagrid-body .fc-datagrid-cell-cushion {
-  padding: 0.5rem 0.5rem !important;
+  padding: 0.25rem 0.5rem !important;
   display: flex !important;
   align-items: center !important;
   gap: 0.5rem !important;
@@ -301,7 +303,7 @@
   color: #1e293b !important;
   overflow: visible !important;
   width: 100% !important;
-  width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 /* Hide the expander placeholder */
@@ -310,10 +312,12 @@
 }
 
 /* ========== TIMELINE LANES (EVENT ROWS) ========== */
+/* Shared floor with datagrid; FC owns final height so وحدة rows stay aligned */
 .fc-timeline-lane {
   border-bottom: 2px solid #60a5fa !important;
   background: rgba(255, 255, 255, 0.95) !important;
-  height: var(--fc-row-h) !important;
+  min-height: var(--fc-row-h) !important;
+  box-sizing: border-box !important;
 }
 
 .fc-timeline-lane:nth-child(even) {
@@ -325,7 +329,8 @@
 }
 
 .fc-timeline-lane-frame {
-  height: var(--fc-row-h) !important;
+  min-height: var(--fc-row-h) !important;
+  box-sizing: border-box !important;
 }
 
 /* Today column highlight in lanes */

@@ -578,6 +578,7 @@ export default function CalendarPage() {
               title: eventTitle,
               start: reservation.check_in_date,
               end: reservation.check_out_date,
+              allDay: true,
               resourceId: reservation.unit_id,
               backgroundColor: statusColor,
               borderColor: statusColor,
@@ -602,6 +603,15 @@ export default function CalendarPage() {
       const roomBlockEvents = useMemo(() => {
         if (!roomBlocks) return []
 
+        const toDateOnly = (value: string | null | undefined): string => {
+          if (!value) return value as string
+          if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+          const ms = Date.parse(value)
+          if (Number.isNaN(ms)) return value
+          const rounded = Math.round(ms / 86_400_000) * 86_400_000
+          return new Date(rounded).toISOString().slice(0, 10)
+        }
+
         return roomBlocks.flatMap((block: any) => {
           const blockUnitIds = block.units?.map((u: any) => u.unit?.id).filter(Boolean) || []
           if (!blockUnitIds.some((unitId: string) => filteredUnitIds.has(unitId))) return []
@@ -615,8 +625,9 @@ export default function CalendarPage() {
               return {
                 id: `block-${block.id}-${unitId}`,
                 title: `🚫 ${blockLabel}`,
-                start: block.start_date,
-                end: block.end_date,
+                start: toDateOnly(block.start_date),
+                end: toDateOnly(block.end_date),
+                allDay: true,
                 resourceId: unitId,
                 display: 'background' as const,
                 editable: false,
@@ -645,6 +656,7 @@ export default function CalendarPage() {
             title: '🔧 صيانة',
             start: rangeStart,
             end: rangeEnd,
+            allDay: true,
             resourceId: unit.id,
             backgroundColor: '#f59e0b',
             borderColor: '#d97706',

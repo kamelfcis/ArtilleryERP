@@ -3,6 +3,9 @@ import { config } from '../config.js'
 
 const { Pool } = pg
 
+// Keep DATE columns as "YYYY-MM-DD" strings (avoid JS Date / TZ shifts).
+pg.types.setTypeParser(1082, (val: string) => val)
+
 export const pool = new Pool({
   connectionString: config.databaseUrl,
   max: 20,

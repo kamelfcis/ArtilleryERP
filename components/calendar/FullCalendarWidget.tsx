@@ -559,8 +559,6 @@ const FullCalendarWidget = React.forwardRef<FullCalendar, Props>(function FullCa
             resourceOrder="orderno,title"
             slotMinTime="00:00:00"
             slotMaxTime="24:00:00"
-            slotDuration="24:00:00"
-            slotLabelInterval="24:00:00"
             slotLabelFormat={{
               weekday: 'long',
               day: 'numeric',
