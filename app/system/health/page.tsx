@@ -55,15 +55,26 @@ export default function SystemHealthPage() {
         }
       }
 
-      // Check R2 storage via API (HeadBucket)
+      // Check R2 storage via HeadBucket (Express in api mode; Next route in supabase mode)
       const storageStart = Date.now()
       try {
-        const res = await fetchWithSupabaseAuth('/api/storage/health')
-        const data = await res.json().catch(() => ({}))
-        checks.storage = {
-          status: res.ok && data.status === 'healthy' ? 'healthy' : 'error',
-          message: data.message || (res.ok ? 'التخزين يعمل بشكل طبيعي' : 'خطأ في الاتصال بالتخزين'),
-          responseTime: data.responseTime ?? Date.now() - storageStart,
+        if (isApiProvider()) {
+          const data = await apiGet<{ status: string; message?: string; responseTime?: number }>(
+            '/storage/health'
+          )
+          checks.storage = {
+            status: data.status === 'healthy' ? 'healthy' : 'error',
+            message: data.message || 'التخزين يعمل بشكل طبيعي',
+            responseTime: data.responseTime ?? Date.now() - storageStart,
+          }
+        } else {
+          const res = await fetchWithSupabaseAuth('/api/storage/health')
+          const data = await res.json().catch(() => ({}))
+          checks.storage = {
+            status: res.ok && data.status === 'healthy' ? 'healthy' : 'error',
+            message: data.message || (res.ok ? 'التخزين يعمل بشكل طبيعي' : 'خطأ في الاتصال بالتخزين'),
+            responseTime: data.responseTime ?? Date.now() - storageStart,
+          }
         }
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : 'خطأ في الاتصال بالتخزين'

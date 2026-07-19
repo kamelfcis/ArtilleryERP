@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Re-runnable delta synchronization + verification toolkit: syncs the VPS PostgreSQL (artillery_erp_staging) to match Supabase (source of truth). INSERT missing + UPDATE changed only; never deletes/alters.",
+  "description": "Re-runnable delta synchronization + verification toolkit: syncs the VPS PostgreSQL (artillery_erp_staging) to match Supabase (source of truth). INSERT missing + UPDATE changed + DELETE VPS-only rows.",
   "scripts": {
     "compare": "tsx compare_databases.ts",
     "generate": "tsx generateDelta.ts",
