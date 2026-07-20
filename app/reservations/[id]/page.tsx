@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/components/ui/use-toast'
-import { formatDateShort, formatCurrency } from '@/lib/utils'
+import { formatDateShort, formatDate, formatCurrency } from '@/lib/utils'
 import { RESERVATION_STATUSES, RESERVATION_STATUS_COLORS } from '@/lib/constants'
 import { ArrowRight, Paperclip, Link as LinkIcon, Utensils, Calendar, User, Home, DollarSign, FileText, Pencil, Save, X, Shield, Heart, Search, UserPlus, Moon } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -659,6 +659,40 @@ export default function ReservationDetailPage() {
                 <span className="text-muted-foreground font-medium">عدد الأطفال:</span>
                 <span className="font-semibold text-slate-900 dark:text-slate-100">{reservation.children}</span>
               </motion.div>
+              <motion.div
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 1.05 }}
+                className="flex items-center justify-between p-3 rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-blue-200/50 dark:border-blue-800/50"
+              >
+                <span className="text-muted-foreground font-medium">أنشئ بواسطة:</span>
+                <div className="text-left">
+                  <span className="font-semibold text-slate-900 dark:text-slate-100 block">
+                    {reservation.created_by_email || 'غير محدد'}
+                  </span>
+                  {reservation.created_at && (
+                    <span className="text-xs text-muted-foreground">{formatDate(reservation.created_at)}</span>
+                  )}
+                </div>
+              </motion.div>
+              {(reservation.updated_at || reservation.updated_by_email) && (
+                <motion.div
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 1.1 }}
+                  className="flex items-center justify-between p-3 rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-blue-200/50 dark:border-blue-800/50"
+                >
+                  <span className="text-muted-foreground font-medium">آخر تعديل بواسطة:</span>
+                  <div className="text-left">
+                    <span className="font-semibold text-slate-900 dark:text-slate-100 block">
+                      {reservation.updated_by_email || 'غير محدد'}
+                    </span>
+                    {reservation.updated_at && (
+                      <span className="text-xs text-muted-foreground">{formatDate(reservation.updated_at)}</span>
+                    )}
+                  </div>
+                </motion.div>
+              )}
             </CardContent>
           </Card>
         </motion.div>

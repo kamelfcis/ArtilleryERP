@@ -103,6 +103,10 @@ export interface Reservation {
   notes?: string
   notes_ar?: string
   created_by?: string
+  created_by_user_id?: string | null
+  created_by_email?: string | null
+  updated_by_user_id?: string | null
+  updated_by_email?: string | null
   created_at: string
   updated_at: string
   unit?: Unit

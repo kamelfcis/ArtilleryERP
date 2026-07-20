@@ -423,6 +423,8 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
     }
 
     const { id: _id, ...updates } = req.body ?? {}
+    updates.updated_by_user_id = req.user!.id
+    updates.updated_by_email = req.user!.email
     const built = buildUpdateSet(updates)
     if (!built) {
       res.status(400).json({ error: 'لا توجد بيانات للتحديث' })
