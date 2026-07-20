@@ -37,7 +37,7 @@ const GUEST_TYPE_MAP: Record<string, string> = {
 
 function buildReservationTooltipHTML(
   res: CalendarEventRow,
-  staffByUserId: Map<string, string>
+  creatorLabelByUserId: Map<string, string>
 ): string {
   const gName = `${res.guest_first_name_ar || res.guest_first_name || ''} ${res.guest_last_name_ar || res.guest_last_name || ''}`.trim()
   const gType = res.guest_type || ''
@@ -52,7 +52,9 @@ function buildReservationTooltipHTML(
   const st = res.status || ''
   const notes = res.notes || ''
   const creatorUserId = res.created_by_user_id
-  const creatorName = creatorUserId ? (staffByUserId.get(creatorUserId) || creatorUserId.substring(0, 8) + '...') : null
+  const creatorLabel = creatorUserId
+    ? (creatorLabelByUserId.get(creatorUserId) || creatorUserId.substring(0, 8) + '...')
+    : null
   return `
     <button class="fc-tooltip-close" style="position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2);color:#f1f5f9;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background 0.15s;">&times;</button>
     <div style="font-weight: 700; font-size: 15px; margin-bottom: 8px; color: #60a5fa; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
@@ -64,7 +66,7 @@ function buildReservationTooltipHTML(
     <div style="margin-bottom: 4px;">📅 الخروج: <span style="color: #fb923c;">${cOut}</span></div>
     ${st ? `<div style="margin-bottom: 4px;">📌 الحالة: <span style="color: #c084fc;">${STATUS_MAP[st] || st}</span></div>` : ''}
     ${notes ? `<div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">📝 ملاحظات: <span style="color: #fde68a;">${notes}</span></div>` : ''}
-    <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">👷 بواسطة: <span style="color: #67e8f9;">${creatorName || 'غير محدد'}</span></div>
+    <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">👷 بواسطة: <span style="color: #67e8f9;">${creatorLabel || 'غير محدد'}</span></div>
     ${cAt ? `<div style="margin-top: 4px; font-size: 11px; color: #94a3b8;">🕐 تاريخ الإنشاء: ${cAt}</div>` : ''}
   `
 }
@@ -112,7 +114,7 @@ interface Props {
   hasRole: (role: UserRole) => boolean
   elevatedOps: boolean
   readOnly?: boolean
-  staffByUserId: Map<string, string>
+  creatorLabelByUserId: Map<string, string>
   onDateSelect: (info: any) => void
   onEventClick: (info: any) => void
   onEventDrop: (info: any) => void
@@ -136,7 +138,7 @@ const FullCalendarWidget = React.forwardRef<FullCalendar, Props>(function FullCa
   hasRole,
   elevatedOps,
   readOnly = false,
-  staffByUserId,
+  creatorLabelByUserId,
   onDateSelect,
   onEventClick,
   onEventDrop,
@@ -161,7 +163,7 @@ const FullCalendarWidget = React.forwardRef<FullCalendar, Props>(function FullCa
     elevatedOps,
     readOnly,
     pendingIds,
-    staffByUserId,
+    creatorLabelByUserId,
     onEventClick,
     setReservationToDelete,
     setDeleteDialogOpen,
@@ -175,7 +177,7 @@ const FullCalendarWidget = React.forwardRef<FullCalendar, Props>(function FullCa
     elevatedOps,
     readOnly,
     pendingIds,
-    staffByUserId,
+    creatorLabelByUserId,
     onEventClick,
     setReservationToDelete,
     setDeleteDialogOpen,
@@ -465,7 +467,7 @@ const FullCalendarWidget = React.forwardRef<FullCalendar, Props>(function FullCa
         }
         hideAllTooltips()
         const latestRes = arg.event.extendedProps.reservation as CalendarEventRow
-        tooltip.innerHTML = buildReservationTooltipHTML(latestRes, actions.staffByUserId)
+        tooltip.innerHTML = buildReservationTooltipHTML(latestRes, actions.creatorLabelByUserId)
         const closeBtn = tooltip.querySelector('.fc-tooltip-close') as HTMLElement
         if (closeBtn) {
           closeBtn.onclick = (ev) => { ev.stopPropagation(); tooltip!.style.display = 'none' }

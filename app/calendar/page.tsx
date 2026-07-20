@@ -250,18 +250,19 @@ export default function CalendarPage() {
   // created_by_user_id is now inlined on every CalendarEventRow from vw_calendar_events.
   // The audit-logs-reservation-creators query is no longer needed.
 
-  const staffByUserId = useMemo(() => {
+  // Prefer auth email for "بواسطة"; fall back to staff name when email is missing.
+  const creatorLabelByUserId = useMemo(() => {
     const map = new Map<string, string>()
-    if (authUsersForCreator) {
-      for (const u of authUsersForCreator) {
-        if (u.email) map.set(u.id, u.email)
-      }
-    }
     if (allStaff) {
       for (const s of allStaff) {
         if (s.user_id) {
           map.set(s.user_id, `${s.first_name_ar || s.first_name} ${s.last_name_ar || s.last_name}`.trim())
         }
+      }
+    }
+    if (authUsersForCreator) {
+      for (const u of authUsersForCreator) {
+        if (u.email) map.set(u.id, u.email)
       }
     }
     return map
@@ -1552,7 +1553,7 @@ export default function CalendarPage() {
         hasRole={hasRole}
         elevatedOps={elevatedOps}
         readOnly={isViewerMode}
-        staffByUserId={staffByUserId}
+        creatorLabelByUserId={creatorLabelByUserId}
         onDateSelect={handleDateSelect}
         onEventClick={handleEventClick}
         onEventDrop={handleEventDrop}
