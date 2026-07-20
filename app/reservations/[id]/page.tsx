@@ -663,9 +663,9 @@ export default function ReservationDetailPage() {
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 1.05 }}
-                className="flex items-center justify-between p-3 rounded-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border border-blue-200/50 dark:border-blue-800/50"
+                className="flex items-center justify-between p-3 rounded-lg bg-green-50/50 dark:bg-green-950/30 backdrop-blur-sm border border-green-200/50 dark:border-green-800/50"
               >
-                <span className="text-muted-foreground font-medium">أنشئ بواسطة:</span>
+                <span className="text-orange-600 dark:text-orange-400 font-medium">أنشئ بواسطة:</span>
                 <div className="text-left">
                   <span className="font-semibold text-slate-900 dark:text-slate-100 block">
                     {reservation.created_by_email || 'غير محدد'}
