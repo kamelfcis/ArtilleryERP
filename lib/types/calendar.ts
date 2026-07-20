@@ -24,6 +24,7 @@ export interface CalendarEvent {
   created_at: string
   updated_at: string
   created_by_user_id: string | null
+  created_by_email: string | null
   guest_type: string | null
   guest_military_rank_ar: string | null
 }

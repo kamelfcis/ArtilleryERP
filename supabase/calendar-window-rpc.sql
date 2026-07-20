@@ -22,6 +22,9 @@ alter table reservations
     references auth.users(id)
     on delete set null;
 
+alter table reservations
+  add column if not exists created_by_email text;
+
 -- ----------------------------------------------------------
 -- 2. Denormalised view
 --    Joins reservations + units + guests into flat rows.
@@ -53,6 +56,7 @@ select
   r.created_at,
   r.updated_at,
   r.created_by_user_id,
+  r.created_by_email,
   g.guest_type::text  as guest_type,
   g.military_rank_ar  as guest_military_rank_ar
 from reservations r
@@ -140,6 +144,13 @@ begin
   if new.created_by_user_id is null then
     new.created_by_user_id := auth.uid();
   end if;
+
+  if new.created_by_email is null and new.created_by_user_id is not null then
+    select email into new.created_by_email
+    from auth.users
+    where id = new.created_by_user_id;
+  end if;
+
   return new;
 end $$;
 

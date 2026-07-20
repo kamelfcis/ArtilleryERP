@@ -52,9 +52,10 @@ function buildReservationTooltipHTML(
   const st = res.status || ''
   const notes = res.notes || ''
   const creatorUserId = res.created_by_user_id
-  const creatorLabel = creatorUserId
-    ? (creatorLabelByUserId.get(creatorUserId) || creatorUserId.substring(0, 8) + '...')
-    : null
+  const creatorLabel = res.created_by_email
+    || (creatorUserId
+      ? (creatorLabelByUserId.get(creatorUserId) || creatorUserId.substring(0, 8) + '...')
+      : null)
   return `
     <button class="fc-tooltip-close" style="position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2);color:#f1f5f9;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background 0.15s;">&times;</button>
     <div style="font-weight: 700; font-size: 15px; margin-bottom: 8px; color: #60a5fa; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">

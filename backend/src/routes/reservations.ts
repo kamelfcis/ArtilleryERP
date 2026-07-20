@@ -388,6 +388,9 @@ router.get('/:id', requireAuth, async (req, res, next) => {
 router.post('/', requireAuth, async (req, res, next) => {
   try {
     const r = req.body ?? {}
+    r.created_by_user_id = req.user!.id
+    r.created_by_email = req.user!.email
+    r.created_by = r.created_by ?? req.user!.id
     const cols = Object.keys(r).filter((k) => r[k] !== undefined)
     const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ')
     const { rows } = await pool.query(

@@ -179,6 +179,7 @@ export function useOfflineMutation(calendarArgs: CalendarWindowArgs) {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         created_by_user_id: null,
+        created_by_email: null,
         guest_type: null,
         guest_military_rank_ar: null,
       }
