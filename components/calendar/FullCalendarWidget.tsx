@@ -642,7 +642,7 @@ const FullCalendarWidget = React.forwardRef<FullCalendar, Props>(function FullCa
                       background: ${isMaintenance ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : iconGradient};
                       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
                     ">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${iconData.stroke}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         ${iconData.path}
                       </svg>
                     </span>

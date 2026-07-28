@@ -169,7 +169,7 @@ export function CalendarFilterSheet({
                 { value: 'duplex', label: 'دوبلكس', icon: Layers, color: 'text-amber-500' },
                 { value: 'villa', label: 'فيلا', icon: Castle, color: 'text-red-500' },
                 { value: 'apartment', label: 'شقة', icon: Building2, color: 'text-cyan-500' },
-                { value: 'rest_house', label: 'استراحات', icon: Home, color: 'text-teal-500' },
+                { value: 'rest_house', label: 'استراحات', icon: Home, color: 'text-slate-900 dark:text-white' },
               ] as const).filter(t => availableUnitTypes.includes(t.value)).map(typeOption => {
                 const isSelected = selectedTypes.includes(typeOption.value)
                 const IconComp = typeOption.icon

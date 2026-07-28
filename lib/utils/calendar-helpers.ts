@@ -109,42 +109,49 @@ export function getUnitTypeIcon(type: string) {
   return icons[type] || Building2
 }
 
-export function getUnitTypeIconData(type: string): { path: string; color: string; gradient: string } {
-  const iconData: Record<string, { path: string; color: string; gradient: string }> = {
+export function getUnitTypeIconData(type: string): { path: string; color: string; gradient: string; stroke: string } {
+  const iconData: Record<string, { path: string; color: string; gradient: string; stroke: string }> = {
     room: {
       path: '<path d="M2 4v16"></path><path d="M2 8h18a2 2 0 0 1 2 2v10"></path><path d="M2 17h20"></path><path d="M6 8V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"></path>',
       color: '#3b82f6',
       gradient: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+      stroke: 'white',
     },
     suite: {
       path: '<path d="M11.562 3.266a.5.5 0 0 1 .876 0L16 7l4-1l-1.5 6H5.5L4 6l4 1z"></path><path d="M5.5 12H18.5"></path><path d="M6 12v3a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-3"></path>',
       color: '#ef4444',
       gradient: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+      stroke: 'white',
     },
     chalet: {
       path: '<path d="M19 21h-8a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2z"></path><path d="M7 8l4-4 4 4"></path><path d="M3 21h18"></path><path d="M7 21v-8a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v8"></path>',
       color: '#10b981',
       gradient: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+      stroke: 'white',
     },
     duplex: {
       path: '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"></path><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"></path><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"></path>',
       color: '#f59e0b',
       gradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+      stroke: 'white',
     },
     rest_house: {
       path: '<path d="M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z"></path><path d="M7 16v6"></path><path d="M13 19v3"></path><path d="M12 19h8.3a1 1 0 0 0 .7-1.7L18 14h.3a1 1 0 0 0 .7-1.7L16 9h.2a1 1 0 0 0 .8-1.7L13 2l-1.4 1.5"></path>',
-      color: '#0d9488',
-      gradient: 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
+      color: '#0f172a',
+      gradient: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
+      stroke: '#0f172a',
     },
     villa: {
       path: '<path d="M22 20v-9H2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2Z"></path><path d="M18 11V9a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"></path><path d="M14 10V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v4"></path><path d="M10 6h4"></path><path d="M6 6h4"></path><path d="M6 10h4"></path><path d="M6 14h4"></path><path d="M10 14h4"></path><path d="M16 14h4"></path><path d="M18 18v3"></path><path d="M4 18v3"></path>',
       color: '#ef4444',
       gradient: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+      stroke: 'white',
     },
   }
   return iconData[type] || {
     path: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline>',
     color: '#6b7280',
     gradient: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
+    stroke: 'white',
   }
 }
