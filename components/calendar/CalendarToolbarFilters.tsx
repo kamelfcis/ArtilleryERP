@@ -10,6 +10,7 @@ import {
   Trees,
   Layers,
   Castle,
+  Home,
   Check,
   MapPin,
   Sparkles,
@@ -33,6 +34,7 @@ const UNIT_TYPE_META = [
   { value: 'duplex', icon: Layers, color: 'text-violet-500', bg: 'from-violet-500/15 to-purple-600/10', ring: 'ring-violet-400/40' },
   { value: 'villa', icon: Castle, color: 'text-rose-500', bg: 'from-rose-500/15 to-red-600/10', ring: 'ring-rose-400/40' },
   { value: 'apartment', icon: Building2, color: 'text-cyan-500', bg: 'from-cyan-500/15 to-teal-600/10', ring: 'ring-cyan-400/40' },
+  { value: 'rest_house', icon: Home, color: 'text-teal-500', bg: 'from-teal-500/15 to-cyan-600/10', ring: 'ring-teal-400/40' },
 ] as const
 
 const HOVER_CLOSE_DELAY_MS = 180

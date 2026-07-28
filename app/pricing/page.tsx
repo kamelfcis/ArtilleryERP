@@ -402,6 +402,7 @@ function PricingForm({
     duplex: 'دوبلكس',
     villa: 'فيلا',
     apartment: 'شقة',
+    rest_house: 'استراحات',
   }
 
   // Filter units based on location and search

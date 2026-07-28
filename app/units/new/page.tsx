@@ -305,6 +305,7 @@ export default function NewUnitPage() {
                     <SelectItem value="duplex">دوبلكس</SelectItem>
                     <SelectItem value="villa">فيلا</SelectItem>
                     <SelectItem value="apartment">شقة</SelectItem>
+                    <SelectItem value="rest_house">استراحات</SelectItem>
                   </SelectContent>
                 </Select>
                 {errors.type && (

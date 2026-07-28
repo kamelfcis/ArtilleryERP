@@ -123,6 +123,7 @@ function getDefaultPrice(unitType: UnitType, guestType: GuestType = 'civilian'):
     duplex: 500,
     villa: 1000,
     apartment: 350,
+    rest_house: 700,
   }
   
   const basePrice = basePrices[unitType] || 200

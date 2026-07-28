@@ -1,4 +1,4 @@
-import { Home, Hotel, Mountain, Layers, Building, Building2 } from 'lucide-react'
+import { Home, Hotel, Mountain, Layers, Building, Building2, Trees } from 'lucide-react'
 
 // ─── Apartment room-count gradient ───────────────────────────────────────────
 
@@ -88,6 +88,7 @@ export function getUnitTypeIcon(type: string) {
     chalet: Mountain,
     duplex: Layers,
     villa: Building,
+    rest_house: Trees,
   }
   return icons[type] || Building2
 }
@@ -113,6 +114,11 @@ export function getUnitTypeIconData(type: string): { path: string; color: string
       path: '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"></path><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"></path><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"></path>',
       color: '#f59e0b',
       gradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+    },
+    rest_house: {
+      path: '<path d="M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z"></path><path d="M7 16v6"></path><path d="M13 19v3"></path><path d="M12 19h8.3a1 1 0 0 0 .7-1.7L18 14h.3a1 1 0 0 0 .7-1.7L16 9h.2a1 1 0 0 0 .8-1.7L13 2l-1.4 1.5"></path>',
+      color: '#0d9488',
+      gradient: 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
     },
     villa: {
       path: '<path d="M22 20v-9H2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2Z"></path><path d="M18 11V9a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"></path><path d="M14 10V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v4"></path><path d="M10 6h4"></path><path d="M6 6h4"></path><path d="M6 10h4"></path><path d="M6 14h4"></path><path d="M10 14h4"></path><path d="M16 14h4"></path><path d="M18 18v3"></path><path d="M4 18v3"></path>',

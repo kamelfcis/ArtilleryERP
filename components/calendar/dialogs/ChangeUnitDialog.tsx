@@ -82,7 +82,7 @@ export function ChangeUnitDialog({
           </div>
           <div className="max-h-72 overflow-y-auto space-y-2 border-2 border-blue-200 dark:border-blue-800 rounded-xl p-3 bg-white/80 dark:bg-slate-900/80">
             {(() => {
-              const typeMap: Record<string, string> = { room: 'غرفة', suite: 'سويت', chalet: 'شاليه', duplex: 'دوبلكس', villa: 'فيلا', apartment: 'شقة' }
+              const typeMap: Record<string, string> = { room: 'غرفة', suite: 'سويت', chalet: 'شاليه', duplex: 'دوبلكس', villa: 'فيلا', apartment: 'شقة', rest_house: 'استراحات' }
               const searchLower = search.trim().toLowerCase()
               const filtered = units
                 ?.filter(u =>

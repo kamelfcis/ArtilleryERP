@@ -206,7 +206,9 @@ export function AdvancedSearch({ onSearch, type }: AdvancedSearchProps) {
                     <SelectItem value="room">غرفة</SelectItem>
                     <SelectItem value="suite">جناح</SelectItem>
                     <SelectItem value="chalet">شاليه</SelectItem>
+                    <SelectItem value="duplex">دوبلكس</SelectItem>
                     <SelectItem value="villa">فيلا</SelectItem>
+                    <SelectItem value="rest_house">استراحات</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -5,6 +5,7 @@ export const UNIT_TYPES = {
   duplex: 'دوبلكس',
   villa: 'فيلا',
   apartment: 'شقة',
+  rest_house: 'استراحات',
 } as const
 
 export const RESERVATION_STATUSES = {

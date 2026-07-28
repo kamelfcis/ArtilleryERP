@@ -8,6 +8,7 @@ const UNIT_TYPE_AR: Record<string, string> = {
   duplex: 'دوبلكس',
   villa: 'فيلا',
   apartment: 'عمارة',
+  rest_house: 'استراحات',
 }
 
 const GUEST_TYPE_AR: Record<string, string> = {

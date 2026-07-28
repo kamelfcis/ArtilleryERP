@@ -39,6 +39,7 @@ export default function UnitsPage() {
     duplex: 'دوبلكس',
     villa: 'فيلا',
     apartment: 'شقة',
+    rest_house: 'استراحات',
   }
 
   const statusColors: Record<string, string> = {
@@ -170,6 +171,7 @@ export default function UnitsPage() {
                     <SelectItem value="duplex">دوبلكس</SelectItem>
                     <SelectItem value="villa">فيلا</SelectItem>
                     <SelectItem value="apartment">شقة</SelectItem>
+                    <SelectItem value="rest_house">استراحات</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

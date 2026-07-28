@@ -5,7 +5,7 @@ export const unitSchema = z.object({
   unit_number: z.string().min(1, 'يجب إدخال رقم الوحدة'),
   name: z.string().optional(),
   name_ar: z.string().optional(),
-  type: z.enum(['room', 'suite', 'chalet', 'duplex', 'villa', 'apartment']),
+  type: z.enum(['room', 'suite', 'chalet', 'duplex', 'villa', 'apartment', 'rest_house']),
   status: z.enum(['available', 'occupied', 'maintenance', 'out_of_order']).default('available'),
   capacity: z.number().min(1, 'يجب أن تكون السعة على الأقل 1'),
   beds: z.number().min(1).default(1),

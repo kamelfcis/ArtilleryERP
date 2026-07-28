@@ -58,6 +58,7 @@ const unitTypeLabels: Record<string, string> = {
   duplex: 'دوبلكس',
   villa: 'فيلا',
   apartment: 'شقة',
+  rest_house: 'استراحات',
 }
 
 const sourceLabels: Record<string, string> = {
