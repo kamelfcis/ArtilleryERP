@@ -1,8 +1,11 @@
 import { Router } from 'express'
 import { pool } from '../db/pool.js'
 import { requireAuth } from '../middleware/auth.js'
+import { requireAnyRole } from '../middleware/requireRole.js'
+import { deriveListScope } from '../utils/scope.js'
 
 const router = Router()
+const WRITE_ROLES = ['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff'] as const
 
 function applyNotificationScope(
   conditions: string[],
@@ -25,9 +28,8 @@ function applyNotificationScope(
 
 router.get('/', requireAuth, async (req, res, next) => {
   try {
-    const restrictedBranchManager = req.query.restrictedBranchManager === 'true'
-    const rocketUserId = (req.query.rocketUserId as string) || null
-    if (!restrictedBranchManager && !rocketUserId) {
+    const scope = await deriveListScope(req.user!)
+    if (!scope.restrictedBranchManager && !scope.rocketUserId) {
       res.json([])
       return
     }
@@ -35,9 +37,9 @@ router.get('/', requireAuth, async (req, res, next) => {
     const conditions = ['1=1']
     const params: unknown[] = []
     applyNotificationScope(conditions, params, {
-      restrictedBranchManager,
+      restrictedBranchManager: scope.restrictedBranchManager,
       userId: req.user!.id,
-      rocketUserId,
+      rocketUserId: scope.rocketUserId,
     })
 
     const { rows } = await pool.query(
@@ -66,12 +68,10 @@ router.get('/', requireAuth, async (req, res, next) => {
 
 router.get('/legacy', requireAuth, async (req, res, next) => {
   try {
-    const restrictedBranchManager = req.query.restrictedBranchManager === 'true'
-    const rocketUserId = (req.query.rocketUserId as string) || null
-
-    const applyRocket = !restrictedBranchManager && !!rocketUserId
+    const scope = await deriveListScope(req.user!)
+    const applyRocket = !scope.restrictedBranchManager && !!scope.rocketUserId
     const rocketFilter = applyRocket ? `AND r.created_by = $1` : ''
-    const queryParams: unknown[] = applyRocket ? [rocketUserId] : []
+    const queryParams: unknown[] = applyRocket ? [scope.rocketUserId] : []
 
     const reservationSelect = `r.id, r.reservation_number, r.check_in_date, r.check_out_date, r.created_by,
       (SELECT row_to_json(g.*) FROM guests g WHERE g.id = r.guest_id) AS guest,
@@ -135,9 +135,8 @@ router.get('/legacy', requireAuth, async (req, res, next) => {
 
 router.get('/unread-count', requireAuth, async (req, res, next) => {
   try {
-    const restrictedBranchManager = req.query.restrictedBranchManager === 'true'
-    const rocketUserId = (req.query.rocketUserId as string) || null
-    if (!restrictedBranchManager && !rocketUserId) {
+    const scope = await deriveListScope(req.user!)
+    if (!scope.restrictedBranchManager && !scope.rocketUserId) {
       res.json({ count: 0 })
       return
     }
@@ -145,9 +144,9 @@ router.get('/unread-count', requireAuth, async (req, res, next) => {
     const conditions = ['is_read = false']
     const params: unknown[] = []
     applyNotificationScope(conditions, params, {
-      restrictedBranchManager,
+      restrictedBranchManager: scope.restrictedBranchManager,
       userId: req.user!.id,
-      rocketUserId,
+      rocketUserId: scope.rocketUserId,
     })
 
     const { rows } = await pool.query<{ count: string }>(
@@ -160,13 +159,13 @@ router.get('/unread-count', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/', requireAuth, async (req, res, next) => {
+router.post('/', requireAuth, requireAnyRole(...WRITE_ROLES), async (req, res, next) => {
   try {
     const body = req.body ?? {}
     const { rows } = await pool.query(
       `INSERT INTO booking_notifications (reservation_id, created_by, message, notify_user_id)
        VALUES ($1, $2, $3, $4) RETURNING *`,
-      [body.reservation_id, body.created_by, body.message, body.notify_user_id ?? null]
+      [body.reservation_id, req.user!.id, body.message, body.notify_user_id ?? null]
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -176,14 +175,17 @@ router.post('/', requireAuth, async (req, res, next) => {
 
 router.patch('/read-all', requireAuth, async (req, res, next) => {
   try {
-    const restrictedBranchManager = req.body?.restrictedBranchManager === true
-    const rocketUserId = req.body?.rocketUserId ?? null
+    const scope = await deriveListScope(req.user!)
+    if (!scope.restrictedBranchManager && !scope.rocketUserId) {
+      res.json({ success: true })
+      return
+    }
     const conditions = ['is_read = false']
     const params: unknown[] = []
     applyNotificationScope(conditions, params, {
-      restrictedBranchManager,
+      restrictedBranchManager: scope.restrictedBranchManager,
       userId: req.user!.id,
-      rocketUserId,
+      rocketUserId: scope.rocketUserId,
     })
     await pool.query(
       `UPDATE booking_notifications SET is_read = true WHERE ${conditions.join(' AND ')}`,

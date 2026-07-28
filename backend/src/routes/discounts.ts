@@ -1,9 +1,27 @@
 import { Router } from 'express'
 import { pool } from '../db/pool.js'
 import { requireAuth } from '../middleware/auth.js'
-import { buildUpdateSet } from '../utils/sql.js'
+import { requireAnyRole } from '../middleware/requireRole.js'
+import { buildInsert, buildUpdateSet, pickFields } from '../utils/sql.js'
 
 const router = Router()
+const MANAGER_ROLES = ['SuperAdmin', 'BranchManager'] as const
+const WRITE_ROLES = ['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff'] as const
+
+const DISCOUNT_FIELDS = [
+  'code',
+  'name',
+  'name_ar',
+  'discount_type',
+  'discount_value',
+  'min_amount',
+  'max_uses',
+  'used_count',
+  'valid_from',
+  'valid_to',
+  'is_active',
+  'created_by',
+] as const
 
 router.get('/', requireAuth, async (_req, res, next) => {
   try {
@@ -31,7 +49,7 @@ router.get('/active', requireAuth, async (_req, res, next) => {
   }
 })
 
-router.post('/validate', requireAuth, async (req, res, next) => {
+router.post('/validate', requireAuth, requireAnyRole(...WRITE_ROLES), async (req, res, next) => {
   try {
     const code = String(req.body?.code ?? '').toUpperCase()
     const today = new Date().toISOString().split('T')[0]
@@ -56,13 +74,18 @@ router.post('/validate', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/', requireAuth, async (req, res, next) => {
+router.post('/', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
-    const body = { ...req.body, code: req.body?.code?.toUpperCase() }
-    const keys = Object.keys(body).filter((k) => body[k] !== undefined)
+    const raw = { ...(req.body ?? {}), code: req.body?.code?.toUpperCase() } as Record<string, unknown>
+    const body = pickFields(raw, DISCOUNT_FIELDS)
+    const built = buildInsert(body, DISCOUNT_FIELDS)
+    if (!built) {
+      res.status(400).json({ error: 'لا توجد بيانات' })
+      return
+    }
     const { rows } = await pool.query(
-      `INSERT INTO discount_codes (${keys.join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
-      keys.map((k) => body[k])
+      `INSERT INTO discount_codes (${built.columns}) VALUES (${built.placeholders}) RETURNING *`,
+      built.values
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -70,7 +93,7 @@ router.post('/', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/apply', requireAuth, async (req, res, next) => {
+router.post('/apply', requireAuth, requireAnyRole(...WRITE_ROLES), async (req, res, next) => {
   const client = await pool.connect()
   try {
     const { code, reservationId, totalAmount } = req.body ?? {}
@@ -134,9 +157,12 @@ router.post('/apply', requireAuth, async (req, res, next) => {
   }
 })
 
-router.patch('/:id', requireAuth, async (req, res, next) => {
+router.patch('/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
-    const built = buildUpdateSet(req.body ?? {})
+    const raw = { ...(req.body ?? {}) } as Record<string, unknown>
+    if (typeof raw.code === 'string') raw.code = raw.code.toUpperCase()
+    const body = pickFields(raw, DISCOUNT_FIELDS)
+    const built = buildUpdateSet(body, 1, DISCOUNT_FIELDS)
     if (!built) {
       res.status(400).json({ error: 'لا توجد بيانات' })
       return
@@ -151,7 +177,7 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.delete('/:id', requireAuth, async (req, res, next) => {
+router.delete('/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     await pool.query(`DELETE FROM discount_codes WHERE id = $1`, [req.params.id])
     res.json({ success: true })

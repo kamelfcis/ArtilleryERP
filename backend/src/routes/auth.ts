@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import {
   changeUserPassword,
@@ -11,6 +12,14 @@ import { requireAuth } from '../middleware/auth.js'
 
 const router = Router()
 
+const loginLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'محاولات كثيرة، حاول مرة أخرى بعد دقيقة' },
+})
+
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
@@ -18,10 +27,10 @@ const loginSchema = z.object({
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(6),
+  newPassword: z.string().min(10),
 })
 
-router.post('/login', async (req, res, next) => {
+router.post('/login', loginLimiter, async (req, res, next) => {
   try {
     const parsed = loginSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -35,7 +44,7 @@ router.post('/login', async (req, res, next) => {
       return
     }
 
-    const token = signToken(result.user)
+    const token = await signToken(result.user)
     setAuthCookie(res, token)
     res.json(result.me)
   } catch (err) {
@@ -52,7 +61,7 @@ router.post('/change-password', requireAuth, async (req, res, next) => {
   try {
     const parsed = changePasswordSchema.safeParse(req.body)
     if (!parsed.success) {
-      res.status(400).json({ error: 'بيانات غير صالحة' })
+      res.status(400).json({ error: 'كلمة المرور الجديدة يجب أن تكون 10 أحرف على الأقل' })
       return
     }
     const result = await changeUserPassword(
@@ -64,6 +73,9 @@ router.post('/change-password', requireAuth, async (req, res, next) => {
       res.status(400).json({ error: 'كلمة المرور الحالية غير صحيحة' })
       return
     }
+    // Issue fresh cookie with bumped token_version
+    const token = await signToken({ id: req.user!.id, email: req.user!.email })
+    setAuthCookie(res, token)
     res.json({ success: true })
   } catch (err) {
     next(err)

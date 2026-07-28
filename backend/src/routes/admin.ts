@@ -62,6 +62,8 @@ async function requireSuperAdmin(req: import('express').Request, res: import('ex
 
 router.get('/users', requireAuth, async (req, res, next) => {
   try {
+    if (!(await requireSuperAdmin(req, res))) return
+
     const { rows: users } = await pool.query<{
       id: string
       email: string
@@ -90,6 +92,22 @@ router.get('/users', requireAuth, async (req, res, next) => {
       }))
 
     res.json({ users: visible })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** Public (authenticated) lookup for rocket@hotel.com id — no email directory dump. */
+router.get('/rocket-user', requireAuth, async (_req, res, next) => {
+  try {
+    const { rows } = await pool.query<{ id: string; email: string }>(
+      `SELECT id, email FROM auth.users WHERE lower(email) = 'rocket@hotel.com' LIMIT 1`
+    )
+    if (!rows[0]) {
+      res.json({ id: null })
+      return
+    }
+    res.json({ id: rows[0].id })
   } catch (err) {
     next(err)
   }
@@ -191,6 +209,10 @@ router.post('/users', requireAuth, async (req, res, next) => {
       res.status(400).json({ error: 'البريد الإلكتروني وكلمة المرور مطلوبان' })
       return
     }
+    if (String(password).length < 10) {
+      res.status(400).json({ error: 'كلمة المرور يجب أن تكون 10 أحرف على الأقل' })
+      return
+    }
 
     const userId = randomUUID()
     const encrypted = await hashPassword(password)
@@ -289,10 +311,22 @@ router.put('/users', requireAuth, async (req, res, next) => {
       ])
     }
     if (password) {
+      if (String(password).length < 10) {
+        res.status(400).json({ error: 'كلمة المرور يجب أن تكون 10 أحرف على الأقل' })
+        return
+      }
       const encrypted = await hashPassword(password)
       await pool.query(
         `UPDATE auth.users SET encrypted_password = $1, updated_at = now() WHERE id = $2`,
         [encrypted, userId]
+      )
+      await pool.query(
+        `INSERT INTO user_accounts (user_id, is_active, token_version)
+         VALUES ($1, true, 1)
+         ON CONFLICT (user_id) DO UPDATE
+           SET token_version = COALESCE(user_accounts.token_version, 0) + 1,
+               updated_at = now()`,
+        [userId]
       )
     }
 

@@ -17,6 +17,30 @@ export interface LoginResult {
   me: MeResponse
 }
 
+export interface TokenPayload extends AuthUser {
+  tokenVersion: number
+}
+
+export async function getTokenVersion(userId: string): Promise<number> {
+  const { rows } = await pool.query<{ token_version: number | null }>(
+    `SELECT token_version FROM user_accounts WHERE user_id = $1 LIMIT 1`,
+    [userId]
+  )
+  if (rows.length === 0) return 0
+  return rows[0].token_version ?? 0
+}
+
+export async function bumpTokenVersion(userId: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO user_accounts (user_id, is_active, token_version)
+     VALUES ($1, true, 1)
+     ON CONFLICT (user_id) DO UPDATE
+       SET token_version = COALESCE(user_accounts.token_version, 0) + 1,
+           updated_at = now()`,
+    [userId]
+  )
+}
+
 export async function loginWithPassword(
   email: string,
   password: string
@@ -49,19 +73,23 @@ export async function loginWithPassword(
   return { user: me.user, me }
 }
 
-export function signToken(user: AuthUser): string {
-  return jwt.sign({ sub: user.id, email: user.email }, config.jwtSecret, {
-    expiresIn: '7d',
-  })
+export async function signToken(user: AuthUser): Promise<string> {
+  const tokenVersion = await getTokenVersion(user.id)
+  return jwt.sign(
+    { sub: user.id, email: user.email, tv: tokenVersion },
+    config.jwtSecret,
+    { expiresIn: '7d' }
+  )
 }
 
-export function verifyToken(token: string): AuthUser | null {
+export function verifyToken(token: string): TokenPayload | null {
   try {
     const payload = jwt.verify(token, config.jwtSecret) as jwt.JwtPayload
     if (!payload.sub || typeof payload.sub !== 'string') return null
     return {
       id: payload.sub,
       email: typeof payload.email === 'string' ? payload.email : '',
+      tokenVersion: typeof payload.tv === 'number' ? payload.tv : 0,
     }
   } catch {
     return null
@@ -87,14 +115,13 @@ export function clearAuthCookie(res: Response): void {
   })
 }
 
-/** Hash a plaintext password (for future password-change endpoints). */
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, BCRYPT_ROUNDS)
 }
 
 /**
  * Verify the user's current password and set a new one.
- * Returns 'invalid' when the current password does not match.
+ * Bumps token_version so existing JWTs become invalid.
  */
 export async function changeUserPassword(
   userId: string,
@@ -114,5 +141,6 @@ export async function changeUserPassword(
     `UPDATE auth.users SET encrypted_password = $1, updated_at = now() WHERE id = $2`,
     [hashed, userId]
   )
+  await bumpTokenVersion(userId)
   return 'ok'
 }

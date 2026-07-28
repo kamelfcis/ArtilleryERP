@@ -35,6 +35,15 @@ const GUEST_TYPE_MAP: Record<string, string> = {
   artillery_family: 'ابناء مدفعية',
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 function buildReservationTooltipHTML(
   res: CalendarEventRow,
   creatorLabelByUserId: Map<string, string>
@@ -59,16 +68,16 @@ function buildReservationTooltipHTML(
   return `
     <button class="fc-tooltip-close" style="position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2);color:#f1f5f9;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background 0.15s;">&times;</button>
     <div style="font-weight: 700; font-size: 15px; margin-bottom: 8px; color: #60a5fa; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
-      👤 ${headerName}
+      👤 ${escapeHtml(headerName)}
     </div>
-    ${ph ? `<div style="margin-bottom: 4px;">📞 <span style="color: #a5b4fc;">${ph}</span></div>` : ''}
-    ${gType ? `<div style="margin-bottom: 4px;">🏷️ نوع الضيف: <span style="color: #38bdf8;">${GUEST_TYPE_MAP[gType] || gType}</span></div>` : ''}
-    <div style="margin-bottom: 4px;">📅 الدخول: <span style="color: #34d399;">${cIn}</span></div>
-    <div style="margin-bottom: 4px;">📅 الخروج: <span style="color: #fb923c;">${cOut}</span></div>
-    ${st ? `<div style="margin-bottom: 4px;">📌 الحالة: <span style="color: #c084fc;">${STATUS_MAP[st] || st}</span></div>` : ''}
-    ${notes ? `<div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">📝 ملاحظات: <span style="color: #fde68a;">${notes}</span></div>` : ''}
-    <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">👷 بواسطة: <span style="color: #67e8f9;">${creatorLabel || 'غير محدد'}</span></div>
-    ${cAt ? `<div style="margin-top: 4px; font-size: 11px; color: #94a3b8;">🕐 تاريخ الإنشاء: ${cAt}</div>` : ''}
+    ${ph ? `<div style="margin-bottom: 4px;">📞 <span style="color: #a5b4fc;">${escapeHtml(ph)}</span></div>` : ''}
+    ${gType ? `<div style="margin-bottom: 4px;">🏷️ نوع الضيف: <span style="color: #38bdf8;">${escapeHtml(GUEST_TYPE_MAP[gType] || gType)}</span></div>` : ''}
+    <div style="margin-bottom: 4px;">📅 الدخول: <span style="color: #34d399;">${escapeHtml(cIn)}</span></div>
+    <div style="margin-bottom: 4px;">📅 الخروج: <span style="color: #fb923c;">${escapeHtml(cOut)}</span></div>
+    ${st ? `<div style="margin-bottom: 4px;">📌 الحالة: <span style="color: #c084fc;">${escapeHtml(STATUS_MAP[st] || st)}</span></div>` : ''}
+    ${notes ? `<div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">📝 ملاحظات: <span style="color: #fde68a;">${escapeHtml(notes)}</span></div>` : ''}
+    <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">👷 بواسطة: <span style="color: #67e8f9;">${escapeHtml(creatorLabel || 'غير محدد')}</span></div>
+    ${cAt ? `<div style="margin-top: 4px; font-size: 11px; color: #94a3b8;">🕐 تاريخ الإنشاء: ${escapeHtml(cAt)}</div>` : ''}
   `
 }
 
@@ -504,11 +513,11 @@ const FullCalendarWidget = React.forwardRef<FullCalendar, Props>(function FullCa
         }).filter(Boolean) || []
         tooltip.innerHTML = `
           <button class="fc-tooltip-close" style="position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2);color:#f1f5f9;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">&times;</button>
-          <div style="font-weight: 700; font-size: 15px; margin-bottom: 8px; color: #f87171; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">🚫 ${blockName}</div>
-          <div style="margin-bottom: 4px;">📅 من: <span style="color: #34d399;">${startDate}</span></div>
-          <div style="margin-bottom: 4px;">📅 إلى: <span style="color: #fb923c;">${endDate}</span></div>
-          ${reason ? `<div style="margin-bottom: 4px; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">📋 السبب: <span style="color: #fbbf24;">${reason}</span></div>` : ''}
-          ${blockUnits.length > 0 ? `<div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);"><div style="margin-bottom: 4px; color: #a5b4fc;">🏠 الوحدات المحظورة (${blockUnits.length}):</div>${blockUnits.map((u: string) => `<div style="margin-right: 12px; font-size: 12px; color: #cbd5e1;">• ${u}</div>`).join('')}</div>` : ''}
+          <div style="font-weight: 700; font-size: 15px; margin-bottom: 8px; color: #f87171; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">🚫 ${escapeHtml(blockName)}</div>
+          <div style="margin-bottom: 4px;">📅 من: <span style="color: #34d399;">${escapeHtml(startDate)}</span></div>
+          <div style="margin-bottom: 4px;">📅 إلى: <span style="color: #fb923c;">${escapeHtml(endDate)}</span></div>
+          ${reason ? `<div style="margin-bottom: 4px; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">📋 السبب: <span style="color: #fbbf24;">${escapeHtml(reason)}</span></div>` : ''}
+          ${blockUnits.length > 0 ? `<div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);"><div style="margin-bottom: 4px; color: #a5b4fc;">🏠 الوحدات المحظورة (${blockUnits.length}):</div>${blockUnits.map((u: string) => `<div style="margin-right: 12px; font-size: 12px; color: #cbd5e1;">• ${escapeHtml(u)}</div>`).join('')}</div>` : ''}
         `
         const closeBtn = tooltip.querySelector('.fc-tooltip-close') as HTMLElement
         if (closeBtn) closeBtn.onclick = (ev) => { ev.stopPropagation(); tooltip!.style.display = 'none' }

@@ -1,8 +1,10 @@
 import { Router } from 'express'
 import { pool } from '../db/pool.js'
 import { requireAuth } from '../middleware/auth.js'
+import { requireAnyRole } from '../middleware/requireRole.js'
 
 const router = Router()
+const WRITE_ROLES = ['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff'] as const
 
 router.get('/', requireAuth, async (req, res, next) => {
   try {
@@ -34,7 +36,7 @@ router.get('/', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/', requireAuth, async (req, res, next) => {
+router.post('/', requireAuth, requireAnyRole(...WRITE_ROLES), async (req, res, next) => {
   try {
     const body = req.body ?? {}
     const { rows } = await pool.query(

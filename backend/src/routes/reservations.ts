@@ -1,10 +1,51 @@
 import { Router } from 'express'
 import { pool } from '../db/pool.js'
 import { requireAuth } from '../middleware/auth.js'
-import { buildUpdateSet } from '../utils/sql.js'
+import { requireAnyRole } from '../middleware/requireRole.js'
+import { buildInsert, buildUpdateSet, pickFields } from '../utils/sql.js'
+import { deriveListScope } from '../utils/scope.js'
+import { writeAuditLog } from '../utils/auditWrite.js'
 
 const router = Router()
 const POSTGREST_PAGE_SIZE = 1000
+
+const WRITE_ROLES = ['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff'] as const
+
+const RESERVATION_WRITE_FIELDS = [
+  'reservation_number',
+  'unit_id',
+  'guest_id',
+  'check_in_date',
+  'check_out_date',
+  'status',
+  'source',
+  'adults',
+  'children',
+  'total_amount',
+  'paid_amount',
+  'discount_amount',
+  'notes',
+  'notes_ar',
+  'created_by',
+] as const
+
+const RESERVATION_PATCH_FIELDS = [
+  'unit_id',
+  'guest_id',
+  'check_in_date',
+  'check_out_date',
+  'status',
+  'source',
+  'adults',
+  'children',
+  'total_amount',
+  'paid_amount',
+  'discount_amount',
+  'notes',
+  'notes_ar',
+  'updated_by_user_id',
+  'updated_by_email',
+] as const
 
 function parseLocationIds(raw: unknown): string[] | null {
   if (raw == null || raw === '') return null
@@ -22,12 +63,6 @@ async function resolveUnitIds(locationFilterIds: string[] | null): Promise<strin
   )
   return rows.map((r) => r.id)
 }
-
-const RESERVATION_DETAIL_SELECT = `
-  r.*,
-  row_to_json(u.*) AS unit,
-  row_to_json(g.*) AS guest
-`
 
 async function fetchReservationDetail(id: string) {
   const { rows } = await pool.query(
@@ -73,6 +108,30 @@ async function syncUnitStatusAfterChange(
   ])
 }
 
+/** Same overlap rule as GET /conflicts: [check_in, check_out) excluding cancelled/no_show. */
+async function findOverlaps(
+  unitId: string,
+  checkIn: string,
+  checkOut: string,
+  excludeId?: string
+): Promise<{ id: string }[]> {
+  const params: unknown[] = [unitId, checkOut, checkIn]
+  let extra = ''
+  if (excludeId) {
+    params.push(excludeId)
+    extra = `AND id <> $${params.length}`
+  }
+  const { rows } = await pool.query<{ id: string }>(
+    `SELECT id FROM reservations
+     WHERE unit_id = $1
+       AND status::text NOT IN ('cancelled','no_show')
+       AND check_in_date < $2 AND check_out_date > $3
+       ${extra}`,
+    params
+  )
+  return rows
+}
+
 router.get('/pending', requireAuth, async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1)
@@ -80,7 +139,8 @@ router.get('/pending', requireAuth, async (req, res, next) => {
     const statusFilter = (req.query.statusFilter as string) || 'all'
     const locationFilter = (req.query.locationFilter as string) || 'all'
     const rocketLocationIds = parseLocationIds(req.query.rocketLocationIds)
-    const restrictedBranchManager = req.query.restrictedBranchManager === 'true'
+    const scope = await deriveListScope(req.user!)
+    const restrictedBranchManager = scope.restrictedBranchManager
     const search = String(req.query.search ?? '')
       .replace(/\\/g, '')
       .replace(/%/g, '')
@@ -352,20 +412,7 @@ router.get('/conflicts', requireAuth, async (req, res, next) => {
       res.json([])
       return
     }
-    const params: unknown[] = [unitId, checkOut, checkIn]
-    let extra = ''
-    if (excludeId) {
-      params.push(excludeId)
-      extra = `AND id <> $${params.length}`
-    }
-    const { rows } = await pool.query(
-      `SELECT id FROM reservations
-       WHERE unit_id = $1
-         AND status::text NOT IN ('cancelled','no_show')
-         AND check_in_date < $2 AND check_out_date > $3
-         ${extra}`,
-      params
-    )
+    const rows = await findOverlaps(unitId, checkIn, checkOut, excludeId)
     res.json(rows)
   } catch (err) {
     next(err)
@@ -385,17 +432,40 @@ router.get('/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/', requireAuth, async (req, res, next) => {
+router.post('/', requireAuth, requireAnyRole(...WRITE_ROLES), async (req, res, next) => {
   try {
-    const r = req.body ?? {}
-    r.created_by_user_id = req.user!.id
-    r.created_by_email = req.user!.email
-    r.created_by = r.created_by ?? req.user!.id
-    const cols = Object.keys(r).filter((k) => r[k] !== undefined)
-    const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ')
+    const raw = (req.body ?? {}) as Record<string, unknown>
+    const body = pickFields(raw, RESERVATION_WRITE_FIELDS)
+    body.created_by_user_id = req.user!.id
+    body.created_by_email = req.user!.email
+    body.created_by = req.user!.id
+
+    const insertFields = [
+      ...RESERVATION_WRITE_FIELDS,
+      'created_by_user_id',
+      'created_by_email',
+    ] as const
+    const built = buildInsert(body, insertFields)
+    if (!built) {
+      res.status(400).json({ error: 'لا توجد بيانات' })
+      return
+    }
+
+    const unitId = body.unit_id as string | undefined
+    const checkIn = body.check_in_date as string | undefined
+    const checkOut = body.check_out_date as string | undefined
+    const status = String(body.status ?? 'pending')
+    if (unitId && checkIn && checkOut && !['cancelled', 'no_show'].includes(status)) {
+      const overlaps = await findOverlaps(unitId, checkIn, checkOut)
+      if (overlaps.length > 0) {
+        res.status(409).json({ error: 'تعارض في التواريخ: الوحدة محجوزة في هذه الفترة' })
+        return
+      }
+    }
+
     const { rows } = await pool.query(
-      `INSERT INTO reservations (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`,
-      cols.map((c) => r[c])
+      `INSERT INTO reservations (${built.columns}) VALUES (${built.placeholders}) RETURNING *`,
+      built.values
     )
     const created = rows[0]
     if (created?.unit_id && created.status !== 'cancelled' && created.status !== 'no_show') {
@@ -410,10 +480,10 @@ router.post('/', requireAuth, async (req, res, next) => {
   }
 })
 
-router.patch('/:id', requireAuth, async (req, res, next) => {
+router.patch('/:id', requireAuth, requireAnyRole(...WRITE_ROLES), async (req, res, next) => {
   try {
     const { rows: currentRows } = await pool.query(
-      `SELECT unit_id, status FROM reservations WHERE id = $1`,
+      `SELECT unit_id, status, check_in_date, check_out_date FROM reservations WHERE id = $1`,
       [req.params.id]
     )
     const current = currentRows[0]
@@ -422,13 +492,37 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       return
     }
 
-    const { id: _id, ...updates } = req.body ?? {}
+    const raw = { ...(req.body ?? {}) } as Record<string, unknown>
+    delete raw.id
+    const updates = pickFields(raw, RESERVATION_PATCH_FIELDS.filter(
+      (f) => f !== 'updated_by_user_id' && f !== 'updated_by_email'
+    ))
     updates.updated_by_user_id = req.user!.id
     updates.updated_by_email = req.user!.email
-    const built = buildUpdateSet(updates)
+
+    const built = buildUpdateSet(updates, 1, [
+      ...RESERVATION_PATCH_FIELDS,
+    ])
     if (!built) {
       res.status(400).json({ error: 'لا توجد بيانات للتحديث' })
       return
+    }
+
+    const nextUnitId = (updates.unit_id as string) || current.unit_id
+    const nextCheckIn = (updates.check_in_date as string) || current.check_in_date
+    const nextCheckOut = (updates.check_out_date as string) || current.check_out_date
+    const nextStatus = String(updates.status ?? current.status)
+    if (
+      nextUnitId &&
+      nextCheckIn &&
+      nextCheckOut &&
+      !['cancelled', 'no_show'].includes(nextStatus)
+    ) {
+      const overlaps = await findOverlaps(nextUnitId, nextCheckIn, nextCheckOut, req.params.id)
+      if (overlaps.length > 0) {
+        res.status(409).json({ error: 'تعارض في التواريخ: الوحدة محجوزة في هذه الفترة' })
+        return
+      }
     }
 
     const { rows } = await pool.query(
@@ -444,10 +538,10 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       ])
     }
 
-    const newUnitId = updates.unit_id || current.unit_id
+    const newUnitId = (updates.unit_id as string) || current.unit_id
     await syncUnitStatusAfterChange(
       newUnitId,
-      updates.status || data.status,
+      (updates.status as string) || data.status,
       data.check_out_date
     )
 
@@ -458,8 +552,11 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.delete('/:id', requireAuth, async (req, res, next) => {
+router.delete('/:id', requireAuth, requireAnyRole(...WRITE_ROLES), async (req, res, next) => {
   try {
+    const { rows: before } = await pool.query(`SELECT id, reservation_number FROM reservations WHERE id = $1`, [
+      req.params.id,
+    ])
     const { rowCount } = await pool.query(`DELETE FROM reservations WHERE id = $1`, [
       req.params.id,
     ])
@@ -467,6 +564,13 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
       res.status(403).json({ error: 'لا تملك صلاحية حذف هذا الحجز' })
       return
     }
+    await writeAuditLog({
+      userId: req.user!.id,
+      action: 'DELETE',
+      resourceType: 'reservation',
+      resourceId: req.params.id,
+      oldValues: before[0] ?? null,
+    })
     res.json({ success: true })
   } catch (err) {
     next(err)

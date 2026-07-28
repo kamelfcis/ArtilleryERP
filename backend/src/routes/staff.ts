@@ -1,9 +1,54 @@
 import { Router } from 'express'
 import { pool } from '../db/pool.js'
 import { requireAuth } from '../middleware/auth.js'
-import { buildUpdateSet } from '../utils/sql.js'
+import { requireAnyRole } from '../middleware/requireRole.js'
+import { buildInsert, buildUpdateSet, pickFields } from '../utils/sql.js'
+import { writeAuditLog } from '../utils/auditWrite.js'
 
 const router = Router()
+const MANAGER_ROLES = ['SuperAdmin', 'BranchManager'] as const
+const WRITE_ROLES = ['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff'] as const
+
+const STAFF_FIELDS = [
+  'user_id',
+  'first_name',
+  'last_name',
+  'first_name_ar',
+  'last_name_ar',
+  'email',
+  'phone',
+  'position',
+  'position_ar',
+  'department',
+  'department_ar',
+  'location_id',
+  'hire_date',
+  'is_active',
+] as const
+
+const SHIFT_FIELDS = [
+  'staff_id',
+  'location_id',
+  'shift_date',
+  'shift_type',
+  'start_time',
+  'end_time',
+  'break_duration',
+  'notes',
+  'notes_ar',
+  'created_by',
+] as const
+
+const SHIFT_REQUEST_FIELDS = [
+  'staff_id',
+  'request_type',
+  'request_date',
+  'end_date',
+  'reason',
+  'reason_ar',
+  'status',
+  'requested_by',
+] as const
 
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
@@ -123,13 +168,17 @@ router.get('/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/', requireAuth, async (req, res, next) => {
+router.post('/', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
-    const body = req.body ?? {}
-    const keys = Object.keys(body).filter((k) => body[k] !== undefined)
+    const body = pickFields(req.body ?? {}, STAFF_FIELDS)
+    const built = buildInsert(body, STAFF_FIELDS)
+    if (!built) {
+      res.status(400).json({ error: 'لا توجد بيانات' })
+      return
+    }
     const { rows } = await pool.query(
-      `INSERT INTO staff (${keys.join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
-      keys.map((k) => body[k])
+      `INSERT INTO staff (${built.columns}) VALUES (${built.placeholders}) RETURNING *`,
+      built.values
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -137,13 +186,20 @@ router.post('/', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/shifts', requireAuth, async (req, res, next) => {
+router.post('/shifts', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
-    const body = { ...req.body, created_by: req.user!.id }
-    const keys = Object.keys(body).filter((k) => body[k] !== undefined)
+    const body = pickFields(
+      { ...(req.body ?? {}), created_by: req.user!.id },
+      SHIFT_FIELDS
+    )
+    const built = buildInsert(body, SHIFT_FIELDS)
+    if (!built) {
+      res.status(400).json({ error: 'لا توجد بيانات' })
+      return
+    }
     const { rows } = await pool.query(
-      `INSERT INTO shifts (${keys.join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
-      keys.map((k) => body[k])
+      `INSERT INTO shifts (${built.columns}) VALUES (${built.placeholders}) RETURNING *`,
+      built.values
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -151,13 +207,20 @@ router.post('/shifts', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/shift-requests', requireAuth, async (req, res, next) => {
+router.post('/shift-requests', requireAuth, requireAnyRole(...WRITE_ROLES), async (req, res, next) => {
   try {
-    const body = { ...req.body, requested_by: req.user!.id }
-    const keys = Object.keys(body).filter((k) => body[k] !== undefined)
+    const body = pickFields(
+      { ...(req.body ?? {}), requested_by: req.user!.id },
+      SHIFT_REQUEST_FIELDS
+    )
+    const built = buildInsert(body, SHIFT_REQUEST_FIELDS)
+    if (!built) {
+      res.status(400).json({ error: 'لا توجد بيانات' })
+      return
+    }
     const { rows } = await pool.query(
-      `INSERT INTO shift_requests (${keys.join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
-      keys.map((k) => body[k])
+      `INSERT INTO shift_requests (${built.columns}) VALUES (${built.placeholders}) RETURNING *`,
+      built.values
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -165,9 +228,10 @@ router.post('/shift-requests', requireAuth, async (req, res, next) => {
   }
 })
 
-router.patch('/:id', requireAuth, async (req, res, next) => {
+router.patch('/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
-    const built = buildUpdateSet(req.body ?? {})
+    const body = pickFields(req.body ?? {}, STAFF_FIELDS)
+    const built = buildUpdateSet(body, 1, STAFF_FIELDS)
     if (!built) {
       res.status(400).json({ error: 'لا توجد بيانات' })
       return
@@ -186,9 +250,10 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.patch('/shifts/:id', requireAuth, async (req, res, next) => {
+router.patch('/shifts/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
-    const built = buildUpdateSet(req.body ?? {})
+    const body = pickFields(req.body ?? {}, SHIFT_FIELDS)
+    const built = buildUpdateSet(body, 1, SHIFT_FIELDS)
     if (!built) {
       res.status(400).json({ error: 'لا توجد بيانات' })
       return
@@ -203,7 +268,7 @@ router.patch('/shifts/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.patch('/shift-requests/:id/review', requireAuth, async (req, res, next) => {
+router.patch('/shift-requests/:id/review', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     const { status } = req.body ?? {}
     const { rows } = await pool.query(
@@ -217,16 +282,26 @@ router.patch('/shift-requests/:id/review', requireAuth, async (req, res, next) =
   }
 })
 
-router.delete('/:id', requireAuth, async (req, res, next) => {
+router.delete('/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
+    const { rows: before } = await pool.query(`SELECT id, email, user_id FROM staff WHERE id = $1`, [
+      req.params.id,
+    ])
     await pool.query(`DELETE FROM staff WHERE id = $1`, [req.params.id])
+    await writeAuditLog({
+      userId: req.user!.id,
+      action: 'DELETE',
+      resourceType: 'staff',
+      resourceId: req.params.id,
+      oldValues: before[0] ?? null,
+    })
     res.json({ success: true })
   } catch (err) {
     next(err)
   }
 })
 
-router.delete('/shifts/:id', requireAuth, async (req, res, next) => {
+router.delete('/shifts/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     await pool.query(`DELETE FROM shifts WHERE id = $1`, [req.params.id])
     res.json({ success: true })

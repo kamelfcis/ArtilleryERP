@@ -33,7 +33,6 @@ import { supabase } from '@/lib/supabase/client'
 import { isApiProvider } from '@/lib/api/data-provider'
 import { apiGet, apiDelete, apiPost } from '@/lib/api/http-client'
 import { buildQuery } from '@/lib/api/build-query'
-import { fetchAdminUsers } from '@/lib/api/admin-users'
 import { formatCurrency } from '@/lib/utils'
 import { useCalendarFilters } from '@/contexts/CalendarFilterContext'
 import '@/app/calendar/calendar-styles.css'
@@ -231,26 +230,7 @@ export default function CalendarPage() {
     return () => clearTimeout(timer)
   }, [])
   
-  const { data: authUsersForCreator } = useQuery({
-    queryKey: ['auth-users-for-calendar'],
-    queryFn: async () => {
-      try {
-        // Uses the Express backend (`/admin/users`) in api mode and the
-        // Supabase-backed Next route otherwise; both return {id, email}.
-        return (await fetchAdminUsers()) as Array<{ id: string; email?: string }>
-      } catch {
-        return []
-      }
-    },
-    enabled: loadTooltipData,
-    staleTime: 300_000,
-    retry: false,
-  })
-
-  // created_by_user_id is now inlined on every CalendarEventRow from vw_calendar_events.
-  // The audit-logs-reservation-creators query is no longer needed.
-
-  // Prefer auth email for "بواسطة"; fall back to staff name when email is missing.
+  // Prefer created_by_email on the row; staff names only as fallback map (no /admin/users dump).
   const creatorLabelByUserId = useMemo(() => {
     const map = new Map<string, string>()
     if (allStaff) {
@@ -260,13 +240,8 @@ export default function CalendarPage() {
         }
       }
     }
-    if (authUsersForCreator) {
-      for (const u of authUsersForCreator) {
-        if (u.email) map.set(u.id, u.email)
-      }
-    }
     return map
-  }, [allStaff, authUsersForCreator])
+  }, [allStaff])
 
   // For Staff users, force their location; for admins, use selected location
   const effectiveLocationId = isStaffOnly && currentStaff?.location_id 

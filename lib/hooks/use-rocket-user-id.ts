@@ -1,9 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import {
-  getRocketUserIdFromEnv,
-  isRocketHotelEmail,
-} from '@/lib/constants/rocket-hotel'
-import { fetchAdminUsers } from '@/lib/api/admin-users'
+import { getRocketUserIdFromEnv } from '@/lib/constants/rocket-hotel'
+import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
 
 export function useRocketUserId() {
   const envId = getRocketUserIdFromEnv()
@@ -13,12 +11,12 @@ export function useRocketUserId() {
     queryFn: async (): Promise<string | null> => {
       if (envId) return envId
 
-      const users = await fetchAdminUsers()
-      const rocket = users.find((u) => isRocketHotelEmail(u.email))
-      if (!rocket) {
-        console.warn('[rocket-user-id] rocket@hotel.com not found in auth users')
+      if (isApiProvider()) {
+        const json = await apiGet<{ id: string | null }>('/admin/rocket-user')
+        return json.id ?? null
       }
-      return rocket?.id ?? null
+
+      return null
     },
     staleTime: envId ? Infinity : 5 * 60 * 1000,
     enabled: true,

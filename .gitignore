@@ -70,3 +70,6 @@ supabase/.temp/
 
 # Local VPS automation scratch (contains connection helpers/secrets — never commit)
 .vps-scratch/
+
+# Ops scripts (password resets / ad-hoc VPS helpers — never commit)
+scripts/ops/

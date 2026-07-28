@@ -1,13 +1,31 @@
 import { Router } from 'express'
 import { pool } from '../db/pool.js'
 import { requireAuth } from '../middleware/auth.js'
-import { buildUpdateSet } from '../utils/sql.js'
+import { requireAnyRole } from '../middleware/requireRole.js'
+import { buildInsert, buildUpdateSet, pickFields } from '../utils/sql.js'
 
 const router = Router()
+const MANAGER_ROLES = ['SuperAdmin', 'BranchManager'] as const
 
-// ============================================================
-// INVENTORY CATEGORIES
-// ============================================================
+const CATEGORY_FIELDS = ['name', 'name_ar', 'description', 'description_ar'] as const
+const ITEM_FIELDS = [
+  'name',
+  'name_ar',
+  'category_id',
+  'location_id',
+  'sku',
+  'description',
+  'description_ar',
+  'unit',
+  'current_stock',
+  'min_stock',
+  'max_stock',
+  'unit_price',
+  'supplier',
+  'supplier_ar',
+  'is_active',
+] as const
+
 router.get('/categories', requireAuth, async (_req, res, next) => {
   try {
     const { rows } = await pool.query(
@@ -19,13 +37,17 @@ router.get('/categories', requireAuth, async (_req, res, next) => {
   }
 })
 
-router.post('/categories', requireAuth, async (req, res, next) => {
+router.post('/categories', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
-    const body = req.body ?? {}
-    const keys = Object.keys(body).filter((k) => body[k] !== undefined)
+    const body = pickFields(req.body ?? {}, CATEGORY_FIELDS)
+    const built = buildInsert(body, CATEGORY_FIELDS)
+    if (!built) {
+      res.status(400).json({ error: 'لا توجد بيانات' })
+      return
+    }
     const { rows } = await pool.query(
-      `INSERT INTO inventory_categories (${keys.join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
-      keys.map((k) => body[k])
+      `INSERT INTO inventory_categories (${built.columns}) VALUES (${built.placeholders}) RETURNING *`,
+      built.values
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -33,9 +55,6 @@ router.post('/categories', requireAuth, async (req, res, next) => {
   }
 })
 
-// ============================================================
-// INVENTORY ITEMS
-// ============================================================
 router.get('/items', requireAuth, async (req, res, next) => {
   try {
     const conditions = ['1=1']
@@ -83,17 +102,17 @@ router.get('/items/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/items', requireAuth, async (req, res, next) => {
+router.post('/items', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
-    const body = req.body ?? {}
-    const keys = Object.keys(body).filter((k) => body[k] !== undefined)
-    if (keys.length === 0) {
+    const body = pickFields(req.body ?? {}, ITEM_FIELDS)
+    const built = buildInsert(body, ITEM_FIELDS)
+    if (!built) {
       res.status(400).json({ error: 'لا توجد بيانات' })
       return
     }
     const { rows } = await pool.query(
-      `INSERT INTO inventory_items (${keys.join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
-      keys.map((k) => body[k])
+      `INSERT INTO inventory_items (${built.columns}) VALUES (${built.placeholders}) RETURNING *`,
+      built.values
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -101,9 +120,10 @@ router.post('/items', requireAuth, async (req, res, next) => {
   }
 })
 
-router.patch('/items/:id', requireAuth, async (req, res, next) => {
+router.patch('/items/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
-    const built = buildUpdateSet(req.body ?? {})
+    const body = pickFields(req.body ?? {}, ITEM_FIELDS)
+    const built = buildUpdateSet(body, 1, ITEM_FIELDS)
     if (!built) {
       res.status(400).json({ error: 'لا توجد بيانات' })
       return
@@ -122,7 +142,7 @@ router.patch('/items/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.delete('/items/:id', requireAuth, async (req, res, next) => {
+router.delete('/items/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     await pool.query(`DELETE FROM inventory_items WHERE id = $1`, [req.params.id])
     res.json({ success: true })

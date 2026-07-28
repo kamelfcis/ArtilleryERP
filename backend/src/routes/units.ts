@@ -1,9 +1,11 @@
 import { Router } from 'express'
 import { pool } from '../db/pool.js'
 import { requireAuth } from '../middleware/auth.js'
+import { requireAnyRole } from '../middleware/requireRole.js'
 import { buildUpdateSet, pickFields } from '../utils/sql.js'
 
 const router = Router()
+const MANAGER_ROLES = ['SuperAdmin', 'BranchManager'] as const
 
 const CALENDAR_FIELDS =
   'id, unit_number, name, name_ar, type, location_id, is_active, status, beds, orderno'
@@ -182,7 +184,7 @@ router.get('/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/', requireAuth, async (req, res, next) => {
+router.post('/', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     const body = pickFields(req.body ?? {}, UNIT_FIELDS)
     const keys = Object.keys(body)
@@ -202,10 +204,10 @@ router.post('/', requireAuth, async (req, res, next) => {
   }
 })
 
-router.patch('/:id', requireAuth, async (req, res, next) => {
+router.patch('/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     const body = pickFields(req.body ?? {}, UNIT_FIELDS)
-    const built = buildUpdateSet(body as Record<string, unknown>)
+    const built = buildUpdateSet(body as Record<string, unknown>, 1, UNIT_FIELDS)
     if (!built) {
       res.status(400).json({ error: 'لا توجد بيانات للتحديث' })
       return
@@ -224,7 +226,7 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/:id/images', requireAuth, async (req, res, next) => {
+router.post('/:id/images', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     const { image_url, image_path, is_primary, display_order } = req.body ?? {}
     if (!image_url || !image_path) {
@@ -242,7 +244,7 @@ router.post('/:id/images', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/:id/facilities', requireAuth, async (req, res, next) => {
+router.post('/:id/facilities', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   const client = await pool.connect()
   try {
     const facilityIds: string[] = Array.isArray(req.body?.facilityIds)
@@ -269,7 +271,7 @@ router.post('/:id/facilities', requireAuth, async (req, res, next) => {
   }
 })
 
-router.patch('/:id/primary-image', requireAuth, async (req, res, next) => {
+router.patch('/:id/primary-image', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   const client = await pool.connect()
   try {
     const imageId = req.body?.imageId
@@ -292,7 +294,7 @@ router.patch('/:id/primary-image', requireAuth, async (req, res, next) => {
   }
 })
 
-router.delete('/:id/images/:imageId', requireAuth, async (req, res, next) => {
+router.delete('/:id/images/:imageId', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `DELETE FROM unit_images WHERE id = $1 AND unit_id = $2 RETURNING image_path`,
@@ -304,7 +306,7 @@ router.delete('/:id/images/:imageId', requireAuth, async (req, res, next) => {
   }
 })
 
-router.delete('/:id', requireAuth, async (req, res, next) => {
+router.delete('/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')

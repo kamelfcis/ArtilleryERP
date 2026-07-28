@@ -1,8 +1,11 @@
 import { Router } from 'express'
 import { pool } from '../db/pool.js'
 import { requireAuth } from '../middleware/auth.js'
+import { requireAnyRole } from '../middleware/requireRole.js'
+import { writeAuditLog } from '../utils/auditWrite.js'
 
 const router = Router()
+const WRITE_ROLES = ['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff'] as const
 
 router.get('/reservation/:reservationId', requireAuth, async (req, res, next) => {
   try {
@@ -11,7 +14,7 @@ router.get('/reservation/:reservationId', requireAuth, async (req, res, next) =>
       `SELECT * FROM reservation_attachments
        WHERE reservation_id = $1
        ORDER BY created_at DESC
-       ${limit ? `LIMIT ${limit}` : ''}`,
+       ${limit && Number.isFinite(limit) ? `LIMIT ${Math.min(limit, 200)}` : ''}`,
       [req.params.reservationId]
     )
     res.json(rows)
@@ -20,7 +23,7 @@ router.get('/reservation/:reservationId', requireAuth, async (req, res, next) =>
   }
 })
 
-router.post('/', requireAuth, async (req, res, next) => {
+router.post('/', requireAuth, requireAnyRole(...WRITE_ROLES), async (req, res, next) => {
   const client = await pool.connect()
   try {
     const { reservation_id, files } = req.body ?? {}
@@ -57,12 +60,19 @@ router.post('/', requireAuth, async (req, res, next) => {
   }
 })
 
-router.delete('/:id', requireAuth, async (req, res, next) => {
+router.delete('/:id', requireAuth, requireAnyRole(...WRITE_ROLES), async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `DELETE FROM reservation_attachments WHERE id = $1 RETURNING file_path`,
+      `DELETE FROM reservation_attachments WHERE id = $1 RETURNING id, file_path, reservation_id`,
       [req.params.id]
     )
+    await writeAuditLog({
+      userId: req.user!.id,
+      action: 'DELETE',
+      resourceType: 'attachment',
+      resourceId: req.params.id,
+      oldValues: rows[0] ?? null,
+    })
     res.json({ success: true, file_path: rows[0]?.file_path ?? null })
   } catch (err) {
     next(err)

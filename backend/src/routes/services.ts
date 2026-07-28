@@ -1,9 +1,12 @@
 import { Router } from 'express'
 import { pool } from '../db/pool.js'
 import { requireAuth } from '../middleware/auth.js'
+import { requireAnyRole } from '../middleware/requireRole.js'
 import { buildUpdateSet } from '../utils/sql.js'
 
 const router = Router()
+const MANAGER_ROLES = ['SuperAdmin', 'BranchManager'] as const
+const WRITE_ROLES = ['SuperAdmin', 'BranchManager', 'Receptionist', 'Staff'] as const
 
 router.get('/categories', requireAuth, async (_req, res, next) => {
   try {
@@ -62,7 +65,7 @@ router.get('/reservation/:reservationId', requireAuth, async (req, res, next) =>
   }
 })
 
-router.post('/reservation', requireAuth, async (req, res, next) => {
+router.post('/reservation', requireAuth, requireAnyRole(...WRITE_ROLES), async (req, res, next) => {
   const client = await pool.connect()
   try {
     const { reservationId, serviceId, quantity, notes } = req.body ?? {}
@@ -104,7 +107,7 @@ router.post('/reservation', requireAuth, async (req, res, next) => {
   }
 })
 
-router.delete('/reservation/:serviceRowId', requireAuth, async (req, res, next) => {
+router.delete('/reservation/:serviceRowId', requireAuth, requireAnyRole(...WRITE_ROLES), async (req, res, next) => {
   const client = await pool.connect()
   try {
     const reservationId = req.query.reservationId as string
@@ -164,7 +167,7 @@ router.get('/stock', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/stock', requireAuth, async (req, res, next) => {
+router.post('/stock', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     const body = req.body ?? {}
     const keys = Object.keys(body).filter((k) => body[k] !== undefined)
@@ -178,7 +181,7 @@ router.post('/stock', requireAuth, async (req, res, next) => {
   }
 })
 
-router.patch('/stock/:id', requireAuth, async (req, res, next) => {
+router.patch('/stock/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     const built = buildUpdateSet(req.body ?? {})
     if (!built) {
@@ -195,7 +198,7 @@ router.patch('/stock/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.delete('/stock/:id', requireAuth, async (req, res, next) => {
+router.delete('/stock/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     await pool.query(`DELETE FROM service_stock WHERE id = $1`, [req.params.id])
     res.json({ success: true })
@@ -242,7 +245,7 @@ router.get('/bundles/active', requireAuth, async (_req, res, next) => {
   }
 })
 
-router.post('/bundles', requireAuth, async (req, res, next) => {
+router.post('/bundles', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   const client = await pool.connect()
   try {
     const { items, ...bundleData } = req.body ?? {}
@@ -271,7 +274,7 @@ router.post('/bundles', requireAuth, async (req, res, next) => {
   }
 })
 
-router.patch('/bundles/:id', requireAuth, async (req, res, next) => {
+router.patch('/bundles/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     const { items: _items, ...updates } = req.body ?? {}
     const built = buildUpdateSet(updates)
@@ -289,7 +292,7 @@ router.patch('/bundles/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.delete('/bundles/:id', requireAuth, async (req, res, next) => {
+router.delete('/bundles/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
@@ -305,7 +308,7 @@ router.delete('/bundles/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/bundles/:id/apply', requireAuth, async (req, res, next) => {
+router.post('/bundles/:id/apply', requireAuth, requireAnyRole(...WRITE_ROLES), async (req, res, next) => {
   const client = await pool.connect()
   try {
     const reservationId = req.body?.reservationId
@@ -391,7 +394,7 @@ router.get('/costs', requireAuth, async (_req, res, next) => {
   }
 })
 
-router.post('/costs', requireAuth, async (req, res, next) => {
+router.post('/costs', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     const body = req.body ?? {}
     const keys = Object.keys(body).filter((k) => body[k] !== undefined)
@@ -405,7 +408,7 @@ router.post('/costs', requireAuth, async (req, res, next) => {
   }
 })
 
-router.patch('/costs/:id', requireAuth, async (req, res, next) => {
+router.patch('/costs/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     const built = buildUpdateSet(req.body ?? {})
     if (!built) {
@@ -422,7 +425,7 @@ router.patch('/costs/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.delete('/costs/:id', requireAuth, async (req, res, next) => {
+router.delete('/costs/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     await pool.query(`DELETE FROM service_costs WHERE id = $1`, [req.params.id])
     res.json({ success: true })
@@ -482,7 +485,7 @@ router.get('/availability', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/availability', requireAuth, async (req, res, next) => {
+router.post('/availability', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     const body = req.body ?? {}
     const keys = Object.keys(body).filter((k) => body[k] !== undefined)
@@ -496,7 +499,7 @@ router.post('/availability', requireAuth, async (req, res, next) => {
   }
 })
 
-router.patch('/availability/:id', requireAuth, async (req, res, next) => {
+router.patch('/availability/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     const built = buildUpdateSet(req.body ?? {})
     if (!built) {
@@ -604,7 +607,7 @@ router.get('/today-stats', requireAuth, async (req, res, next) => {
   }
 })
 
-router.patch('/:id', requireAuth, async (req, res, next) => {
+router.patch('/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     const built = buildUpdateSet(req.body ?? {})
     if (!built) {
@@ -621,7 +624,7 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.delete('/:id', requireAuth, async (req, res, next) => {
+router.delete('/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     await pool.query(`UPDATE services SET is_active = false, updated_at = now() WHERE id = $1`, [
       req.params.id,

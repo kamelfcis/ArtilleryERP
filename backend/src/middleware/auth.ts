@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express'
 import { config } from '../config.js'
-import { verifyToken } from '../services/authService.js'
-import { buildMeResponse } from '../services/userService.js'
+import { getTokenVersion, verifyToken } from '../services/authService.js'
+import { buildMeResponse, isAccountActive } from '../services/userService.js'
 
 export async function requireAuth(
   req: Request,
@@ -21,6 +21,18 @@ export async function requireAuth(
   }
 
   try {
+    const active = await isAccountActive(basic.id)
+    if (!active) {
+      res.status(401).json({ error: 'الحساب معطل' })
+      return
+    }
+
+    const currentTv = await getTokenVersion(basic.id)
+    if (basic.tokenVersion !== currentTv) {
+      res.status(401).json({ error: 'جلسة غير صالحة — يرجى تسجيل الدخول مجدداً' })
+      return
+    }
+
     const me = await buildMeResponse(basic.id, basic.email)
     req.user = {
       id: me.user.id,

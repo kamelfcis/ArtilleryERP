@@ -1,9 +1,26 @@
 import { Router } from 'express'
 import { pool } from '../db/pool.js'
 import { requireAuth } from '../middleware/auth.js'
-import { buildUpdateSet } from '../utils/sql.js'
+import { requireAnyRole } from '../middleware/requireRole.js'
+import { buildInsert, buildUpdateSet, pickFields } from '../utils/sql.js'
 
 const router = Router()
+const MANAGER_ROLES = ['SuperAdmin', 'BranchManager'] as const
+
+const PRICING_FIELDS = [
+  'unit_id',
+  'pricing_type',
+  'start_date',
+  'end_date',
+  'price_per_night',
+  'price_civilian',
+  'price_military',
+  'price_member',
+  'price_artillery_family',
+  'min_nights',
+  'max_nights',
+  'is_active',
+] as const
 
 router.get('/', requireAuth, async (req, res, next) => {
   try {
@@ -49,13 +66,17 @@ router.get('/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.post('/', requireAuth, async (req, res, next) => {
+router.post('/', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
-    const body = req.body ?? {}
-    const keys = Object.keys(body).filter((k) => body[k] !== undefined)
+    const body = pickFields(req.body ?? {}, PRICING_FIELDS)
+    const built = buildInsert(body, PRICING_FIELDS)
+    if (!built) {
+      res.status(400).json({ error: 'لا توجد بيانات' })
+      return
+    }
     const { rows } = await pool.query(
-      `INSERT INTO pricing (${keys.join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
-      keys.map((k) => body[k])
+      `INSERT INTO pricing (${built.columns}) VALUES (${built.placeholders}) RETURNING *`,
+      built.values
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -63,9 +84,10 @@ router.post('/', requireAuth, async (req, res, next) => {
   }
 })
 
-router.patch('/:id', requireAuth, async (req, res, next) => {
+router.patch('/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
-    const built = buildUpdateSet(req.body ?? {})
+    const body = pickFields(req.body ?? {}, PRICING_FIELDS)
+    const built = buildUpdateSet(body, 1, PRICING_FIELDS)
     if (!built) {
       res.status(400).json({ error: 'لا توجد بيانات' })
       return
@@ -80,7 +102,7 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
   }
 })
 
-router.delete('/:id', requireAuth, async (req, res, next) => {
+router.delete('/:id', requireAuth, requireAnyRole(...MANAGER_ROLES), async (req, res, next) => {
   try {
     await pool.query(`DELETE FROM pricing WHERE id = $1`, [req.params.id])
     res.json({ success: true })
