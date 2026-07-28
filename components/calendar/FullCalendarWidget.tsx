@@ -11,7 +11,7 @@ import arLocale from '@fullcalendar/core/locales/ar'
 import type { CalendarEvent as CalendarEventRow } from '@/lib/types/calendar'
 import type { UserRole } from '@/lib/types/database'
 import { guestTypeShowsRank } from '@/lib/validations/guest'
-import { getUnitTypeIconData, getShakkaRoomIconGradient } from '@/lib/utils/calendar-helpers'
+import { formatUnitDisplayLabel, getUnitTypeIconData, getShakkaRoomIconGradient } from '@/lib/utils/calendar-helpers'
 
 const CALENDAR_PLUGINS = [dayGridPlugin, timeGridPlugin, interactionPlugin, resourceTimelinePlugin]
 
@@ -500,7 +500,7 @@ const FullCalendarWidget = React.forwardRef<FullCalendar, Props>(function FullCa
         const reason = block.reason_ar || block.reason || ''
         const blockUnits = block.units?.map((u: any) => {
           const unit = u.unit
-          return unit ? `${unit.unit_number} - ${unit.name_ar || unit.name || ''}` : ''
+          return unit ? formatUnitDisplayLabel(unit) : ''
         }).filter(Boolean) || []
         tooltip.innerHTML = `
           <button class="fc-tooltip-close" style="position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2);color:#f1f5f9;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">&times;</button>

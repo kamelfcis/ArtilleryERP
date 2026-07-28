@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { CalendarViewSwitcher } from '@/components/calendar/CalendarViewSwitcher'
 import { RESERVATION_STATUSES } from '@/lib/constants'
-import { getStatusColor } from '@/lib/utils/calendar-helpers'
+import { formatUnitDisplayLabel, getStatusColor } from '@/lib/utils/calendar-helpers'
 
 interface Props {
   filtersOpen: boolean
@@ -209,7 +209,7 @@ export function CalendarFilterSheet({
                     <span className="flex items-center gap-2">
                       <Home className="w-4 h-4 text-cyan-500" />
                       <span className="text-sm font-semibold">
-                        {units?.find(u => u.id === selectedUnit)?.unit_number} - {units?.find(u => u.id === selectedUnit)?.name_ar || units?.find(u => u.id === selectedUnit)?.name}
+                        {formatUnitDisplayLabel(units?.find(u => u.id === selectedUnit))}
                       </span>
                     </span>
                   ) : (

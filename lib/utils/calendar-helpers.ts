@@ -1,5 +1,21 @@
 import { Home, Hotel, Mountain, Layers, Building, Building2, Trees } from 'lucide-react'
 
+// ─── Unit display label ──────────────────────────────────────────────────────
+
+export function formatUnitDisplayLabel(unit: {
+  unit_number?: string | null
+  name?: string | null
+  name_ar?: string | null
+} | null | undefined): string {
+  if (!unit) return ''
+  const num = (unit.unit_number ?? '').trim()
+  const name = (unit.name_ar || unit.name || '').trim()
+  if (!num && !name) return ''
+  if (!num) return name
+  if (!name || name === num) return num
+  return `${num} - ${name}`
+}
+
 // ─── Apartment room-count gradient ───────────────────────────────────────────
 
 const SHAKKA_3_ROOM_GRADIENT = 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'

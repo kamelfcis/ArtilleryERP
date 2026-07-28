@@ -39,7 +39,7 @@ import { useCalendarFilters } from '@/contexts/CalendarFilterContext'
 import '@/app/calendar/calendar-styles.css'
 import { CalendarFilterSheet } from '@/components/calendar/CalendarFilterSheet'
 import FullCalendarWidget from '@/components/calendar/FullCalendarWidget'
-import { getStatusColor } from '@/lib/utils/calendar-helpers'
+import { formatUnitDisplayLabel, getStatusColor } from '@/lib/utils/calendar-helpers'
 import { guestTypeShowsRank } from '@/lib/validations/guest'
 import { isUnconfirmedReservationAlarm } from '@/lib/utils/reservation-alerts'
 import {
@@ -532,7 +532,7 @@ export default function CalendarPage() {
     
     return sorted.map(unit => ({
       id: unit.id,
-      title: `${unit.unit_number} - ${unit.name_ar || unit.name || ''}`,
+      title: formatUnitDisplayLabel(unit),
       orderno: (unit as any).orderno ?? 999999,
       extendedProps: {
         unit,
