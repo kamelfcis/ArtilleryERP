@@ -654,7 +654,7 @@ export function useCalendarReservations(a: CalendarWindowArgs) {
     staleTime: 60_000,
     gcTime: 300_000,
     refetchOnMount: false,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
   })
 }
 

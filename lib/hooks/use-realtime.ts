@@ -4,10 +4,16 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import type { CalendarEvent, CalendarWindowArgs } from '@/lib/types/calendar'
 import { isApiProvider } from '@/lib/api/data-provider'
+import { apiGet } from '@/lib/api/http-client'
+import { buildQuery } from '@/lib/api/build-query'
 import { calendarWindowKey, fetchCalendarWindow } from '@/lib/hooks/use-reservations'
 
 /** Coalesce rapid realtime bursts into a single window refetch. */
 const REALTIME_DEBOUNCE_MS = 400
+/** API-mode delta poll interval (visibility-aware). */
+const API_DELTA_POLL_MS = 3_000
+/** API-mode full-window safety refetch (catches hard deletes). */
+const API_SAFETY_REFETCH_MS = 15_000
 const pendingRefetches = new Map<string, ReturnType<typeof setTimeout>>()
 
 function scheduleWindowRefetch(
@@ -135,14 +141,12 @@ async function applyDelta(
 }
 
 /**
- * Subscribe to Postgres changes on the reservations table for the
- * currently visible calendar window and patch the React Query cache
- * in-place so no full network refetch is triggered.
+ * Subscribe to reservation changes for the currently visible calendar window
+ * and patch the React Query cache in-place.
  *
- * Uses a server-side filter on check_in_date to reduce the firehose
- * to rows that could plausibly affect the visible range.  A client-side
- * overlap check confirms the row actually belongs in the window before
- * patching.
+ * - Supabase provider: Postgres Realtime channel (existing path).
+ * - API provider: visibility-aware poll of GET /calendar/changes plus a
+ *   periodic full-window safety refetch (hard deletes do not appear in deltas).
  */
 export function useReservationsRealtime(window: CalendarWindowArgs) {
   const queryClient = useQueryClient()
@@ -151,11 +155,111 @@ export function useReservationsRealtime(window: CalendarWindowArgs) {
   windowRef.current = window
 
   useEffect(() => {
-    // Supabase Realtime is only available in the supabase provider. In api mode
-    // the app relies on the Express API + query refetching instead.
-    if (isApiProvider()) return
     if (!window.start || !window.end) return
 
+    // ── API mode: delta poll + safety full-window refetch ──────────────
+    if (isApiProvider()) {
+      let cancelled = false
+      let deltaTimer: ReturnType<typeof setInterval> | null = null
+      let safetyTimer: ReturnType<typeof setInterval> | null = null
+      // Cursor for /calendar/changes — start at mount so we only see new edits.
+      let since = new Date().toISOString()
+
+      const isActive = () =>
+        !cancelled &&
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'visible' &&
+        (typeof navigator === 'undefined' || navigator.onLine)
+
+      const refetchWindow = () => {
+        if (!isActive()) return
+        scheduleWindowRefetch(queryClient, windowRef.current)
+      }
+
+      const pollDelta = async () => {
+        if (!isActive()) return
+        try {
+          const rows = await apiGet<CalendarEvent[]>(
+            `/calendar/changes${buildQuery({ since })}`
+          )
+          if (cancelled || !rows?.length) return
+
+          let maxUpdated = since
+          for (const row of rows) {
+            const ts = row.updated_at
+            if (typeof ts === 'string' && ts > maxUpdated) maxUpdated = ts
+          }
+          since = maxUpdated > since ? maxUpdated : new Date().toISOString()
+          scheduleWindowRefetch(queryClient, windowRef.current)
+        } catch {
+          // Silent — next tick or focus/online will retry.
+        }
+      }
+
+      const stopTimers = () => {
+        if (deltaTimer) {
+          clearInterval(deltaTimer)
+          deltaTimer = null
+        }
+        if (safetyTimer) {
+          clearInterval(safetyTimer)
+          safetyTimer = null
+        }
+      }
+
+      const startTimers = () => {
+        if (deltaTimer || safetyTimer) return
+        deltaTimer = setInterval(pollDelta, API_DELTA_POLL_MS)
+        safetyTimer = setInterval(refetchWindow, API_SAFETY_REFETCH_MS)
+      }
+
+      const syncTimers = () => {
+        if (isActive()) startTimers()
+        else stopTimers()
+      }
+
+      const handleVisibleOrOnline = () => {
+        if (!isActive()) {
+          stopTimers()
+          return
+        }
+        refetchWindow()
+        void pollDelta()
+        startTimers()
+      }
+
+      const handleVisibility = () => {
+        if (document.visibilityState === 'visible') handleVisibleOrOnline()
+        else stopTimers()
+      }
+
+      const handleFocus = () => {
+        if (isActive()) {
+          refetchWindow()
+          void pollDelta()
+        }
+      }
+
+      const handleOnline = () => handleVisibleOrOnline()
+      const handleOffline = () => stopTimers()
+
+      syncTimers()
+      document.addEventListener('visibilitychange', handleVisibility)
+      globalThis.addEventListener('focus', handleFocus)
+      globalThis.addEventListener('online', handleOnline)
+      globalThis.addEventListener('offline', handleOffline)
+
+      return () => {
+        cancelled = true
+        stopTimers()
+        document.removeEventListener('visibilitychange', handleVisibility)
+        globalThis.removeEventListener('focus', handleFocus)
+        globalThis.removeEventListener('online', handleOnline)
+        globalThis.removeEventListener('offline', handleOffline)
+      }
+    }
+
+    // ── Supabase Realtime branch (unchanged) ───────────────────────────
     const channelName = `cal-reservations-${window.start}-${window.end}-${window.locationId ?? 'all'}-${window.status ?? 'all'}`
     let active: RealtimeChannel | null = null
 
@@ -203,16 +307,10 @@ export function useReservationsRealtime(window: CalendarWindowArgs) {
     }
 
     subscribe()
-    if (typeof window !== 'undefined') {
-      // window here refers to the global; alias to avoid shadowing the
-      // CalendarWindowArgs parameter named "window".
-      ;(globalThis as any).addEventListener?.('online', handleOnline)
-    }
+    globalThis.addEventListener('online', handleOnline)
 
     return () => {
-      if (typeof window !== 'undefined') {
-        ;(globalThis as any).removeEventListener?.('online', handleOnline)
-      }
+      globalThis.removeEventListener('online', handleOnline)
       if (active) supabase.removeChannel(active)
     }
   }, [window.start, window.end, window.locationId, window.status, queryClient])
