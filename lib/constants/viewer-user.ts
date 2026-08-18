@@ -19,6 +19,13 @@ export function isViewerUser(roles: UserRole[]): boolean {
   return isViewerRole(roles)
 }
 
+/** Landing route after login or visiting `/` while authenticated. */
+export function getPostLoginPath(roles: UserRole[]): string {
+  if (isViewerUser(roles)) return VIEWER_HOME_PATH
+  if (roles.includes('SuperAdmin')) return '/modules'
+  return '/dashboard'
+}
+
 export function isViewerRouteAllowed(pathname: string): boolean {
   if (pathname === '/login' || pathname === '/modules') return true
   if (pathname === '/calendar') return true

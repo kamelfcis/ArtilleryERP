@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { toast } from '@/components/ui/use-toast'
 import { Eye, EyeOff, Mail, Lock, Building2, Shield, Users, Calendar, ArrowLeft, MapPin } from 'lucide-react'
 import Image from 'next/image'
-import { isViewerUser, VIEWER_HOME_PATH } from '@/lib/constants/viewer-user'
+import { getPostLoginPath } from '@/lib/constants/viewer-user'
 import { getCachedSession } from '@/lib/auth/cache'
 import { UserRole } from '@/lib/types/database'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -44,10 +44,6 @@ export default function LoginPage() {
   const router = useRouter()
   const { signIn, user, roles, loading } = useAuth()
 
-  function getLoginRedirectPath(userRoles: UserRole[]): string {
-    return isViewerUser(userRoles) ? VIEWER_HOME_PATH : '/modules'
-  }
-
   function resolveRolesForRedirect(): UserRole[] | null {
     if (roles.length > 0) return roles
     const cached = getCachedSession()?.roles
@@ -74,7 +70,7 @@ export default function LoginPage() {
     if (loading || !user) return
     const resolvedRoles = resolveRolesForRedirect()
     if (!resolvedRoles) return
-    router.replace(getLoginRedirectPath(resolvedRoles))
+    router.replace(getPostLoginPath(resolvedRoles))
   }, [user, loading, roles, router])
 
   async function handleLogin(e: React.FormEvent) {
@@ -93,7 +89,7 @@ export default function LoginPage() {
       })
 
       const resolvedRoles = getCachedSession()?.roles ?? roles
-      router.push(getLoginRedirectPath(resolvedRoles))
+      router.push(getPostLoginPath(resolvedRoles))
     } catch (error: any) {
       setIsLoading(false)
       

@@ -3,20 +3,21 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
+import { getPostLoginPath } from '@/lib/constants/viewer-user'
 
 export default function HomePage() {
   const router = useRouter()
-  const { user, loading } = useAuth()
+  const { user, loading, roles } = useAuth()
 
   useEffect(() => {
-    if (!loading) {
-      if (user) {
-        router.replace('/modules')
-      } else {
-        router.replace('/login')
-      }
+    if (loading) return
+    if (!user) {
+      router.replace('/login')
+      return
     }
-  }, [user, loading, router])
+    if (roles.length === 0) return
+    router.replace(getPostLoginPath(roles))
+  }, [user, loading, roles, router])
 
   // Show loading while checking auth
   return (

@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
+import { getPostLoginPath } from '@/lib/constants/viewer-user'
 import { motion } from 'framer-motion'
 import { Hotel, PartyPopper, Users, ArrowLeft, Lock, Sparkles, Shield } from 'lucide-react'
 import Image from 'next/image'
@@ -61,34 +62,30 @@ export default function ModulesPage() {
       router.replace('/login')
       return
     }
-    // Non-SuperAdmin users skip this page entirely
-    if (!loading && user && roles.length > 0) {
-      if (hasRole('Viewer')) {
-        router.replace('/calendar')
-        return
-      }
-      if (!hasRole('SuperAdmin')) {
-        router.replace('/dashboard')
-      }
+    // SuperAdmin-only page — send everyone else to their home route
+    if (!loading && user && roles.length > 0 && !hasRole('SuperAdmin')) {
+      router.replace(getPostLoginPath(roles))
     }
   }, [loading, user, roles, hasRole, router])
 
+  const loadingSpinner = (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/30 to-white">
+      <motion.div
+        animate={{ rotate: 360 }}
+        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+        className="w-10 h-10 border-3 border-slate-200 border-t-blue-500 rounded-full"
+      />
+    </div>
+  )
+
   // Show loading while checking auth or waiting for roles
   if (loading || !user || roles.length === 0) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/30 to-white">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-          className="w-10 h-10 border-3 border-slate-200 border-t-blue-500 rounded-full"
-        />
-      </div>
-    )
+    return loadingSpinner
   }
 
-  // If not SuperAdmin, show nothing (redirecting)
-  if (!hasRole('SuperAdmin') || hasRole('Viewer')) {
-    return null
+  // Non-SuperAdmin users are redirected — keep a visible spinner, not a blank page
+  if (!hasRole('SuperAdmin')) {
+    return loadingSpinner
   }
 
   return (
