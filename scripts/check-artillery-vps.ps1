@@ -3,12 +3,15 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Artillery-ERP\scripts\check-artillery-vps.ps1"
 # Optional fix (restart PM2, run ensure-artillery-health):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Artillery-ERP\scripts\check-artillery-vps.ps1" -Fix
+#
+# Port layout: :4000 mux (ReelSaver default / Artillery via Host), Artillery :4001, ReelSaver internal :4002
 
 param(
   [switch]$Fix
 )
 
 $ErrorActionPreference = "Continue"
+$ArtilleryPort = 4001
 $CanonicalBackend = "https://api-artillery.abdelrhmanabdelkhalek.com"
 $VercelProxy = "https://artillery-erp-vps.vercel.app/api-backend"
 $DeployDir = "C:\Artillery-ERP\backend-deploy"
@@ -49,13 +52,27 @@ try {
   Write-Log "ERROR: pm2 not available — $($_.Exception.Message)"
 }
 
-# 2) Local API
-Write-Log "--- Local :4000 ---"
-$local = Test-HttpStatus "http://127.0.0.1:4000/health"
-Write-Log "local_health: HTTP $($local.Code) $($local.Body)"
+# 2) Local APIs
+Write-Log "--- Local :4000 mux (ReelSaver default) ---"
+$reelsaver = Test-HttpStatus "http://127.0.0.1:4000/health"
+Write-Log "mux_default_health: HTTP $($reelsaver.Code) $($reelsaver.Body)"
+
+Write-Log "--- Local :4000 mux (Artillery Host header) ---"
+try {
+  $artHost = Invoke-WebRequest -Uri "http://127.0.0.1:4000/health" -Headers @{ Host = "api-artillery.abdelrhmanabdelkhalek.com" } -UseBasicParsing -TimeoutSec 10
+  Write-Log "mux_artillery_host: HTTP $($artHost.StatusCode) $($artHost.Content.Substring(0, [Math]::Min(120, $artHost.Content.Length)))"
+} catch {
+  Write-Log "mux_artillery_host: FAIL"
+}
+
+Write-Log "--- Local :4002 (ReelSaver internal) ---"
+$rsInternal = Test-HttpStatus "http://127.0.0.1:4002/health"
+Write-Log "reelsaver_internal: HTTP $($rsInternal.Code) $($rsInternal.Body)"
+$local = Test-HttpStatus "http://127.0.0.1:$ArtilleryPort/health"
+Write-Log "artillery_health: HTTP $($local.Code) $($local.Body)"
 
 if ($local.Body -match "reelsaverdl") {
-  Write-Log "WARN: Port 4000 is ReelSaverDL, not Artillery!"
+  Write-Log "WARN: Port $ArtilleryPort is ReelSaverDL, not Artillery!"
 }
 
 # 3) Scheduled tasks
@@ -94,18 +111,19 @@ if ($Fix) {
   } elseif (Test-Path $DeployDir) {
     Write-Log "ensure script missing; restarting artillery-api manually"
     Set-Location $DeployDir
+    $env:PORT = "$ArtilleryPort"
     $pid = (& pm2 pid artillery-api 2>$null | Out-String).Trim()
-    if ($pid -match '^\d+$') { pm2 restart artillery-api } else { pm2 start dist/index.js --name artillery-api }
+    if ($pid -match '^\d+$') { pm2 restart artillery-api --update-env } else { pm2 start dist/index.js --name artillery-api --update-env }
     pm2 save
     Start-Sleep -Seconds 3
   } else {
     Write-Log "ERROR: Neither $EnsureScript nor $DeployDir found"
   }
 
-  $after = Test-HttpStatus "http://127.0.0.1:4000/health"
-  Write-Log "local_health after fix: HTTP $($after.Code) $($after.Body)"
+  $after = Test-HttpStatus "http://127.0.0.1:$ArtilleryPort/health"
+  Write-Log "artillery_health after fix: HTTP $($after.Code) $($after.Body)"
 }
 
 Write-Log "=== Done ==="
-Write-Log "502 on /notifications = artillery-api down or wrong app on :4000. Run with -Fix or: C:\cloudflared\ensure-artillery-health.cmd"
+Write-Log "502 on /notifications = artillery-api down or wrong app on :$ArtilleryPort. Run with -Fix or: C:\cloudflared\ensure-artillery-health.cmd"
 Write-Log "403 on /admin/update-unit-statuses = logged in but user lacks SuperAdmin or Receptionist role. Re-login after role change."

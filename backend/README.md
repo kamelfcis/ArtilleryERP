@@ -12,7 +12,7 @@ npm install
 npm run dev
 ```
 
-API listens on `http://localhost:4000`.
+API listens on `http://localhost:4001` (default; ReelSaver uses :4000 on shared VPS hosts).
 
 ## Endpoints
 
@@ -42,4 +42,4 @@ Place Nginx in front (see `scripts/migration/setup-vps.sh`).
 ## Cross-origin cookies
 
 - **Production** (Vercel → VPS): `SameSite=None; Secure` — requires HTTPS on the API domain.
-- **Local dev** (`localhost:3000` → `localhost:4000`): same-site; cookies work with `credentials: 'include'`.
+- **Local dev** (`localhost:3000` → `localhost:4001`): same-site; cookies work with `credentials: 'include'`.

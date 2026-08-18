@@ -7,7 +7,7 @@ function required(name: string): string {
 }
 
 export const config = {
-  port: parseInt(process.env.PORT ?? '4001', 10),
+  port: parseInt(process.env.PORT ?? '4001', 10), // 4001 — ReelSaver keeps :4000 on shared VPS
   nodeEnv: process.env.NODE_ENV ?? 'development',
   isProduction: (process.env.NODE_ENV ?? 'development') === 'production',
   databaseUrl: required('DATABASE_URL'),
